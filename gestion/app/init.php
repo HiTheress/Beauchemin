@@ -18,7 +18,9 @@ header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
 
-// Session durcie
+// Session durcie (8 h d'inactivité avant déconnexion : un quart de travail ; identifiants de session non devinables)
+ini_set('session.use_strict_mode', '1');
+ini_set('session.gc_maxlifetime', '28800');
 session_set_cookie_params(array(
 	'lifetime' => 0,
 	'path' => '/',

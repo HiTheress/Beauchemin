@@ -15,7 +15,7 @@ case "$cmd" in
       tools/nouvelle-base.sh "$DB" --demo
     fi
     : > "/tmp/bea-$PORT.log"
-    DB_NAME="$DB" PHP_CLI_SERVER_WORKERS=3 setsid nohup php -S "127.0.0.1:$PORT" > "/tmp/bea-$PORT.log" 2>&1 &
+    DB_NAME="$DB" PHP_CLI_SERVER_WORKERS=3 setsid nohup php -S "127.0.0.1:$PORT" tools/router.php > "/tmp/bea-$PORT.log" 2>&1 &
     echo $! > "/tmp/bea-$PORT.pid"
     for i in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$PORT/login.php" && break; sleep 0.5; done
     echo "Serveur prêt : http://127.0.0.1:$PORT (base $DB) — journal /tmp/bea-$PORT.log"
