@@ -1,2 +1,4 @@
 inventory.db
 __pycache__/
+gestion/app/config/config.local.php
+*.sql.bak
