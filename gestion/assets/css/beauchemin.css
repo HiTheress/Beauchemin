@@ -1,0 +1,44 @@
+/* Styles communs — Beauchemin / Boutique Chaleur */
+.content-wrapper { background: #f4f6f9; }
+#entreprise-courante { min-width: 190px; }
+
+/* Champ de scan : gros, lisible au comptoir et sur tablette */
+.scan-box { border: 2px solid #007bff; border-radius: .5rem; background: #fff; padding: .75rem 1rem; }
+.scan-box input.scan-input { font-size: 1.6rem; height: auto; padding: .5rem .75rem; letter-spacing: .05em; }
+.scan-box.ok { border-color: #28a745; box-shadow: 0 0 0 .2rem rgba(40,167,69,.2); }
+.scan-box.erreur { border-color: #dc3545; box-shadow: 0 0 0 .2rem rgba(220,53,69,.2); }
+
+/* Nombres alignés à droite */
+td.nombre, th.nombre, .nombre { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.code { font-family: SFMono-Regular, Menlo, Consolas, monospace; }
+
+.badge-bas { background: #dc3545; color: #fff; }
+.table-sm td, .table-sm th { vertical-align: middle; }
+.carte-piece .qte-grosse { font-size: 1.4rem; font-weight: 600; }
+
+/* Notifications */
+#toasts { position: fixed; top: 4.2rem; right: 1rem; z-index: 2000; width: 340px; max-width: calc(100vw - 2rem); }
+#toasts .alert { box-shadow: 0 .25rem .75rem rgba(0,0,0,.15); margin-bottom: .5rem; }
+
+/* Pages d'authentification */
+.login-page { background: #e9ecef; }
+
+/* Impression (facture interne, bilan, étiquettes) */
+@media print {
+  .no-print, .main-header, .main-sidebar, .main-footer, .dataTables_filter, .dataTables_length, .dataTables_paginate, .dataTables_info, .btn { display: none !important; }
+  .content-wrapper { margin-left: 0 !important; background: #fff !important; padding: 0 !important; }
+  .card { border: 0 !important; box-shadow: none !important; }
+  body { background: #fff !important; font-size: 12pt; }
+  a[href]:after { content: none !important; }
+}
+
+/* Menu latéral sombre (écrase le thème clair hérité) */
+.main-sidebar, .main-sidebar.sidebar-dark-primary { background: #26323f !important; }
+.main-sidebar .brand-link { background: #1b242e !important; border-bottom: 1px solid #3a4756 !important; color: #fff !important; }
+.main-sidebar .brand-link .brand-text { color: #fff !important; }
+.main-sidebar .nav-header { color: #8d9bab !important; font-size: .72rem; letter-spacing: .06em; }
+.main-sidebar .nav-sidebar .nav-link, .main-sidebar .nav-sidebar .nav-link p { color: #d5dce4 !important; }
+.main-sidebar .nav-sidebar .nav-link .nav-icon { color: #9fb0c2 !important; }
+.main-sidebar .nav-sidebar .nav-link:hover { background: rgba(255,255,255,.08) !important; }
+.main-sidebar .nav-sidebar .nav-link.active { background: #0b5ed7 !important; color: #fff !important; border-radius: .25rem; box-shadow: none !important; }
+.main-sidebar .nav-sidebar .nav-link.active p, .main-sidebar .nav-sidebar .nav-link.active .nav-icon { color: #fff !important; }

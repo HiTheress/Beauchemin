@@ -1,132 +1,136 @@
 <?php
 ob_start();
 
-class User extends Objects {
+/**
+ * Utilisateur connecté : authentification, rôle, entreprises accessibles.
+ * Rôles : employe < gestionnaire < admin. Le rôle et l'état « actif » sont relus dans la base à chaque requête,
+ * donc un changement (ou une désactivation) prend effet immédiatement.
+ */
+class User {
 	protected $pdo;
+	private $courant = false; // false = pas encore chargé, null = personne
 
-	// construct $pdo
+	const MAX_ECHECS = 5;
+	const VERROU_MINUTES = 15;
+	const RANG = array('employe' => 1, 'gestionnaire' => 2, 'admin' => 3);
+
 	function __construct($pdo) {
 		$this->pdo = $pdo;
 	}
 
-	// user login method to dashboard
+	/** Tentative de connexion ; redirige toujours (accueil ou page de connexion). */
 	public function login($username, $pass) {
-		$stmt = $this->pdo->prepare("SELECT * FROM user WHERE username = :username LIMIT 1");
-		$stmt->bindValue(":username", $username, PDO::PARAM_STR);
-		$stmt->execute();
-		$user = $stmt->fetch(PDO::FETCH_OBJ);
+		$username = trim((string) $username);
+		$st = $this->pdo->prepare("SELECT * FROM utilisateurs WHERE nom_utilisateur = ? LIMIT 1");
+		$st->execute(array($username));
+		$u = $st->fetch();
 
-		$ok = false;
-		if ($user) {
-			if (password_verify($pass, $user->password)) {
-				$ok = true;
-			} elseif (strlen($user->password) === 32 && hash_equals($user->password, md5($pass))) {
-				// ancien mot de passe MD5 : accepté une fois, puis remplacé par un hash sûr
-				$ok = true;
-				$up = $this->pdo->prepare("UPDATE user SET password = :p WHERE id = :id");
-				$up->execute(array(':p' => password_hash($pass, PASSWORD_DEFAULT), ':id' => $user->id));
+		$erreur = "Nom d'utilisateur ou mot de passe invalide";
+		if ($u && $u['actif']) {
+			if ($u['verrouille_jusqua'] && strtotime($u['verrouille_jusqua']) > time()) {
+				$_SESSION['login_error'] = "Compte verrouillé temporairement après trop d'essais. Réessayez dans quelques minutes.";
+				Journal::ecrire($this->pdo, (int) $u['id'], 'connexion.verrouille', 'utilisateurs', (int) $u['id']);
+				redirect("login.php");
 			}
+			if (password_verify((string) $pass, $u['mot_de_passe'])) {
+				if (password_needs_rehash($u['mot_de_passe'], PASSWORD_DEFAULT)) {
+					$this->pdo->prepare("UPDATE utilisateurs SET mot_de_passe = ? WHERE id = ?")
+						->execute(array(password_hash($pass, PASSWORD_DEFAULT), $u['id']));
+				}
+				$this->pdo->prepare("UPDATE utilisateurs SET tentatives_echec = 0, verrouille_jusqua = NULL, derniere_connexion = ? WHERE id = ?")
+					->execute(array(date('Y-m-d H:i:s'), $u['id']));
+				session_regenerate_id(true);
+				$_SESSION['user_id'] = (int) $u['id'];
+				$_SESSION['user_name'] = $u['nom_utilisateur'];
+				Journal::ecrire($this->pdo, (int) $u['id'], 'connexion', 'utilisateurs', (int) $u['id']);
+				redirect("index.php");
+			}
+			$n = (int) $u['tentatives_echec'] + 1;
+			$verrou = null;
+			if ($n >= self::MAX_ECHECS) {
+				$verrou = date('Y-m-d H:i:s', time() + self::VERROU_MINUTES * 60);
+				$n = 0;
+			}
+			$this->pdo->prepare("UPDATE utilisateurs SET tentatives_echec = ?, verrouille_jusqua = ? WHERE id = ?")
+				->execute(array($n, $verrou, $u['id']));
 		}
-
-		if ($ok) {
-			session_regenerate_id(true);
-			$_SESSION['user_id'] = $user->id;
-			$_SESSION['user_name'] = $user->username;
-			$_SESSION['user_role'] = $user->user_role;
-			redirect("index.php");
-		} else {
-			sleep(1); // ralentit les essais répétés
-			$_SESSION['login_error'] = "Nom d'utilisateur ou mot de passe invalide";
-			redirect("login.php");
-		}
-	}
-
-
-
-
-	public function is_admin(){
-		if ($_SESSION['user_role'] === 'admin') {
-			return true;
-		}else{
-			return false;
-		}
-	}
-
-	public function redirect_unauth_users($page){
-		if ($_SESSION['user_role'] === 'admin') {
-			return true;
-		}else{
-			redirect($page);
-		}
-	}
-
-
-	//is user loged in or not
-	public function is_login() {
-		if (!empty($_SESSION['user_id'])) {
-			return true;
-		} else {
-			return false;
-		}
-	}
-
-
-	public function logOut() {
-		$_SESSION = array();
-		session_destroy();
+		Journal::ecrire($this->pdo, $u ? (int) $u['id'] : null, 'connexion.echec', 'utilisateurs', $u ? (int) $u['id'] : null, array('nom' => mb_substr($username, 0, 50)));
+		sleep(1); // ralentit les essais répétés
+		$_SESSION['login_error'] = $erreur;
 		redirect("login.php");
 	}
 
-	public function checkUser($username)
-	{
-	  $stmt = $this->pdo->prepare("SELECT username FROM users WHERE username = :username AND deleted_at = ''");
-	  $stmt->bindParam(":username", $username, PDO::PARAM_STR);
-	  $stmt->execute();
-	  $count = $stmt->rowCount();
-	  return ($count > 0)? true : false;
+	/** Utilisateur courant (ligne de la base + entreprises), ou null. Désactivé/supprimé => déconnecté. */
+	public function courant() {
+		if ($this->courant !== false) {
+			return $this->courant;
+		}
+		$this->courant = null;
+		$id = (int) ($_SESSION['user_id'] ?? 0);
+		if ($id) {
+			$st = $this->pdo->prepare("SELECT id, nom_utilisateur, nom_complet, role, actif FROM utilisateurs WHERE id = ?");
+			$st->execute(array($id));
+			$u = $st->fetch();
+			if ($u && $u['actif']) {
+				if ($u['role'] === 'admin') {
+					$ids = $this->pdo->query("SELECT id FROM entreprises WHERE actif = 1 ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+				} else {
+					$s2 = $this->pdo->prepare("SELECT ue.entreprise_id FROM utilisateur_entreprises ue JOIN entreprises e ON e.id = ue.entreprise_id WHERE ue.utilisateur_id = ? AND e.actif = 1 ORDER BY ue.entreprise_id");
+					$s2->execute(array($id));
+					$ids = $s2->fetchAll(PDO::FETCH_COLUMN);
+				}
+				$u['entreprises'] = array_map('intval', $ids);
+				$this->courant = $u;
+			} else {
+				unset($_SESSION['user_id'], $_SESSION['user_name']);
+			}
+		}
+		return $this->courant;
 	}
 
-
-	//check email if it is alrady sign up
-	public function checkEmail($email)
-	{
-	  $stmt = $this->pdo->prepare("SELECT email FROM users WHERE email = :email AND deleted_at = ''");
-	  $stmt->bindParam(":email", $email, PDO::PARAM_STR);
-	  $stmt->execute();
-	  $count = $stmt->rowCount();
-	  return ($count > 0)? true : false;
+	public function is_login() {
+		return $this->courant() !== null;
 	}
 
-	public function userLog(){
-		$stmt = $this->pdo->prepare("SELECT * FROM logs ORDER BY id DESC LIMIT 5 ");
-		$stmt->execute();
-		return $stmt->fetchAll(PDO::FETCH_OBJ);
+	public function role() {
+		$u = $this->courant();
+		return $u ? $u['role'] : null;
 	}
 
-	// check email if it is alrady sign up
-	public function checkUsername($username)
-	{
-	  $stmt = $this->pdo->prepare("SELECT username FROM users WHERE username = :username");
-	  $stmt->bindParam(":username", $username, PDO::PARAM_STR);
-	  $stmt->execute();
-	  $count = $stmt->rowCount();
-	  return ($count > 0)? true : false;
+	public function aRole($min) {
+		$r = $this->role();
+		return $r !== null && self::RANG[$r] >= self::RANG[$min];
 	}
 
-	// user resigstration method
-	// public function register($screenName,$email,$password)
-	// {
-	//   $stmt = $this->pdo->prepare("INSERT INTO users(screenName,email,password,profileImage,profileCover) VALUES(:screenName, :email, :password , 'assets/images/defaultprofileimage.png','assets/images/defaultCoverImage.png')");
-	//   $stmt->bindParam(":screenName", $screenName, PDO::PARAM_STR);
-	//   $stmt->bindParam(":email", $email, PDO::PARAM_STR);
-	//   $stmt->bindParam(":password", md5($password), PDO::PARAM_STR);
-	//   $stmt->execute();
-	//   $user_id = $this->pdo->lastInsertId();
+	public function is_admin() {
+		return $this->role() === 'admin';
+	}
 
-	//   $_SESSION['user_id'] = $user_id;
-	//   header("Location: home.php");
-	// }
+	public function peutVoirCouts() {
+		return $this->aRole(Inventaire::ROLE_MIN['voir_couts']);
+	}
 
+	/** @return int[] */
+	public function entreprisesAutorisees() {
+		$u = $this->courant();
+		return $u ? $u['entreprises'] : array();
+	}
+
+	public function peutAcces($entrepriseId) {
+		return in_array((int) $entrepriseId, $this->entreprisesAutorisees(), true);
+	}
+
+	public function logOut() {
+		$u = $this->courant();
+		if ($u) {
+			Journal::ecrire($this->pdo, (int) $u['id'], 'deconnexion', 'utilisateurs', (int) $u['id']);
+		}
+		$_SESSION = array();
+		if (ini_get('session.use_cookies')) {
+			$p = session_get_cookie_params();
+			setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
+		}
+		session_destroy();
+		redirect("login.php");
+	}
 }
-
-?>

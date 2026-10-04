@@ -1,312 +1,62 @@
-
-<!-- Main Sidebar Container -->
-  <aside class="main-sidebar sidebar ">
-
-    <!-- Brand Logo -->
+<?php
+// Menu principal. Chaque entrée : page, libellé, icône, rôle minimum, pages « sœurs » qui l'activent.
+$menu = array(
+  'Opérations' => array(
+    array('dashboard',       'Tableau de bord',        'fa-tachometer-alt',      'employe',      array()),
+    array('scanner',         'Scanner / Chercher',     'fa-barcode',             'employe',      array()),
+    array('stock',           'Stock',                  'fa-boxes',               'employe',      array()),
+    array('reception',       'Réception',              'fa-truck-loading',       'gestionnaire', array()),
+    array('transfert',       'Transfert',              'fa-exchange-alt',        'employe',      array()),
+    array('sortie',          'Sortie (utilisation)',   'fa-sign-out-alt',        'employe',      array()),
+    array('ajustement',      'Ajustement',             'fa-sliders-h',           'gestionnaire', array()),
+    array('facture_interne', 'Facture interne',        'fa-file-invoice-dollar', 'gestionnaire', array()),
+    array('comptage',        'Comptage',               'fa-clipboard-check',     'employe',      array('comptage_voir')),
+  ),
+  'Catalogue' => array(
+    array('pieces',          'Pièces',                 'fa-cogs',                'employe',      array('piece_voir', 'piece_edit')),
+    array('fournisseurs',    'Fournisseurs',           'fa-industry',            'gestionnaire', array()),
+    array('categories',      'Catégories',             'fa-tags',                'gestionnaire', array()),
+    array('etiquettes',      'Étiquettes code-barres', 'fa-print',               'gestionnaire', array()),
+  ),
+  'Rapports' => array(
+    array('documents',          'Documents',               'fa-file-alt',            'employe',      array('document_voir')),
+    array('historique',         'Historique des mouvements','fa-history',            'employe',      array()),
+    array('sous_minimum',       'Sous le minimum',         'fa-exclamation-triangle','employe',      array()),
+    array('factures_internes',  'Factures internes',       'fa-list',                'gestionnaire', array('facture_interne_voir')),
+    array('bilan_mensuel',      'Bilan mensuel',           'fa-balance-scale',       'gestionnaire', array()),
+    array('valeur_inventaire',  'Valeur de l\'inventaire', 'fa-dollar-sign',         'gestionnaire', array()),
+  ),
+  'Administration' => array(
+    array('utilisateurs',    'Utilisateurs',           'fa-users',               'admin',        array()),
+    array('entreprises',     'Entreprises',            'fa-building',            'admin',        array()),
+    array('emplacements',    'Emplacements',           'fa-warehouse',           'admin',        array()),
+    array('journal',         'Journal d\'activité',    'fa-clipboard-list',      'admin',        array()),
+    array('backup_database', 'Sauvegarde',             'fa-database',            'admin',        array()),
+  ),
+);
+?>
+  <aside class="main-sidebar sidebar-dark-primary elevation-2 no-print">
     <a href="index.php" class="brand-link">
-      <img src="dist/img/log.jpg" alt="logo" class="brand-image ">
-     
+      <span class="brand-text font-weight-bold pl-3"><i class="fas fa-fire-alt text-warning mr-1"></i> Beauchemin</span>
     </a>
-
-    <!-- Sidebar -->
     <div class="sidebar">
-      <!-- Sidebar user panel (optional) -->
-      <!-- <div class="user-panel mt-3 pb-3 mb-3 d-flex">
-        <div class="image">
-          <img src="dist/img/user2-160x160.jpg" class="img-circle elevation-2" alt="User Image">
-        </div>
-        <div class="info">
-          <a href="#" class="d-block">
-            <?php 
-               $login_user = $_SESSION['user_id'];
-               $login_user = $obj->find('user','id',$login_user);
-               echo $login_user->username;
-             ?>
-          </a>
-        </div>
-      </div> -->
-
-      <!-- Sidebar Menu -->
-      <nav class="">
+      <nav class="mt-2">
         <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" data-accordion="false">
-          <!-- Add icons to the links using the .nav-icon class
-               with font-awesome or any other icon font library -->
-
-          <li class="nav-item">
-            <a href="index.php?page=dashboard" class="nav-link <?php echo $actual_link=='dashboard'?'active':'';?>">
-              <i class="material-symbols-outlined">dashboard</i>
-              <p>
-                Dashboard
-              </p>
-            </a>
-          </li>
-           <li class="nav-item">
-            <a href="index.php?page=member" class="nav-link <?php echo $actual_link=='member'?'active':'';?>">
-              <i class="material-symbols-outlined">supervisor_account</i>
-              <p>
-                Customer
-              </p>
-            </a>
-          </li>
-           <li class="nav-item">
-            <a href="index.php?page=suppliar" class="nav-link <?php echo $actual_link=='suppliar'?'active':'';?>">
-              <i class="material-symbols-outlined">group</i>
-              <p>
-                Supplier
-              </p>
-            </a>
-          </li>
-          <li class="nav-item">
-        <a href="index.php?page=category" class="nav-link <?php echo $actual_link=='category'?'active':'';?>">
-              <i class="material-symbols-outlined">difference</i><p>
-                 Catagory
-              </p>
-            </a>
-          </li>
-
-          <li class="nav-item has-treeview">
-            <a href="#" class="nav-link <?php 
-              if ($actual_link == 'add_product' || $actual_link =='product_list') {echo "active";
-          }else{
-            echo "";
-          }
-            ?>">
-              <i class="material-symbols-outlined">inventory</i><p>
-                Stock
-                <i class="right fas fa-angle-left"></i>
-              </p>
-            </a>
-
-            <ul class="nav nav-treeview">
+          <?php foreach ($menu as $section => $items) {
+            $visibles = array_filter($items, function ($i) use ($Ouser) { return $Ouser->aRole($i[3]); });
+            if (!$visibles) { continue; } ?>
+            <li class="nav-header"><?php echo e(mb_strtoupper($section)); ?></li>
+            <?php foreach ($visibles as $i) {
+              $actif = ($page_courante === $i[0] || in_array($page_courante, $i[4], true)); ?>
               <li class="nav-item">
-                <a href="index.php?page=add_product" class="nav-link <?php echo $actual_link=='add_product'?'active':'';?>">
-                  <!-- <i class="far fa-circle nav-icon"></i> -->
-                  <p>Add product</p>
+                <a href="index.php?page=<?php echo e($i[0]); ?>" class="nav-link<?php echo $actif ? ' active' : ''; ?>">
+                  <i class="nav-icon fas <?php echo e($i[2]); ?>"></i>
+                  <p><?php echo e($i[1]); ?></p>
                 </a>
               </li>
-              <li class="nav-item">
-                <a href="index.php?page=product_list" class="nav-link <?php echo $actual_link=='product_list'?'active':'';?>">
-                  <!-- <i class="fas fa-align-justify nav-icon"></i> -->
-                  <p>Products list</p>
-                </a>
-              </li>
-             </ul>
-          </li>
-
-          <li class="nav-item has-treeview">
-            <a href="#" class="nav-link <?php 
-              if ($actual_link == 'quick_sell' || $actual_link =='sell_list' || $actual_link =='sell_return_list') {echo "active";
-          }else{
-            echo "";
-          }
-            ?>">
-              <i class="material-symbols-outlined">sell</i>
-              <p>
-                Sells
-                <i class="right fas fa-angle-left"></i>
-              </p>
-            </a>
-            <ul class="nav nav-treeview">
-              <li class="nav-item">
-                <a href="index.php?page=quick_sell" class="nav-link <?php echo $actual_link=='quick_sell'?'active':'';?>">
-                  <!-- <i class="far fa-circle nav-icon"></i> -->
-                  <p>New sell</p>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="index.php?page=sell_list" class="nav-link <?php echo $actual_link=='sell_list'?'active':'';?>">
-                  <!-- <i class="fas fa-align-justify nav-icon"></i> -->
-                  <p>Sell list</p>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="index.php?page=sell_return_list" class="nav-link <?php echo $actual_link=='sell_return_list'?'active':'';?>">
-                  <!-- <i class="fas fa-align-justify nav-icon"></i> -->
-                  <p>Sell return list</p>
-                </a>
-              </li>
-            </ul>
-          </li>
-
-          <!-- expense sidebar menu -->
-          <li class="nav-item has-treeview">
-            <a href="#" class="nav-link <?php 
-              if ($actual_link == 'add_expense' || $actual_link =='exspense_list' || $actual_link == 'expense_catagory_list') {echo "active";
-          }else{
-            echo "";
-          }
-            ?>">
-              <i class="material-symbols-outlined">money</i>
-              <p>
-                Expense
-                <i class="right fas fa-angle-left"></i>
-              </p>
-            </a>
-            <ul class="nav nav-treeview">
-              <li class="nav-item">
-                <a href="index.php?page=add_expense" class="nav-link <?php echo $actual_link=='add_expense'?'active':'';?>">
-                  <!-- <i class="far fa-circle nav-icon"></i> -->
-                  <p>New expense</p>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="index.php?page=exspense_list" class="nav-link <?php echo $actual_link=='exspense_list'?'active':'';?>">
-                  <!-- <i class="fas fa-align-justify nav-icon"></i> -->
-                  <p>Expense list</p>
-                </a>
-              </li>
-              
-              <li class="nav-item">
-                <a href="index.php?page=expense_catagory_list" class="nav-link <?php echo $actual_link=='expense_catagory_list'?'active':'';?>">
-                  <!-- <i class="fas fa-align-justify nav-icon"></i> -->
-                  <p>Expense catagory list</p>
-                </a>
-              </li>
-            </ul>
-          </li>
-
-          <!-- buy sidebar  -->
-           <li class="nav-item has-treeview">
-            <a href="#" class="nav-link <?php 
-              if ($actual_link == 'buy_product' || $actual_link =='buy_list' || $actual_link == 'buy_refund_list') {echo "active";
-          }else{
-            echo "";
-          }
-            ?>">
-              <i  class="material-symbols-outlined">payments</i>
-              <p>
-                Buy
-                <i class="right fas fa-angle-left"></i>
-              </p>
-            </a>
-            <ul class="nav nav-treeview">
-              <li class="nav-item">
-                <a href="index.php?page=buy_product" class="nav-link <?php echo $actual_link=='buy_product'?'active':'';?>">
-                  <!-- <i class="far fa-circle nav-icon"></i> -->
-                  <p>New buy</p>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="index.php?page=buy_list" class="nav-link <?php echo $actual_link=='buy_list'?'active':'';?>">
-                  <!-- <i class="fas fa-align-justify nav-icon"></i> -->
-                  <p>Buy list</p>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="index.php?page=buy_refund_list" class="nav-link <?php echo $actual_link=='buy_refund_list'?'active':'';?>">
-                  <!-- <i class="fas fa-align-justify nav-icon"></i> -->
-                  <p>Refund buy list</p>
-                </a>
-              </li>
-            </ul>
-          </li>
-          <!-- buy sidebar  -->
-           <li class="nav-item has-treeview">
-            <a href="#" class="nav-link <?php 
-              if ($actual_link == 'add_stuff' || $actual_link =='staff_list') {echo "active";
-          }else{
-            echo "";
-          }
-            ?>">
-               <i  class="material-symbols-outlined">diversity_3</i>
-              <p>
-                Staff
-                <i class="right fas fa-angle-left"></i>
-              </p>
-            </a>
-            <ul class="nav nav-treeview">
-              <li class="nav-item">
-                <a href="index.php?page=add_stuff" class="nav-link <?php echo $actual_link=='add_stuff'?'active':'';?>">
-                 
-                  <p>Add Staff</p>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="index.php?page=staff_list" class="nav-link <?php echo $actual_link=='staff_list'?'active':'';?>">
-                 
-                  <p>Staff list</p>
-                </a>
-              </li>
-            </ul>
-          </li>
-        
-           <li class="nav-item has-treeview">
-            <a href="#" class="nav-link <?php 
-              if ($actual_link == 'profit_loss' || $actual_link =='sales_report' || $actual_link =='purchase_report' || $actual_link =='purchase_pay_report' || $actual_link =='sell_pay_report') {echo "active";
-          }else{
-            echo "";
-          }
-            ?>">
-               <i class="material-symbols-outlined">lab_profile</i>
-              <p>
-               Reports
-                <i class="right fas fa-angle-left"></i>
-              </p>
-            </a>
-            <ul class="nav nav-treeview">
-              <li class="nav-item">
-                <a href="index.php?page=profit_loss" class="nav-link <?php echo $actual_link=='profit_loss'?'active':'';?>">
-                 
-                  <p>Profit loss report</p>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="index.php?page=sales_report" class="nav-link <?php echo $actual_link=='sales_report'?'active':'';?>">
-                 
-                  <p>Sales report</p>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="index.php?page=purchase_report" class="nav-link <?php echo $actual_link=='purchase_report'?'active':'';?>">
-                  
-                  <p>Purchase report</p>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="index.php?page=purchase_pay_report" class="nav-link <?php echo $actual_link=='purchase_pay_report'?'active':'';?>">
-                  
-                  <p>Purchase payment report</p>
-                </a>
-              </li>
-              <li class="nav-item">
-                <a href="index.php?page=sell_pay_report" class="nav-link <?php echo $actual_link=='sell_pay_report'?'active':'';?>">
-                  
-                  <p>Sell payment report</p>
-                </a>
-              </li>
-            </ul>
-          </li>
-        <li class="nav-item has-treeview">
-            <a href="#" class="nav-link <?php 
-              if ($actual_link == 'backup_database') {echo "active";
-          }else{
-            echo "";
-          }
-            ?>">
-               <i class="material-symbols-outlined">settings</i>
-              <p>
-                Setting
-                <i class="right fas fa-angle-left"></i>
-              </p>
-            </a>
-            <ul class="nav nav-treeview">
-              <li class="nav-item">
-                <a href="index.php?page=backup_database" class="nav-link <?php echo $actual_link=='backup_database'?'active':'';?>">
-                  <!-- <i class="far fa-circle nav-icon"></i> -->
-                  <p>Backup database</p>
-                </a>
-              </li>
-             
-            </ul>
-          </li>
+            <?php } ?>
+          <?php } ?>
+        </ul>
       </nav>
-      <!-- /.sidebar-menu -->
     </div>
-    <!-- /.sidebar -->
   </aside>
-
-    </div>
-    <?php require_once 'inc/member_add_modal.php'; ?>
-    <?php require_once 'inc/catagory_modal.php'; ?>
-    <?php require_once 'inc/suppliar_modal.php'; ?>
-    <?php require_once 'inc/expense_catagory_modal.php'; ?>

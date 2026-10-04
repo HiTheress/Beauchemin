@@ -2,13 +2,21 @@
 
 require_once('config/config.php');
 
-// including the classes
-require_once 'database/connection.php';
-require_once 'classes/Object.php';
+// Classes (ordre : les exceptions et utilitaires avant ceux qui les utilisent)
+require_once 'classes/InventaireException.php';
+require_once 'classes/Dec.php';
+require_once 'classes/Journal.php';
+require_once 'classes/Inventaire.php';
 require_once 'classes/User.php';
-
-//include the function
+require_once 'classes/DataTable.php';
+require_once 'classes/Code128.php';
+require_once 'database/connection.php';
 require_once 'functions.php';
+
+// En-têtes de sécurité
+header('X-Frame-Options: DENY');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: same-origin');
 
 // Session durcie
 session_set_cookie_params(array(
@@ -20,9 +28,7 @@ session_set_cookie_params(array(
 ));
 session_start();
 
-// making global objects
 global $pdo;
-$obj = new Objects($pdo);
 $Ouser = new User($pdo);
 
 // Jeton CSRF (un par session)
@@ -32,20 +38,22 @@ if (empty($_SESSION['csrf_token'])) {
 
 // Garde : tout script appelé par AJAX/action doit être connecté (sauf login/logout)
 $script = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
-$isEndpoint = (bool) preg_match('#/app/(action|ajax|invoice)/[^/]+\.php$#', $script);
+$isEndpoint = (bool) preg_match('#/app/(action|ajax)/[^/]+\.php$#', $script);
 $publicEndpoints = array('login.php', 'logout.php');
 if ($isEndpoint) {
 	$name = basename($script);
 	$isPublic = in_array($name, $publicEndpoints, true);
-	if (!$isPublic && empty($_SESSION['user_id'])) {
+	if (!$isPublic && !$Ouser->is_login()) {
 		http_response_code(401);
-		exit('Non autorisé. Veuillez vous reconnecter.');
+		header('Content-Type: application/json; charset=utf-8');
+		exit(json_encode(array('ok' => false, 'erreur' => 'Session expirée. Veuillez vous reconnecter.')));
 	}
 	if ($_SERVER['REQUEST_METHOD'] === 'POST' && $name !== 'logout.php') {
 		$sent = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($_POST['csrf_token'] ?? '');
 		if (!is_string($sent) || !hash_equals($_SESSION['csrf_token'], $sent)) {
 			http_response_code(403);
-			exit('Jeton de sécurité invalide. Rechargez la page.');
+			header('Content-Type: application/json; charset=utf-8');
+			exit(json_encode(array('ok' => false, 'erreur' => 'Jeton de sécurité invalide. Rechargez la page.')));
 		}
 	}
 }
