@@ -135,12 +135,18 @@
     processing: 'Chargement…', search: 'Rechercher :', lengthMenu: 'Afficher _MENU_ lignes',
     info: '_START_ à _END_ de _TOTAL_', infoEmpty: 'Aucun résultat', infoFiltered: '(filtré sur _MAX_)',
     loadingRecords: 'Chargement…', zeroRecords: 'Aucun résultat', emptyTable: 'Aucune donnée',
-    paginate: { first: '«', previous: 'Précédent', next: 'Suivant', last: '»' }
+    paginate: { first: '«', previous: 'Précédent', next: 'Suivant', last: '»' },
+    thousands: '\u00a0', decimal: ',',
+    aria: { sortAscending: ' : activer pour trier en ordre croissant', sortDescending: ' : activer pour trier en ordre décroissant' }
   };
   if ($.fn.dataTable) {
     $.extend(true, $.fn.dataTable.defaults, { language: w.DT_LANG, pageLength: 25, lengthMenu: [10, 25, 50, 100], autoWidth: false });
     // Jamais de texte technique anglais : on distingue session expirée, accès refusé et erreur serveur.
     $.fn.dataTable.ext.errMode = 'none';
+    // Réseau coupé pendant un chargement : DataTables n'émet pas error.dt sans réponse HTTP ; on le détecte via xhr.dt (json absent).
+    $(document).on('xhr.dt', function (e, settings, json, xhr) {
+      if (!json && xhr && xhr.status === 0) { w.toast('Connexion impossible au serveur. Vérifiez le réseau, puis réessayez.', 'danger'); }
+    });
     $(document).on('error.dt', function (e, settings) {
       var x = settings && settings.jqXHR;
       if (x && x.status === 401) { w.location.href = 'login.php'; return; }
@@ -165,6 +171,7 @@
   document.addEventListener('keydown', function (e) {
     if (e.ctrlKey || e.metaKey || e.altKey || !e.key || e.key.length !== 1) { return; }
     var t = e.target, tag = t && t.tagName;
+    if (e.key === ' ' && (tag === 'BUTTON' || tag === 'SELECT' || tag === 'A')) { return; }   // la barre d'espace active un bouton / ouvre une liste : pas un caractère de code-barres
     if (!(tag === 'SELECT' || tag === 'BUTTON' || tag === 'A' || tag === 'BODY' || tag === 'HTML')) { return; }
     if (t.closest && t.closest('.modal, .select2-container, .select2-dropdown, .dropdown-menu')) { return; }
     var sc = document.querySelector('.scan-input');

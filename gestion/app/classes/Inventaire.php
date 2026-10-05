@@ -718,11 +718,9 @@ class Inventaire
 			if (!$doc) {
 				throw new InventaireException('Document introuvable.');
 			}
-			$ents = array((int) $doc['entreprise_id']);
-			if ($doc['entreprise_dest_id']) {
-				$ents[] = (int) $doc['entreprise_dest_id'];
-			}
-			$this->exiger($userId, 'annulation', $ents, 'une');
+			// Seule l'entreprise qui a ÉMIS le document peut l'annuler (pour défaire une facture, l'autre entreprise
+			// émet une facture en sens inverse) : on ne laisse pas une entreprise modifier le stock de l'autre.
+			$this->exiger($userId, 'annulation', array((int) $doc['entreprise_id']));
 			if ($doc['statut'] !== 'valide') {
 				throw new InventaireException('Ce document est déjà annulé.');
 			}
@@ -976,6 +974,24 @@ class Inventaire
 		return $this->codeUtilisePar($code, $sauf) === null;
 	}
 
+	/**
+	 * Exécute $fn en tenant un verrou global « codes » : à utiliser pour toute écriture d'un code interne, d'un alias ou d'un
+	 * code d'emplacement (le contrôle d'unicité sur trois tables ne peut pas être garanti par un index). Le verrou est pris AVANT
+	 * la transaction et relâché APRÈS le commit ; il est ré-entrant pour une même connexion.
+	 */
+	public function avecVerrouCodes($fn)
+	{
+		$nom = $this->pdo->quote('bea_codes_' . substr(md5((string) $this->pdo->query('SELECT DATABASE()')->fetchColumn()), 0, 20));
+		if ((int) $this->pdo->query("SELECT GET_LOCK($nom, 10)")->fetchColumn() !== 1) {
+			throw new InventaireException('Le catalogue est occupé : réessayez dans un instant.');
+		}
+		try {
+			return $fn();
+		} finally {
+			$this->pdo->query("SELECT RELEASE_LOCK($nom)");
+		}
+	}
+
 	/** Met à jour (ou crée) le prix d'une pièce chez un fournisseur ; garde l'historique. */
 	public function definirPrixFournisseur($userId, $pieceId, $fournisseurId, $prix, $noFournisseur = null, $date = null, $note = null)
 	{
@@ -1083,7 +1099,10 @@ class Inventaire
 	public function trouverParCode($userId, $code)
 	{
 		$this->exiger($userId, 'consulter');
-		$code = trim((string) $code);
+		if (!is_string($code)) {
+			return null;
+		}
+		$code = trim($code);
 		$code = preg_replace('/[\x00-\x1F\x7F]/u', '', $code);
 		if ($code === '' || mb_strlen($code) > 64) {
 			return null;
@@ -1167,7 +1186,9 @@ class Inventaire
 	public function piecesRecherche($userId, $terme, $limite = 20)
 	{
 		$this->exiger($userId, 'consulter');
-		$mots = preg_split('/\s+/u', trim((string) $terme), -1, PREG_SPLIT_NO_EMPTY);
+		$terme = is_string($terme) ? $terme : '';
+		$mots = mb_check_encoding($terme, 'UTF-8') ? preg_split('/\s+/u', trim($terme), -1, PREG_SPLIT_NO_EMPTY) : array();
+		$mots = $mots === false ? array() : $mots;
 		$where = array('p.actif = 1');
 		$params = array();
 		foreach (array_slice($mots, 0, 6) as $m) {

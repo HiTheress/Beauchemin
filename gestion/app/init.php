@@ -46,6 +46,13 @@ if ($isEndpoint) {
 	$name = basename($script);
 	$isPublic = in_array($name, $publicEndpoints, true);
 	if (!$isPublic && !$Ouser->is_login()) {
+		// Clic sur un lien de téléchargement (navigation du navigateur) : retour à la connexion plutôt qu'un JSON brut
+		$accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+		if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET' && stripos($accept, 'text/html') !== false && empty($_SERVER['HTTP_X_REQUESTED_WITH'])
+			&& ($_SERVER['HTTP_SEC_FETCH_MODE'] ?? 'navigate') === 'navigate') {
+			header('Location: ' . SITE_ROOT . 'login.php');
+			exit;
+		}
 		http_response_code(401);
 		header('Content-Type: application/json; charset=utf-8');
 		exit(json_encode(array('ok' => false, 'erreur' => 'Session expirée. Veuillez vous reconnecter.')));

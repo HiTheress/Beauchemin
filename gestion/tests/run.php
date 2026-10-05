@@ -127,7 +127,7 @@ refuse(function () use ($inv, $gA, $f2) { $inv->annuler($gA, $f2['id'], ''); }, 
 // annulation impossible si la destination a déjà sorti la marchandise
 $inv->sortir($gB, array('emplacement_id' => $E['B2'], 'motif' => 'service', 'lignes' => array(L($P['T2'], '1'))));
 refuse(function () use ($inv, $gA, $f2) { $inv->annuler($gA, $f2['id'], 'trop tard'); }, 'Annulation impossible', 'annulation bloquée (marchandise déjà sortie) : message sans détail de l\'autre entreprise');
-refuse(function () use ($inv, $gB, $f2) { $inv->annuler($gB, $f2['id'], 'trop tard'); }, 'Stock insuffisant', 'le destinataire voit le détail de SON stock');
+refuse(function () use ($inv, $gB, $f2) { $inv->annuler($gB, $f2['id'], 'trop tard'); }, 'accès', 'seule l\'entreprise émettrice peut annuler une facture interne (le destinataire en émet une en sens inverse)');
 egal('valide', val('SELECT statut FROM documents WHERE id = ?', array($f2['id'])), 'document resté valide après refus');
 // annulation d'une réception : rétablit le coût moyen
 $c0 = cout(1, $P['T2']);
@@ -319,6 +319,28 @@ $somme = 0; foreach ($vi['emplacements'] as $le) { $somme += Dec::parse($le['val
 egal(Dec::parse($vi['entreprises'][0]['valeur'], 2), $somme, 'valeur d\'inventaire : somme des emplacements = total de l\'entreprise (désactivés garnis inclus)');
 ok(count(array_filter($vi['emplacements'], function ($le) use ($E) { return (int) $le['id'] === $E['CUBE'] && (int) $le['actif'] === 0; })) === 1, 'emplacement désactivé garni listé avec actif = 0');
 $pdo->exec("UPDATE emplacements SET actif = 1 WHERE id = {$E['CUBE']}");
+
+// verrou global des codes : une 2e connexion ne peut pas l'obtenir pendant que la 1re le tient ; ré-entrant ; relâché ensuite
+$pdo2 = new PDO('mysql:host=' . DATABASE_HOST . ';dbname=' . DATABASE_NAME . ';charset=utf8mb4', DATABASE_USER, DATABASE_PASS, array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION));
+$nomVerrou = 'bea_codes_' . substr(md5(DATABASE_NAME), 0, 20);
+$pendant = null;
+$ret = $inv->avecVerrouCodes(function () use ($pdo2, $nomVerrou, &$pendant, $inv) {
+	$pendant = (int) $pdo2->query("SELECT GET_LOCK('$nomVerrou', 0)")->fetchColumn();
+	return $inv->avecVerrouCodes(function () { return 'imbriqué'; });   // ré-entrant
+});
+egal(0, $pendant, 'verrou des codes : une autre connexion ne peut pas le prendre pendant l\'opération');
+egal('imbriqué', $ret, 'verrou des codes : ré-entrant et valeur de retour transmise');
+egal(1, (int) $pdo2->query("SELECT GET_LOCK('$nomVerrou', 0)")->fetchColumn(), 'verrou des codes : relâché après l\'opération');
+$pdo2->query("SELECT RELEASE_LOCK('$nomVerrou')");
+refuse(function () use ($inv) { $inv->avecVerrouCodes(function () { throw new InventaireException('échec interne'); }); }, 'échec interne', 'une erreur dans le verrou est propagée');
+egal(1, (int) $pdo2->query("SELECT GET_LOCK('$nomVerrou', 0)")->fetchColumn(), 'verrou des codes : relâché même après une exception');
+$pdo2->query("SELECT RELEASE_LOCK('$nomVerrou')");
+
+// Code128 : un saut de ligne final n'est pas valide ; types non texte refusés par le service
+ok(!Code128::valide("ABC\n"), 'Code128 : texte terminé par un saut de ligne refusé');
+egal(null, $inv->trouverParCode($gA, array('x')), 'trouverParCode : un tableau n\'est pas un code');
+ok(is_array($inv->piecesRecherche($gA, array('x'))), 'piecesRecherche : un tableau comme terme ne plante pas (traité comme une recherche vide)');
+ok(is_array($inv->piecesRecherche($gA, "\xff\xfe")), 'piecesRecherche : octets UTF-8 invalides ignorés sans erreur');
 
 // coût moyen jamais remis à zéro par un retrait
 egal(10000, Dec::coutMoyenRetrait(10000, 10000, 5000, 30000), 'Dec : un retrait trop « cher » garde la moyenne actuelle (pas de 0)');

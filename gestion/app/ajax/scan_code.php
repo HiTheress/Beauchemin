@@ -7,7 +7,7 @@
 require_once '../init.php';
 endpoint(function () {
 	$in = $_GET + entree();
-	$r = inventaire()->trouverParCode(utilisateur_id(), isset($in['code']) ? $in['code'] : '');
+	$r = inventaire()->trouverParCode(utilisateur_id(), (isset($in['code']) && is_string($in['code'])) ? $in['code'] : '');
 	if ($r === null) {
 		return array('trouve' => false);
 	}

@@ -4,6 +4,6 @@
 require_once '../init.php';
 endpoint(function () {
 	$in = $_GET + entree();
-	$q = isset($in['q']) ? (string) $in['q'] : '';
-	return array('pieces' => inventaire()->piecesRecherche(utilisateur_id(), $q, isset($in['limite']) ? (int) $in['limite'] : 20));
+	$q = (isset($in['q']) && is_string($in['q'])) ? $in['q'] : '';
+	return array('pieces' => inventaire()->piecesRecherche(utilisateur_id(), $q, (isset($in['limite']) && is_scalar($in['limite'])) ? (int) $in['limite'] : 20));
 });

@@ -18,38 +18,63 @@ class User {
 		$this->pdo = $pdo;
 	}
 
-	/** Tentative de connexion ; redirige toujours (accueil ou page de connexion). */
+	/** Empreinte factice : on exécute toujours un password_verify, même si le compte n'existe pas (temps de réponse identique). */
+	const EMPREINTE_FACTICE = '$2y$10$bUIy2BzwwgmYCWWWtH783e3Pv2J6UEu8bb.rJGr9xVAA5v6XunGvq';
+
+	const MAX_ECHECS_IP = 30;      // échecs de connexion par adresse IP en 15 minutes, tous comptes confondus
+
+	/**
+	 * Tentative de connexion ; redirige toujours (accueil ou page de connexion).
+	 * Le message d'échec est TOUJOURS le même (compte inexistant, désactivé, verrouillé ou mauvais mot de passe) :
+	 * on ne révèle pas quels comptes existent. Les verrouillages sont visibles dans le journal et pour l'administrateur.
+	 */
 	public function login($username, $pass) {
 		$username = trim((string) $username);
+		$erreur = "Nom d'utilisateur ou mot de passe invalide";
+		$ip = isset($_SERVER['REMOTE_ADDR']) ? substr($_SERVER['REMOTE_ADDR'], 0, 45) : '';
+
+		// Limite par adresse IP (un tiers ne peut ni deviner à grande vitesse, ni bloquer le compte d'un collègue en boucle)
+		$st = $this->pdo->prepare("SELECT COUNT(*) FROM journal WHERE action = 'connexion.echec' AND ip = ? AND date_action > ?");
+		$st->execute(array($ip, date('Y-m-d H:i:s', time() - 900)));
+		if ((int) $st->fetchColumn() >= self::MAX_ECHECS_IP) {
+			Journal::ecrire($this->pdo, null, 'connexion.ip_bloquee', 'utilisateurs', null);
+			sleep(2);
+			$_SESSION['login_error'] = $erreur;
+			redirect("login.php");
+		}
+
 		$st = $this->pdo->prepare("SELECT * FROM utilisateurs WHERE nom_utilisateur = ? LIMIT 1");
 		$st->execute(array($username));
 		$u = $st->fetch();
 
-		$erreur = "Nom d'utilisateur ou mot de passe invalide";
-		if ($u && $u['actif']) {
-			if ($u['verrouille_jusqua'] && strtotime($u['verrouille_jusqua']) > time()) {
-				$_SESSION['login_error'] = "Compte verrouillé temporairement après trop d'essais. Réessayez dans quelques minutes.";
-				Journal::ecrire($this->pdo, (int) $u['id'], 'connexion.verrouille', 'utilisateurs', (int) $u['id']);
-				redirect("login.php");
+		$utilisable = ($u && $u['actif']);
+		$verrouille = ($utilisable && $u['verrouille_jusqua'] && strtotime($u['verrouille_jusqua']) > time());
+		$hash = $utilisable ? $u['mot_de_passe'] : self::EMPREINTE_FACTICE;
+		$bon = password_verify((string) $pass, $hash);   // toujours exécuté
+
+		if ($utilisable && !$verrouille && $bon) {
+			if (password_needs_rehash($u['mot_de_passe'], PASSWORD_DEFAULT)) {
+				$this->pdo->prepare("UPDATE utilisateurs SET mot_de_passe = ? WHERE id = ?")
+					->execute(array(password_hash($pass, PASSWORD_DEFAULT), $u['id']));
 			}
-			if (password_verify((string) $pass, $u['mot_de_passe'])) {
-				if (password_needs_rehash($u['mot_de_passe'], PASSWORD_DEFAULT)) {
-					$this->pdo->prepare("UPDATE utilisateurs SET mot_de_passe = ? WHERE id = ?")
-						->execute(array(password_hash($pass, PASSWORD_DEFAULT), $u['id']));
-				}
-				$this->pdo->prepare("UPDATE utilisateurs SET tentatives_echec = 0, verrouille_jusqua = NULL, derniere_connexion = ? WHERE id = ?")
-					->execute(array(date('Y-m-d H:i:s'), $u['id']));
-				session_regenerate_id(true);
-				$_SESSION['user_id'] = (int) $u['id'];
-				$_SESSION['user_name'] = $u['nom_utilisateur'];
-				Journal::ecrire($this->pdo, (int) $u['id'], 'connexion', 'utilisateurs', (int) $u['id']);
-				redirect("index.php");
-			}
+			$this->pdo->prepare("UPDATE utilisateurs SET tentatives_echec = 0, verrouille_jusqua = NULL, derniere_connexion = ? WHERE id = ?")
+				->execute(array(date('Y-m-d H:i:s'), $u['id']));
+			session_regenerate_id(true);
+			$_SESSION['user_id'] = (int) $u['id'];
+			$_SESSION['user_name'] = $u['nom_utilisateur'];
+			Journal::ecrire($this->pdo, (int) $u['id'], 'connexion', 'utilisateurs', (int) $u['id']);
+			redirect("index.php");
+		}
+
+		if ($verrouille) {
+			Journal::ecrire($this->pdo, (int) $u['id'], 'connexion.verrouille', 'utilisateurs', (int) $u['id']);
+		} elseif ($utilisable) {
 			$n = (int) $u['tentatives_echec'] + 1;
 			$verrou = null;
 			if ($n >= self::MAX_ECHECS) {
 				$verrou = date('Y-m-d H:i:s', time() + self::VERROU_MINUTES * 60);
 				$n = 0;
+				Journal::ecrire($this->pdo, (int) $u['id'], 'utilisateur.verrouille', 'utilisateurs', (int) $u['id']);
 			}
 			$this->pdo->prepare("UPDATE utilisateurs SET tentatives_echec = ?, verrouille_jusqua = ? WHERE id = ?")
 				->execute(array($n, $verrou, $u['id']));

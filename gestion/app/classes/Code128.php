@@ -30,7 +30,7 @@ final class Code128
 	/** Texte valide pour le jeu B : 1 à 40 caractères ASCII imprimables. */
 	public static function valide($texte)
 	{
-		return is_string($texte) && $texte !== '' && strlen($texte) <= 40 && preg_match('/^[\x20-\x7E]+$/', $texte) === 1;
+		return is_string($texte) && $texte !== '' && strlen($texte) <= 40 && preg_match('/^[\x20-\x7E]+$/D', $texte) === 1;
 	}
 
 	public static function valeurs($texte)
