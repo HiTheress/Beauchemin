@@ -1,10 +1,11 @@
 <?php
 // Liste des documents (réceptions, transferts, sorties, ajustements, factures internes) — tableau serveur.
-// Employé+. Un employé ne voit aucun montant : la colonne « Total » n'existe pas pour lui.
+// Employé+. Un employé ne voit aucun montant : la colonne « Total » n'existe pas pour lui.
 if (!acces_page('employe')) { return; }
 require_once __DIR__ . '/../app/action/document_lib.php';
 page_script('assets/js/mouvements.js');
 $couts = $Ouser->peutVoirCouts();
+$gest = $Ouser->aRole('gestionnaire');
 $mes_ent = inventaire()->listeEntreprises(utilisateur_id());
 
 $get = function ($cle) { return (isset($_GET[$cle]) && is_string($_GET[$cle])) ? trim($_GET[$cle]) : ''; };
@@ -23,11 +24,11 @@ $pre_q = mb_substr($get('q'), 0, 100);
     <div class="card mv-carte"><div class="card-body">
 
       <div class="row mv-filtres">
-        <div class="col-lg-4 col-md-6 form-group">
+        <div class="col-xl-4 col-md-6 form-group">
           <label for="f-recherche">Rechercher</label>
-          <input id="f-recherche" type="search" class="form-control" autocomplete="off" maxlength="100" placeholder="Numéro, référence, fournisseur, note…" value="<?php echo e($pre_q); ?>">
+          <input id="f-recherche" type="search" class="form-control" autocomplete="off" maxlength="100" placeholder="Numéro, facture, fournisseur, note…" value="<?php echo e($pre_q); ?>">
         </div>
-        <div class="col-lg-2 col-md-6 form-group">
+        <div class="col-xl-3 col-md-6 form-group">
           <label for="f-type">Type</label>
           <select id="f-type" class="form-control">
             <option value="">Tous les types</option>
@@ -35,7 +36,7 @@ $pre_q = mb_substr($get('q'), 0, 100);
           </select>
         </div>
         <?php if (count($mes_ent) > 0) { ?>
-        <div class="col-lg-3 col-md-6 form-group">
+        <div class="col-xl-3 col-md-6 form-group">
           <label for="f-entreprise">Entreprise</label>
           <select id="f-entreprise" class="form-control">
             <option value="">Toutes mes entreprises</option>
@@ -43,7 +44,7 @@ $pre_q = mb_substr($get('q'), 0, 100);
           </select>
         </div>
         <?php } ?>
-        <div class="col-lg-3 col-md-6 form-group">
+        <div class="col-xl-2 col-md-6 form-group">
           <label for="f-statut">Statut</label>
           <select id="f-statut" class="form-control">
             <option value="">Tous</option>
@@ -53,35 +54,37 @@ $pre_q = mb_substr($get('q'), 0, 100);
         </div>
       </div>
       <div class="row mv-filtres">
-        <div class="col-lg-5 col-md-8 form-group">
+        <div class="col-xl-5 col-md-8 form-group">
           <span class="mv-label-plage" id="lbl-plage">Période</span>
           <div class="input-group" role="group" aria-labelledby="lbl-plage">
             <input id="f-du" type="date" class="form-control" aria-label="Du" value="<?php echo e($pre_du); ?>">
             <div class="input-group-prepend input-group-append"><span class="input-group-text">au</span></div>
             <input id="f-au" type="date" class="form-control" aria-label="Au" value="<?php echo e($pre_au); ?>">
           </div>
+          <small class="form-text text-danger" id="f-avert" role="alert" hidden></small>
         </div>
-        <div class="col-lg-3 col-md-4 form-group d-flex align-items-end no-print">
+        <div class="col-xl-3 col-md-4 form-group d-flex align-items-end no-print">
           <button type="button" id="f-effacer" class="btn btn-outline-secondary"><i class="fas fa-eraser mr-1" aria-hidden="true"></i> Effacer les filtres</button>
         </div>
       </div>
 
+      <div id="documents-erreur" class="alert alert-danger" role="alert" hidden></div>
       <div class="table-responsive">
         <table id="table-documents" class="table table-striped mv-table w-100">
           <thead><tr>
             <th scope="col" data-col="numero">Numéro</th>
+            <th scope="col" data-col="statut">Statut</th>
             <th scope="col" data-col="type">Type</th>
             <th scope="col" data-col="date">Date</th>
-            <th scope="col" data-col="entreprise">Entreprise</th>
+            <th scope="col" data-col="entreprise" class="d-none d-xl-table-cell">Entreprise</th>
             <th scope="col" data-col="emplacements">Emplacement(s)</th>
-            <th scope="col" data-col="utilisateur">Utilisateur</th>
+            <th scope="col" data-col="utilisateur" class="d-none d-xl-table-cell">Utilisateur</th>
             <?php if ($couts) { ?><th scope="col" data-col="total" class="nombre">Total</th><?php } ?>
-            <th scope="col" data-col="statut">Statut</th>
           </tr></thead>
           <tbody></tbody>
         </table>
       </div>
-      <p class="text-muted small mt-2 mb-0">Seuls les documents de vos entreprises sont listés. Cliquez sur un numéro pour voir le détail, l'imprimer ou, au besoin, l'annuler.</p>
+      <p class="text-muted small mt-2 mb-0">Seuls les documents de vos entreprises sont listés. Cliquez sur un numéro pour voir le détail, l'imprimer<?php echo $gest ? ' ou, au besoin, l\'annuler' : ''; ?>.</p>
     </div></div>
   </div></section>
 </div>

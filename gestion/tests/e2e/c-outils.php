@@ -3,6 +3,9 @@
 // BASE DE DÉVELOPPEMENT SEULEMENT (DB_NAME=bea_c). Ligne de commande uniquement ; chaque commande écrit un résultat sur une ligne.
 //   php tests/e2e/c-outils.php piece <code> <nom> <emplacement_id> <quantite> [cout]   crée une pièce et son stock (par un ajustement du service) ; écrit l'id
 //   php tests/e2e/c-outils.php sortir <emplacement_id> <piece_id> <quantite>           sortie de stock (service) ; écrit le numéro du document
+//   php tests/e2e/c-outils.php ajuster <emplacement_id> <piece_id> <quantite> [cout]    ajustement (service) ; écrit le numéro du document
+//   php tests/e2e/c-outils.php recevoir <emplacement_id> <piece_id> <quantite> <cout>  réception (service) ; écrit le numéro du document
+//   php tests/e2e/c-outils.php cout <entreprise_id> <piece_id>                         écrit le coût moyen (stock_couts) de la pièce
 //   php tests/e2e/c-outils.php utilisateur <nom> <role> <entreprises : 1,2>            crée un utilisateur (mot de passe Test-Beauchemin-1) ; écrit son id
 //   php tests/e2e/c-outils.php entreprise <code> <nom> <code_barres_emplacement>       crée une entreprise et son entrepôt ; écrit « id_entreprise id_emplacement »
 if (PHP_SAPI !== 'cli') { exit("Ligne de commande seulement.\n"); }
@@ -25,6 +28,21 @@ switch ($cmd) {
 	case 'sortir':
 		$r = $inv->sortir($admin, array('emplacement_id' => (int) $argv[2], 'motif' => 'service', 'lignes' => array(array('piece_id' => (int) $argv[3], 'quantite' => $argv[4]))));
 		echo $r['numero'], "\n";
+		break;
+	case 'ajuster':
+		$ligne = array('piece_id' => (int) $argv[3], 'quantite' => $argv[4]);
+		if (isset($argv[5])) { $ligne['cout_unitaire'] = $argv[5]; }
+		$r = $inv->ajuster($admin, array('emplacement_id' => (int) $argv[2], 'motif' => 'correction', 'lignes' => array($ligne)));
+		echo $r['numero'], "\n";
+		break;
+	case 'recevoir':
+		$r = $inv->recevoir($admin, array('emplacement_id' => (int) $argv[2], 'lignes' => array(array('piece_id' => (int) $argv[3], 'quantite' => $argv[4], 'cout_unitaire' => $argv[5]))));
+		echo $r['numero'], "\n";
+		break;
+	case 'cout':
+		$st = $pdo->prepare('SELECT cout_moyen FROM stock_couts WHERE entreprise_id = ? AND piece_id = ?');
+		$st->execute(array((int) $argv[2], (int) $argv[3]));
+		echo $st->fetchColumn(), "\n";
 		break;
 	case 'utilisateur':
 		list(, , $nom, $role, $ents) = $argv;

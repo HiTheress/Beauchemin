@@ -22,7 +22,7 @@ page_script('assets/js/catalogue.js');
     </div></div>
   </div></section>
 
-  <div class="modal fade" id="modal-categorie" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-categorie-titre">
+  <div class="modal fade" id="modal-categorie" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-categorie-titre" data-backdrop="static">
     <div class="modal-dialog modal-dialog-centered" role="document"><div class="modal-content">
       <form id="form-categorie" novalidate>
         <div class="modal-header"><h5 class="modal-title" id="modal-categorie-titre">Catégorie</h5>

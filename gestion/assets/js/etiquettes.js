@@ -13,7 +13,7 @@
   var items = [];            // { cle, type, id, code, nom, droite, copies (chaîne saisie), erreur (texte|null) }
   var format = cfg.format_defaut;
   var donnees = null;        // dernière réponse du serveur (éléments dans l'ordre de la liste)
-  var seq = 0, minuterie = null, enCours = false;
+  var seq = 0, minuterie = null, enCours = false, nbRefus = 0, cptLigne = 0;
 
   function el(tag, attrs, texte) {
     var e = document.createElement(tag);
@@ -27,11 +27,51 @@
     return (err && err.message) || 'Erreur inattendue.';
   }
   function entier(s) { s = String(s).trim(); return /^\d+$/.test(s) ? parseInt(s, 10) : NaN; }
-  function pluriel(n, un, plusieurs) { return n + ' ' + (n > 1 ? plusieurs : un); }
+  /* Typographie française : espace insécable dans « … » et avant : ; ? ! (jamais de « » ou de « : » seul en début de ligne). */
+  function fr(s) {
+    return String(s).replace(/« +/g, '«\u00a0').replace(/ +»/g, '\u00a0»').replace(/ +([:;?!])/g, '\u00a0$1');
+  }
+  function nb(n) { return w.fmtQte(String(n)); }
+  function pluriel(n, un, plusieurs) { return nb(n) + ' ' + (n > 1 ? plusieurs : un); }
+  function versScan() { setTimeout(function () { var s = $id('et-scan'); if (s) { s.focus(); } }, 0); }
 
+  // ---- Fenêtre de confirmation (Promise<boolean>) : le message est inséré en texte, jamais en HTML -----------------
+  var confirmationOuverte = false;
+  function confirmerAction(titre, message, libelle) {
+    if (confirmationOuverte) { return Promise.resolve(false); }
+    confirmationOuverte = true;
+    return new Promise(function (resolve) {
+      var m = $id('et-modal-confirmer');
+      if (!m) {
+        m = el('div', { id: 'et-modal-confirmer', class: 'modal fade', tabindex: '-1', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'et-modal-titre' });
+        m.innerHTML = '<div class="modal-dialog modal-dialog-centered" role="document"><div class="modal-content">'
+          + '<div class="modal-header"><h5 class="modal-title" id="et-modal-titre"></h5>'
+          + '<button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button></div>'
+          + '<div class="modal-body"><p class="mb-0" id="et-modal-message"></p></div>'
+          + '<div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-dismiss="modal" id="et-modal-non">Annuler</button>'
+          + '<button type="button" class="btn btn-danger" id="et-modal-oui"></button></div></div></div>';
+        document.body.appendChild(m);
+      }
+      $id('et-modal-titre').textContent = titre;
+      $id('et-modal-message').textContent = fr(message);
+      $id('et-modal-oui').textContent = libelle;
+      var decision = false;
+      $id('et-modal-oui').onclick = function () { decision = true; $(m).modal('hide'); };
+      $(m).off('shown.bs.modal.et hidden.bs.modal.et')
+        .on('shown.bs.modal.et', function () { $id('et-modal-non').focus(); })
+        .one('hidden.bs.modal.et', function () { confirmationOuverte = false; resolve(decision); });
+      $(m).modal('show');
+    });
+  }
+
+  function copiesDefautValide() { var n = entier($id('et-copies-defaut').value); return n >= 1 && n <= MAX_COPIES; }
   function copiesDefaut() {
     var n = entier($id('et-copies-defaut').value);
     return (n >= 1 && n <= MAX_COPIES) ? n : 1;
+  }
+  /* « Copies par élément ajouté » invalide : on ajoute 1 copie, mais on le dit (jamais de remplacement silencieux). */
+  function verifCopiesDefaut() {
+    if (!copiesDefautValide()) { w.toast(fr('Le nombre de copies par élément est invalide (entier de 1 à ' + MAX_COPIES + ') : une seule copie a été ajoutée.'), 'warning'); }
   }
   function copiesValides(it) { var n = entier(it.copies); return n >= 1 && n <= MAX_COPIES; }
   function totalEtiquettes() {
@@ -80,13 +120,15 @@
       tr.appendChild(tdN);
       var tdC = el('td', { class: 'nombre' });
       var inp = el('input', { type: 'text', inputmode: 'numeric', class: 'form-control form-control-sm et-copies-input', 'aria-label': 'Copies de ' + it.code, value: it.copies });
+      var fb = el('div', { class: 'invalid-feedback', id: 'et-cop-' + (++cptLigne) }, 'Entrez un nombre de 1 à ' + MAX_COPIES + '.');
+      inp.setAttribute('aria-describedby', fb.id);
       inp.classList.toggle('is-invalid', !copiesValides(it));
       inp.addEventListener('input', function () {
         it.copies = inp.value;
         inp.classList.toggle('is-invalid', !copiesValides(it));
         majCompte(); programmerApercu();
       });
-      tdC.appendChild(inp); tr.appendChild(tdC);
+      tdC.appendChild(inp); tdC.appendChild(fb); tr.appendChild(tdC);
       var tdX = el('td', { class: 'text-right', style: 'width:60px' });
       var bx = el('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', title: 'Retirer de la liste', 'aria-label': 'Retirer ' + it.code });
       bx.appendChild(el('i', { class: 'fas fa-times' }));
@@ -125,6 +167,7 @@
     $id('et-depart-groupe').style.display = (f.colonnes * f.rangees > 1) ? '' : 'none';
     var max = f.colonnes * f.rangees;
     $id('et-depart').setAttribute('aria-label', 'Première étiquette à utiliser (1 à ' + max + ')');
+    majDepartChamp();
   }
 
   function depart() {
@@ -132,6 +175,19 @@
     if (max < 2) { return 1; }
     var n = entier($id('et-depart').value);
     return (n >= 1 && n <= max) ? n : 1;
+  }
+  /* « Première étiquette à utiliser » hors de 1..N (vide, 0, 31, texte) : imprimer partirait de la case 1, sur des étiquettes peut-être déjà utilisées. */
+  function departInvalide() {
+    var f = FORMATS[format], max = f.colonnes * f.rangees;
+    if (max < 2) { return false; }
+    var n = entier($id('et-depart').value);
+    return !(n >= 1 && n <= max);
+  }
+  function majDepartChamp() {
+    var f = FORMATS[format], max = f.colonnes * f.rangees;
+    var inp = $id('et-depart'), fb = $id('et-depart-err');
+    inp.classList.toggle('is-invalid', departInvalide());
+    if (fb) { fb.textContent = 'Entrez un nombre de 1 à ' + max + '.'; }
   }
 
   // ---- Aperçu --------------------------------------------------------------------------
@@ -149,10 +205,11 @@
     var total = totalEtiquettes();
     items.forEach(function (it) { it.erreur = null; });
     marquerErreurs();
+    nbRefus = 0;
     $id('et-refus').style.display = 'none';
     if (!items.length) { $id('et-apercu').innerHTML = ''; resume(); return; }
     if (invalide) { $id('et-apercu').innerHTML = ''; resume('Corrigez le nombre de copies : un entier de 1 à ' + MAX_COPIES + '.'); return; }
-    if (total > MAX_ET) { $id('et-apercu').innerHTML = ''; resume('Trop d\'étiquettes d\'un coup : ' + total + ' (maximum ' + MAX_ET + ' par impression).'); return; }
+    if (total > MAX_ET) { $id('et-apercu').innerHTML = ''; resume('Trop d\'étiquettes d\'un coup : ' + nb(total) + ' (maximum ' + nb(MAX_ET) + ' par impression).'); return; }
     enCours = true;
     var zone = $id('et-apercu');
     zone.innerHTML = ''; zone.appendChild(el('div', { class: 'et-chargement' }, 'Génération de l\'aperçu…'));
@@ -164,6 +221,7 @@
       enCours = false; donnees = r.elements;
       var refus = [];
       r.elements.forEach(function (e, i) { if (!e.ok && items[i]) { items[i].erreur = e.erreur; refus.push(e); } });
+      nbRefus = refus.length;
       marquerErreurs();
       afficherRefus(refus);
       dessinerApercu();
@@ -180,9 +238,9 @@
     var box = $id('et-refus');
     box.innerHTML = '';
     if (!refus.length) { box.style.display = 'none'; return; }
-    box.appendChild(el('strong', null, pluriel(refus.length, 'élément refusé', 'éléments refusés') + ' (non imprimé' + (refus.length > 1 ? 's' : '') + ') :'));
+    box.appendChild(el('strong', null, fr(pluriel(refus.length, 'élément refusé', 'éléments refusés') + ' (non imprimé' + (refus.length > 1 ? 's' : '') + ') :')));
     var ul = el('ul', { class: 'mb-0' });
-    refus.forEach(function (e) { ul.appendChild(el('li', null, e.erreur)); });
+    refus.forEach(function (e) { ul.appendChild(el('li', null, fr(e.erreur))); });
     box.appendChild(ul);
     box.style.display = '';
   }
@@ -194,19 +252,29 @@
     var n = valides.reduce(function (t, e) { return t + e.copies; }, 0);
     box.className = 'alert border';
     if (message) {
-      box.classList.add('alert-warning'); box.textContent = message; btn.disabled = true; return;
+      box.classList.add('alert-warning'); box.textContent = fr(message); btn.disabled = true; return;
     }
     if (!items.length) { box.classList.add('alert-light'); box.textContent = 'Aucune étiquette à imprimer.'; btn.disabled = true; return; }
     if (!donnees) { box.classList.add('alert-light'); box.textContent = 'Préparation de l\'aperçu…'; btn.disabled = true; return; }
-    if (!n) { box.classList.add('alert-danger'); box.textContent = 'Aucune étiquette ne peut être imprimée : voir les éléments refusés.'; btn.disabled = true; return; }
-    box.classList.add('alert-success');
+    if (!n) { box.classList.add('alert-danger'); box.textContent = fr('Aucune étiquette ne peut être imprimée : voir les éléments refusés ci-dessous.'); btn.disabled = true; return; }
     var par = f.colonnes * f.rangees;
+    if (departInvalide()) {   // une case de départ invalide n'est jamais remplacée en silence : on bloque l'impression
+      box.classList.add('alert-warning'); box.textContent = fr('Première étiquette : entrez un nombre de 1 à ' + par + '.'); btn.disabled = true; return;
+    }
+    var texte;
     if (par > 1) {
       var d = depart(), pages = Math.ceil((n + d - 1) / par);
-      box.textContent = pluriel(n, 'étiquette', 'étiquettes') + ' sur ' + pluriel(pages, 'feuille', 'feuilles') + ' (' + par + ' par feuille' + (d > 1 ? ', en commençant à la case ' + d : '') + ').';
+      texte = pluriel(n, 'étiquette', 'étiquettes') + ' sur ' + pluriel(pages, 'feuille', 'feuilles') + ' (' + par + ' par feuille' + (d > 1 ? ', en commençant à la case ' + d : '') + ').';
     } else {
-      box.textContent = pluriel(n, 'étiquette', 'étiquettes') + ' : une étiquette par page, ' + String(f.largeur).replace('.', ',') + ' × ' + String(f.hauteur).replace('.', ',') + ' mm.';
+      texte = pluriel(n, 'étiquette', 'étiquettes') + ' : une étiquette par page, ' + String(f.largeur).replace('.', ',') + ' × ' + String(f.hauteur).replace('.', ',') + ' mm.';
     }
+    if (nbRefus) {   // des éléments manquent : le résumé ne doit pas laisser croire que tout sera imprimé
+      box.classList.add('alert-warning');
+      texte += ' ' + pluriel(nbRefus, 'élément refusé n\'est pas imprimé', 'éléments refusés ne sont pas imprimés') + ' (voir ci-dessous).';
+    } else {
+      box.classList.add('alert-success');
+    }
+    box.textContent = fr(texte);
     btn.disabled = false;
   }
 
@@ -280,9 +348,11 @@
     });
     $rech.on('select2:select', function (e) {
       var d = e.params.data;
+      verifCopiesDefaut();
       try { ajouter({ type: 'piece', id: parseInt(d.id, 10), code: d.code, nom: d.nom, droite: d.unite }); }
       catch (err) { w.toast(err.message, 'warning'); }
       setTimeout(function () { $rech.val(null).trigger('change'); }, 0);
+      versScan();   // le focus ne reste pas dans la recherche : le code suivant tapé au lecteur ne doit pas se perdre
     });
 
     // Emplacements
@@ -294,25 +364,33 @@
     }
     $emp.on('select2:select', function (e) {
       var inf = empInfo(e.params.data.id);
+      verifCopiesDefaut();
       if (inf) { try { ajouter(inf); } catch (err) { w.toast(err.message, 'warning'); } }
       setTimeout(function () { $emp.val(null).trigger('change'); }, 0);
+      versScan();
     });
+    // les deux champs de recherche de select2 n'ont pas de libellé : on leur donne un nom accessible
+    $rech.next('.select2').find('.select2-search__field').attr('aria-label', 'Chercher des pièces par nom ou par code');
+    $emp.next('.select2').find('.select2-search__field').attr('aria-label', 'Choisir des emplacements');
     $('#et-tous-emplacements').on('click', function () {
       var n = 0;
+      verifCopiesDefaut();
       cfg.emplacements.forEach(function (r) {
         if (ajouter(empInfo(r.id), null, true, true)) { n++; }
       });
       dessinerListe(); programmerApercu();
       w.toast(n ? pluriel(n, 'emplacement ajouté', 'emplacements ajoutés') + '.' : 'Tous les emplacements sont déjà dans la liste.', n ? 'success' : 'info');
+      versScan();
     });
 
     // Catégorie complète
     $('#et-ajouter-categorie').on('click', function () {
       var sel = $id('et-categorie'), btn = this;
       if (sel.value === '') { w.toast('Choisissez d\'abord une catégorie.', 'warning'); sel.focus(); return; }
+      verifCopiesDefaut();
       btn.disabled = true;
       w.api.get('app/ajax/etiquettes_categorie.php', { categorie_id: sel.value }).then(function (r) {
-        if (!r.pieces.length) { w.toast('Cette catégorie ne contient aucune pièce active.', 'info'); return; }
+        if (!r.pieces.length) { w.toast('Cette catégorie ne contient aucune pièce active.', 'info'); versScan(); return; }
         var n = 0, deja = 0, plein = r.tronque;
         r.pieces.forEach(function (p) {
           try {
@@ -321,29 +399,43 @@
         });
         dessinerListe(); programmerApercu();
         w.toast(pluriel(n, 'pièce ajoutée', 'pièces ajoutées') + (deja ? ' (' + pluriel(deja, 'était déjà dans la liste', 'étaient déjà dans la liste') + ')' : '') + '.'
-          + (plein ? ' La liste est limitée à ' + cfg.max_elements + ' éléments.' : ''), plein ? 'warning' : 'success');
-      }).catch(function (err) { w.toast(msg(err), 'danger'); }).then(function () { btn.disabled = false; });
+          + (plein ? ' La liste est limitée à ' + nb(cfg.max_elements) + ' éléments.' : ''), plein ? 'warning' : 'success');
+      }).catch(function (err) { w.toast(msg(err), 'danger'); }).then(function () { btn.disabled = false; versScan(); });
     });
 
     // Scanner : pièce ou emplacement
     w.scanner('#et-scan', function (code) {
       return w.api.get('app/ajax/scan_code.php', { code: code }).then(function (r) {
-        if (!r.trouve) { throw new Error('Code inconnu : « ' + code + ' ».'); }
+        if (!r.trouve) { throw new Error(fr('Code inconnu : « ' + code + ' ».')); }
         if (r.type === 'emplacement') {
           var inf = empInfo(r.emplacement.id);
-          if (!inf) { throw new Error('L\'emplacement « ' + r.emplacement.nom + ' » est désactivé ou n\'a pas de code-barres.'); }
+          if (!inf) { throw new Error(fr('L\'emplacement « ' + r.emplacement.nom + ' » est désactivé ou n\'a pas de code-barres.')); }
+          if (!deja(inf)) { verifCopiesDefaut(); }
           ajouter(inf, deja(inf) ? 1 : null);
         } else {
-          if (!r.piece.actif) { throw new Error('La pièce « ' + r.piece.code + ' » est désactivée.'); }
+          if (!r.piece.actif) { throw new Error(fr('La pièce « ' + r.piece.code + ' » est désactivée.')); }
           var pi = { type: 'piece', id: r.piece.id, code: r.piece.code, nom: r.piece.nom, droite: r.piece.unite };
+          if (!deja(pi)) { verifCopiesDefaut(); }
           ajouter(pi, deja(pi) ? 1 : null);   // 1re lecture : copies par défaut ; relectures : une étiquette de plus
         }
         return true;
       });
     });
 
-    $('#et-vider').on('click', function () { items = []; dessinerListe(); programmerApercu(); });
-    $('#et-copies-defaut').on('input', function () { this.classList.toggle('is-invalid', !(entier(this.value) >= 1 && entier(this.value) <= MAX_COPIES)); });
+    function vider() { items = []; dessinerListe(); programmerApercu(); versScan(); }
+    $('#et-vider').on('click', function () {
+      if (items.length > 5) {   // une longue liste (par exemple une catégorie entière) ne se jette pas d'un clic
+        confirmerAction('Vider la liste ?', 'Les ' + nb(items.length) + ' éléments de la liste (' + pluriel(totalEtiquettes(), 'étiquette', 'étiquettes') + ') seront retirés.', 'Vider la liste')
+          .then(function (oui) { if (oui) { vider(); } else { $id('et-vider').focus(); } });
+      } else { vider(); }
+    });
+    $('#et-copies-defaut').on('input', function () { this.classList.toggle('is-invalid', !copiesDefautValide()); });
+    $('#et-saut').on('click', function (ev) {   // lien d'évitement : de la liste directement au format et à l'impression
+      ev.preventDefault();
+      var c = $id('et-carte-impression');
+      c.focus({ preventScroll: true });
+      c.scrollIntoView({ block: 'start' });
+    });
 
     $('input[name="et-format"]').on('change', function () {
       format = this.value;
@@ -351,13 +443,12 @@
       programmerApercu();
     });
     $('#et-depart').on('input', function () {
-      var f = FORMATS[format], max = f.colonnes * f.rangees, n = entier(this.value);
-      this.classList.toggle('is-invalid', !(n >= 1 && n <= max));
-      if (donnees) { dessinerApercu(); }
+      majDepartChamp();
+      if (donnees) { dessinerApercu(); } else { resume(); }
     });
 
     $('#et-imprimer').on('click', function () {
-      if (enCours || !donnees) { return; }
+      if (enCours || !donnees || departInvalide()) { return; }
       w.print();
     });
     w.addEventListener('resize', function () { if (donnees) { dessinerApercu(); } });

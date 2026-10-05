@@ -25,7 +25,11 @@ const nbDocs = (where) => parseInt(sql('SELECT COUNT(*) FROM documents' + (where
 const num = s => parseFloat(String(s));
 
 function suivre(page) {
-  page.on('dialog', d => { dialogues.push(d.message()); d.dismiss().catch(() => {}); });
+  // « Quitter la page ? » (saisie en cours) : on accepte pour pouvoir naviguer ; toute autre boîte de dialogue est refusée et consignée
+  page.on('dialog', d => {
+    if (d.type() === 'beforeunload') { d.accept().catch(() => {}); return; }
+    dialogues.push(d.message()); d.dismiss().catch(() => {});
+  });
   return page;
 }
 /** Erreurs de console « réelles » : les 4xx provoqués volontairement (validation, refus d'accès) sont ignorés. */
@@ -52,7 +56,7 @@ async function liste(p, champs) {
     return { status: r.status, json: j, texte: t };
   }, champs);
 }
-async function toastTexte(p) { return p.evaluate(() => (document.getElementById('toasts') || { textContent: '' }).textContent); }
+async function toastTexte(p) { return p.evaluate(() => (document.getElementById('toasts') || { textContent: '' }).textContent.replace(/\u00a0/g, ' ')); }
 async function viderToasts(p) { await p.evaluate(() => document.querySelectorAll('#toasts .alert').forEach(e => e.remove())); }
 /** Lignes du composant : tableau de tableaux (valeur des champs de saisie ou texte de la cellule). */
 async function lignes(p) {
@@ -64,9 +68,9 @@ async function attendreLignes(p, n) {
 /** Scanne un code (taper + Entrée) et attend n lignes. */
 async function scan(p, code, n) { await L.scanner(p, '#scan', code); if (n !== undefined) { await attendreLignes(p, n); } }
 async function attendreToast(p, motif) {
-  await p.waitForFunction(m => (document.getElementById('toasts') || { textContent: '' }).textContent.indexOf(m) !== -1, motif, { timeout: 6000 });
+  await p.waitForFunction(m => (document.getElementById('toasts') || { textContent: '' }).textContent.replace(/\u00a0/g, ' ').indexOf(m) !== -1, motif, { timeout: 6000 });
 }
-async function erreurSaisie(p) { await p.waitForSelector('#mv-erreur:not([hidden])', { timeout: 6000 }); return (await p.textContent('#mv-erreur')).trim(); }
+async function erreurSaisie(p) { await p.waitForSelector('#mv-erreur:not([hidden])', { timeout: 6000 }); return (await p.textContent('#mv-erreur')).replace(/\u00a0/g, ' ').trim(); }
 async function succesSaisie(p) { await p.waitForSelector('#mv-succes:not([hidden])', { timeout: 8000 }); return (await p.textContent('#mv-succes')).replace(/\s+/g, ' ').trim(); }
 async function texteNorm(p, sel) { return (await p.textContent(sel)).replace(/[\s ]+/g, ' ').trim(); }
 async function optionsTexte(p, sel) { return p.$$eval(sel + ' option', o => o.map(x => x.textContent.trim())); }
@@ -109,6 +113,8 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // peut y couper la connexion avant d'avoir lu le corps de la requête ; ces erreurs réseau volontaires ne comptent pas
   const neg = suivre(await L.nouvellePage(b)); await L.connecter(neg, 'gestionnaire');
 
+  const SEUL14 = !!process.env.SEUL14;      // SEUL14=1 : ne rejoue que la section 14 (développement des corrections)
+  if (!SEUL14) {
   // =====================================================================================================================
   console.log('1. Contrôle d\'accès des pages et des endpoints');
   // =====================================================================================================================
@@ -167,7 +173,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
     ['app/action/sortie_save.php', { emplacement_id: 2, motif: 'service', lignes: [{ piece_id: 9, quantite: '1' }] }],
   ]) {
     const r = await appel(e, u, corps);
-    L.verifier(r.status === 403 && /acc[eè]s/.test(r.json.erreur), 'employé : ' + u.split('/').pop() + ' sur l\'entreprise 2 refusé (403) : ' + r.status + ' ' + (r.json && r.json.erreur));
+    L.verifier(r.status === 400 && /Emplacement introuvable/.test(r.json.erreur), 'employé : ' + u.split('/').pop() + ' sur l\'entreprise 2 refusé comme un emplacement inexistant : ' + r.status + ' ' + (r.json && r.json.erreur));
   }
   // gestionnaire2 (entreprise 2 seulement) : pas de réception, d'ajustement ni d'annulation sur l'entreprise 1
   for (const [u, corps] of [
@@ -177,15 +183,18 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
     ['app/action/sortie_save.php', { emplacement_id: 1, motif: 'service', lignes: [{ piece_id: 1, quantite: '1' }] }],
   ]) {
     const r = await appel(g2, u, corps);
-    L.verifier(r.status === 403, 'gestionnaire de l\'entreprise 2 : ' + u.split('/').pop() + ' sur l\'entreprise 1 refusé (403) : ' + r.status);
+    L.verifier(r.status === 400 && /(introuvable)/.test(r.json.erreur), 'gestionnaire de l\'entreprise 2 : ' + u.split('/').pop() + ' sur l\'entreprise 1 refusé (introuvable) : ' + r.status + ' ' + (r.json && r.json.erreur));
   }
   const rp2 = await appel(g2, 'app/ajax/reception_prix.php?piece_id=1&emplacement_id=1', null);
-  L.verifier(rp2.status === 403, 'gestionnaire de l\'entreprise 2 : reception_prix sur un emplacement de l\'entreprise 1 refusé');
+  L.verifier(rp2.status === 400 && /Emplacement introuvable/.test(rp2.json.erreur), 'gestionnaire de l\'entreprise 2 : reception_prix sur un emplacement de l\'entreprise 1 refusé');
   // un employé ne voit pas un document de l'entreprise 2 (document 2 = réception de Boutique Chaleur)
   await L.aller(e, 'document_voir&id=2');
-  L.verifier((await e.textContent('.content-wrapper')).includes('pas accès à ce document'), 'employé : document de l\'entreprise 2 refusé : ' + (await texteNorm(e, '.content-wrapper')).slice(0, 120));
+  L.verifier((await e.textContent('.content-wrapper')).includes('Ce document n\'existe pas, ou vous n\'y avez pas accès'), 'employé : document de l\'entreprise 2 refusé : ' + (await texteNorm(e, '.content-wrapper')).slice(0, 120));
   const r403 = await appel(e, 'app/action/document_annuler.php', { id: 2, motif: 'test' });
-  L.verifier(r403.status === 403, 'employé : annuler un document de l\'entreprise 2 refusé (403)');
+  L.verifier(r403.status === 403, 'employé : annuler un document (rôle insuffisant) refusé (403)');
+  const rIntrouvable = await appel(g2, 'app/action/document_annuler.php', { id: 3, motif: 'test' });
+  const rInexistant = await appel(g2, 'app/action/document_annuler.php', { id: 99999, motif: 'test' });
+  L.verifier(rIntrouvable.status === 400 && rIntrouvable.texte === rInexistant.texte && rInexistant.status === 400, 'document d\'une autre entreprise : EXACTEMENT la même réponse qu\'un document inexistant : ' + rIntrouvable.texte + ' / ' + rInexistant.texte);
   await L.aller(e, 'document_voir&id=99999');
   L.verifier((await e.textContent('.content-wrapper')).includes('Document introuvable') || (await e.textContent('.content-wrapper')).includes('introuvable'), 'document inexistant : message clair');
   await L.aller(e, 'document_voir&id=abc');
@@ -291,8 +300,13 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   }, charge);
   L.verifier(doubles.every(r => r.ok) && new Set(doubles.map(r => r.id)).size === 1 && nbDocs("reference='FAC-DBL-2'") === 1, 'trois envois simultanés du même jeton : un seul document (' + nbDocs("reference='FAC-DBL-2'") + ')');
   L.verifier(doubles.filter(r => r.doublon).length === 2, 'les envois en double sont signalés');
-  const sans = await appel(g, 'app/action/reception_save.php', { jeton, emplacement_id: 1, reference: 'FAC-DBL-3', lignes: charge.lignes });
-  L.verifier(sans.json.ok && sans.json.doublon === true && nbDocs("reference='FAC-DBL-3'") === 0, 'même jeton réutilisé : renvoie le document déjà créé');
+  const sans = await appel(g, 'app/action/reception_save.php', charge);
+  L.verifier(sans.json.ok && sans.json.doublon === true && nbDocs("reference='FAC-DBL-2'") === 1, 'même jeton, même contenu : renvoie le document déjà créé');
+  const autre = await appel(g, 'app/action/reception_save.php', { jeton, emplacement_id: 1, reference: 'FAC-DBL-3', lignes: charge.lignes });
+  L.verifier(autre.status === 409 && autre.json.ok === false && autre.json.champ === 'jeton' && /REC-\d{4}-\d{5}/.test(autre.json.erreur) && nbDocs("reference='FAC-DBL-3'") === 0,
+    'même jeton, contenu modifié : refusé (409) avec le numéro du document déjà créé, rien perdu en silence : ' + autre.status + ' ' + (autre.json && autre.json.erreur));
+  const nouveauJ = await appel(g, 'app/action/reception_save.php', { jeton: jeton + '-b', emplacement_id: 1, reference: 'FAC-DBL-3', lignes: charge.lignes });
+  L.verifier(nouveauJ.json.ok && !nouveauJ.json.doublon && nbDocs("reference='FAC-DBL-3'") === 1, 'avec un nouveau jeton, le contenu modifié crée bien un nouveau document');
 
   // quantité décimale avec virgule (pièce vendue au mètre) et point
   await scan(g, 'P-0011', 1);
@@ -430,7 +444,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.click('#btn-enregistrer'); ok = await succesSaisie(g);
   L.verifier(/Transfert TRF-\d{4}-\d{5} enregistré\./.test(ok.replace(/ Voir le document/, '')) || /Transfert TRF-\d{4}-\d{5} enregistré/.test(ok), 'succès du transfert : ' + ok);
   L.verifier(num(stock(1, 1)) === s1 - 2 && num(stock(1, 4)) === s1d + 2, 'transfert : -2 à la source, +2 à la destination');
-  L.verifier(await g.inputValue('#emplacement') === '1' && await g.inputValue('#destination') === '4' && await g.evaluate(() => document.activeElement.id) === 'scan', 'transfert : source/destination conservées, focus dans le scan');
+  L.verifier(await g.inputValue('#emplacement') === '1' && await g.inputValue('#destination') === '' && await g.evaluate(() => document.activeElement.id) === 'scan', 'transfert : source conservée, destination à choisir de nouveau, focus dans le scan');
   const docTrf = parseInt(sql("SELECT MAX(id) FROM documents WHERE type='transfert'"), 10);
   // transfert entre entreprises, source = destination : refusés par le serveur
   const rTE = await appel(g, 'app/action/transfert_save.php', { emplacement_id: 1, emplacement_dest_id: 5, lignes: [{ piece_id: 1, quantite: '1' }] });
@@ -520,10 +534,10 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   await L.aller(g, 'ajustement&piece_id=2&emplacement_id=3');
   l = await lignes(g);
-  L.verifier(l.length === 1 && l[0][0] === 'P-0002' && l[0][2] === '1', 'prérenseignement &piece_id=2 : une ligne P-0002, quantité 1 : ' + JSON.stringify(l));
+  L.verifier(l.length === 1 && l[0][0] === 'P-0002' && l[0][3] === '1', 'prérenseignement &piece_id=2 : une ligne P-0002, quantité 1 : ' + JSON.stringify(l));
   L.verifier(await g.inputValue('#emplacement') === '3', 'prérenseignement &emplacement_id=3');
   const thA = await g.$$eval('#lignes thead th', t => t.map(x => x.textContent.trim()));
-  L.verifier(thA.join('|') === 'Code|Pièce|Quantité|Coût unitaire|Total|', 'colonnes de l\'ajustement : ' + thA.join('|'));
+  L.verifier(thA.join('|') === 'Code|Pièce|Stock actuel|Quantité|Coût unitaire|Total|', 'colonnes de l\'ajustement : ' + thA.join('|'));
   await scan(g, 'P-0001', 2);
   await g.fill('#lignes tbody tr:nth-child(1) input:not([aria-label^="Coût"])', '2');
   await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '80,00');
@@ -533,7 +547,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.selectOption('#motif', 'correction');
   await g.fill('#lignes tbody tr:nth-child(2) input:not([aria-label^="Coût"])', '0');
   await g.click('#btn-enregistrer'); err = await erreurSaisie(g);
-  L.verifier(/ne peut pas être zéro/.test(err), 'ajustement : variation zéro refusée : ' + err);
+  L.verifier(/La quantité de « P-0001 » ne peut pas être zéro/.test(err), 'ajustement : quantité zéro refusée (même mot que la colonne) : ' + err);
   await g.fill('#lignes tbody tr:nth-child(2) input:not([aria-label^="Coût"])', '-999');
   await g.click('#btn-enregistrer'); err = await erreurSaisie(g);
   L.verifier(/Stock insuffisant pour « P-0001/.test(err) && (await lignes(g)).length === 2, 'ajustement négatif trop grand : stock insuffisant, saisie conservée : ' + err);
@@ -553,7 +567,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   let t = await ouvrirDocuments(g);
   const entetes = await g.$$eval('#table-documents thead th', x => x.map(c => c.textContent.trim()));
-  L.verifier(entetes.join('|') === 'Numéro|Type|Date|Entreprise|Emplacement(s)|Utilisateur|Total|Statut', 'colonnes (gestionnaire) : ' + entetes.join('|'));
+  L.verifier(entetes.join('|') === 'Numéro|Statut|Type|Date|Entreprise|Emplacement(s)|Utilisateur|Total', 'colonnes (gestionnaire) : ' + entetes.join('|'));
   const total1 = nbDocs();
   L.verifier(new RegExp('de ' + total1 + ' documents').test(t.info), 'info : ' + t.info + ' (SQL : ' + total1 + ')');
   L.verifier(/^REC-|^AJU-|^TRF-|^SOR-/.test(t.rows[0]), 'le plus récent d\'abord : ' + t.rows[0].slice(0, 30));
@@ -596,7 +610,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await viderToasts(g);
   for (let c = 1; c <= 8; c++) { await g.click('#table-documents thead th:nth-child(' + c + ')'); await tableau(g); }
   L.verifier(!(await toastTexte(g)).includes('Impossible de charger'), 'tri sur chacune des 8 colonnes : aucune erreur de chargement');
-  await g.click('#table-documents thead th:nth-child(3)'); await tableau(g);
+  await g.click('#table-documents thead th:nth-child(4)'); await tableau(g);
   // préremplissage par l'adresse (filtres) et valeurs hostiles
   t = await ouvrirDocuments(g, '&type=sortie&statut=valide');
   L.verifier(await g.inputValue('#f-type') === 'sortie' && t.rows.every(r => /Sortie/.test(r)), 'filtres reçus par l\'adresse');
@@ -611,7 +625,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // employé : colonne « Total » absente (HTML et JSON), documents de son entreprise seulement
   t = await ouvrirDocuments(e);
   const entEmp = await e.$$eval('#table-documents thead th', x => x.map(c => c.textContent.trim()));
-  L.verifier(entEmp.join('|') === 'Numéro|Type|Date|Entreprise|Emplacement(s)|Utilisateur|Statut', 'employé : colonnes sans « Total » : ' + entEmp.join('|'));
+  L.verifier(entEmp.join('|') === 'Numéro|Statut|Type|Date|Entreprise|Emplacement(s)|Utilisateur', 'employé : colonnes sans « Total » : ' + entEmp.join('|'));
   L.verifier(!/Total/.test(await e.textContent('.content-wrapper')) && !/\d\s?\$/.test(await e.textContent('#table-documents')), 'employé : aucun montant ni « Total » dans la page des documents');
   const rawEmp = await liste(e, { draw: '1', start: '0', length: '100' });
   L.verifier(rawEmp.status === 200 && !/"total"/.test(rawEmp.texte) && !/\d\s?\$/.test(rawEmp.texte), 'employé : aucun « total » dans le JSON brut');
@@ -676,7 +690,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await Promise.all([g.waitForNavigation(), g.click('#annuler-confirmer')]);
   await g.waitForSelector('#bandeau-annule');
   const bandeau = await texteNorm(g, '#bandeau-annule');
-  L.verifier(/ANNULÉ/.test(bandeau) && /Erreur de saisie <b>test<\/b>/.test(bandeau) && /gestionnaire1/.test(bandeau) && /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(bandeau), 'badge ANNULÉ avec motif, auteur et date : ' + bandeau);
+  L.verifier(/ANNULÉ/.test(bandeau) && /Erreur de saisie <b>test<\/b>/.test(bandeau) && /Gestionnaire Démo/.test(bandeau) && !/gestionnaire1/.test(bandeau) && /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(bandeau), 'badge ANNULÉ avec motif, auteur et date : ' + bandeau);
   L.verifier((await g.$$('#bandeau-annule b')).length === 0, 'le motif est échappé (pas de HTML injecté)');
   L.verifier((await g.$$('#btn-annuler')).length === 0, 'plus de bouton Annuler sur un document annulé');
   L.verifier(num(stock(1, 1)) === sAvant1 - 2, 'annulation : le stock est repris (-2)');
@@ -825,9 +839,10 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   for (let i = 1; i <= 301; i++) { await L.scanner(g, '#scan', 'T-' + String(i).padStart(4, '0')); if (i % 50 === 0 || i > 298) await attendreLignes(g, i); else await g.waitForFunction(k => document.querySelectorAll('#lignes tbody tr').length >= k, i, { timeout: 8000 }); }
   L.verifier((await lignes(g)).length === 301, 'interface : 301 lignes ajoutées au scanner');
   L.verifier(/301 lignes/.test(await g.textContent('#mv-resume')), 'résumé : ' + await g.textContent('#mv-resume'));
+  L.verifier(await g.$eval('#mv-resume', x => x.classList.contains('text-danger')) && /maximum 300 par document/.test(await g.textContent('#mv-resume')), 'au-delà de 300 lignes, le compteur passe au rouge : « maximum 300 par document »');
   await g.click('#btn-enregistrer'); err = await erreurSaisie(g);
   L.verifier(/Trop de lignes \(maximum 300\)/.test(err) && (await lignes(g)).length === 301 && parseInt(sql('SELECT COUNT(*) FROM mouvements'), 10) === nbMouvAvant, '301 lignes : message clair, saisie conservée, rien d\'enregistré : ' + err);
-  await g.click('#lignes tbody tr:last-child button');
+  await g.click('#lignes tbody tr:last-child button[aria-label^="Retirer"]');
   await g.click('#btn-enregistrer'); ok = await succesSaisie(g);
   L.verifier(/Ajustement AJU/.test(ok) && parseInt(sql('SELECT COUNT(*) FROM mouvements'), 10) === nbMouvAvant + 300, '300 lignes : enregistrées en un seul document (' + (parseInt(sql('SELECT COUNT(*) FROM mouvements'), 10) - nbMouvAvant) + ' mouvements)');
   const idDoc300 = parseInt(sql("SELECT MAX(id) FROM documents"), 10);
@@ -848,8 +863,346 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(await haut('#btn-enregistrer') >= 44 && await haut('#emplacement') >= 44 && await haut('#date') >= 44 && await haut('#scan') >= 44, 'tablette : bouton et champs ≥ 44 px de haut');
   await scan(tab, 'P-0001', 1);
   L.verifier(await tab.$eval('#lignes tbody tr input', x => x.getAttribute('inputmode')) === 'decimal', 'tablette : quantités en inputmode=decimal');
-  L.verifier(await tab.$eval('#lignes tbody tr button', x => x.getBoundingClientRect().height) >= 40, 'tablette : bouton de retrait de ligne assez grand');
+  L.verifier(await tab.$eval('#lignes tbody tr button', x => x.getBoundingClientRect().height) >= 44, 'tablette : bouton de retrait de ligne ≥ 44 px');
   L.verifier(await tab.$eval('#scan', x => x.getAttribute('inputmode')) === 'none', 'le champ de scan n\'ouvre pas le clavier virtuel (inputmode=none)');
+
+  }
+
+  // =====================================================================================================================
+  console.log('14. Corrections après relecture (scan, validation, typographie, accessibilité, documents)');
+  // =====================================================================================================================
+  const NBSP = ' ';
+  // ---- lecteur de codes-barres : une frappe tombée ailleurs que dans le champ de scan n'est jamais perdue ni ne corrompt une valeur
+  await L.aller(g, 'sortie&emplacement_id=1');
+  await g.selectOption('#motif', 'service');
+  await g.keyboard.type('P-0003'); await g.keyboard.press('Enter');          // le focus est sur la liste des motifs (liste fermée)
+  await attendreLignes(g, 1);
+  L.verifier((await lignes(g))[0][0] === 'P-0003' && await g.inputValue('#motif') === 'service' && await g.inputValue('#emplacement') === '1', 'scan alors que le focus est sur une liste : la ligne est ajoutée, la liste ne change pas');
+  await g.click('#lignes tbody tr:nth-child(1) input');
+  await g.keyboard.type('P-0002'); await g.keyboard.press('Enter');          // lettres tapées dans une quantité : c'est un code
+  await attendreLignes(g, 2);
+  l = await lignes(g);
+  L.verifier(l[0][3] === '1' && l[1][0] === 'P-0002', 'scan alors que le focus est dans une quantité : la quantité n\'est pas écrasée (' + JSON.stringify(l.map(x => x[3])) + ')');
+  await g.click('#lignes tbody tr:nth-child(1) input');
+  await g.keyboard.type('012345678905'); await g.keyboard.press('Enter');    // code UPC (chiffres) = alias de P-0001, tapé dans une quantité
+  await attendreLignes(g, 3);
+  l = await lignes(g);
+  L.verifier(l[0][3] === '1' && l[2][0] === 'P-0001' && l[2][3] === '1', 'code UPC tapé dans une quantité : valeur rétablie, pièce ajoutée : ' + JSON.stringify(l.map(x => x[0] + '=' + x[3])));
+  await g.click('#lignes tbody tr:nth-child(1) input');
+  await g.keyboard.type('12,5');
+  L.verifier(await g.inputValue('#lignes tbody tr:nth-child(1) input') === '12,5', 'une quantité tapée au clavier reste intacte');
+  await g.fill('#lignes tbody tr:nth-child(1) input', '1');
+  await g.click('#date');
+  await g.keyboard.type('P-0004'); await g.keyboard.press('Enter');          // focus sur la date
+  await attendreLignes(g, 4);
+  L.verifier(await g.inputValue('#date') === await g.$eval('#date', x => x.max), 'scan alors que le focus est sur la date : la date n\'est pas modifiée');
+  await L.aller(g, 'reception&emplacement_id=1');
+  await g.selectOption('#fournisseur', '2');
+  await g.click('#maj-prix');
+  await g.keyboard.type('P-0001'); await g.keyboard.press('Enter');          // focus sur la case à cocher
+  await attendreLignes(g, 1);
+  L.verifier(await g.isChecked('#maj-prix'), 'scan alors que le focus est sur une case à cocher : la ligne est ajoutée');
+  // rafale de scans pendant que le serveur est lent : aucun scan perdu
+  await L.aller(g, 'sortie&emplacement_id=1');
+  await g.route('**/scan_code.php*', async r => { await attendre(250); await r.continue(); });
+  for (const c of ['P-0001', 'P-0002', 'P-0004', 'P-0005', 'P-0006', 'P-0007']) { await g.fill('#scan', c); await g.press('#scan', 'Enter'); await attendre(100); }
+  await g.waitForFunction(() => document.querySelectorAll('#lignes tbody tr').length === 6, null, { timeout: 12000 });
+  await g.unroute('**/scan_code.php*');
+  L.verifier(true, 'six scans espacés de 100 ms avec un serveur lent (250 ms) : six lignes, aucun scan perdu');
+  await g.reload(); await g.waitForLoadState('networkidle');
+
+  // ---- transfert : le premier code EMP-… de la saisie choisit la source (même si une source est mémorisée)
+  await g.evaluate(() => { try { localStorage.setItem('bea.mv.transfert.emplacement', '1'); } catch (x) { /* ignoré */ } });
+  await L.aller(g, 'transfert');
+  L.verifier(await g.inputValue('#emplacement') === '1', 'transfert : la source mémorisée est préremplie');
+  await L.scanner(g, '#scan', 'EMP-000003'); await g.waitForFunction(() => document.getElementById('emplacement').value === '3');
+  L.verifier(await g.inputValue('#destination') === '', 'transfert : le premier code scanné remplace la source mémorisée (destination vide)');
+  await L.scanner(g, '#scan', 'EMP-000004'); await g.waitForFunction(() => document.getElementById('destination').value === '4');
+  L.verifier(await g.inputValue('#emplacement') === '3', 'transfert : le second code scanné devient la destination');
+  await viderToasts(g);
+  await L.scanner(g, '#scan', 'EMP-000005');
+  await attendreToast(g, 'autre entreprise');
+  const toastAutre = await toastTexte(g);
+  L.verifier(/Boutique Chaleur/.test(toastAutre) && /Beauchemin/.test(toastAutre) && /facture interne/.test(toastAutre), 'transfert : l\'autre entreprise est nommée dans le message : ' + toastAutre.slice(0, 200));
+  await scan(g, 'P-0005', 1);
+  await g.click('#btn-enregistrer'); await succesSaisie(g);
+  await L.scanner(g, '#scan', 'EMP-000004'); await g.waitForFunction(() => document.getElementById('emplacement').value === '4');
+  L.verifier(await g.inputValue('#destination') === '', 'après un enregistrement : le premier code scanné choisit de nouveau la source');
+  // même nom d'emplacement dans deux entreprises : l'entreprise est précisée dans les messages
+  await L.aller(g, 'transfert&emplacement_id=1');
+  await viderToasts(g);
+  await L.scanner(g, '#scan', 'EMP-000001'); await attendreToast(g, 'déjà la source');
+  L.verifier(/Entrepôt Beauchemin|Entrepôt principal/.test(await toastTexte(g)), 'transfert : source scannée de nouveau : message clair');
+  // source imposée par l'adresse : le premier code scanné est alors la destination
+  await L.aller(g, 'transfert&emplacement_id=3');
+  await L.scanner(g, '#scan', 'EMP-000004'); await g.waitForFunction(() => document.getElementById('destination').value === '4');
+  L.verifier(await g.inputValue('#emplacement') === '3', 'transfert&emplacement_id=3 : la source de l\'adresse est conservée, le code scanné devient la destination');
+  // une erreur sur un champ d'en-tête reste affichée tant que le champ n'est pas corrigé (ajouter une pièce ne l'efface pas)
+  await L.aller(g, 'sortie');
+  await scan(g, 'P-0002', 1);
+  await g.click('#btn-enregistrer'); await erreurSaisie(g);
+  await scan(g, 'P-0001', 2);
+  L.verifier(!(await g.$eval('#mv-erreur', x => x.hidden)), 'erreur d\'en-tête (emplacement manquant) : elle reste affichée quand on ajoute une pièce');
+  await g.selectOption('#emplacement', '1');
+  L.verifier(await g.$eval('#mv-erreur', x => x.hidden), 'elle disparaît quand le champ est corrigé');
+  // textes selon le rôle (un employé ne peut pas faire de facture interne)
+  await L.aller(e, 'transfert');
+  const aideEmp = await texteNorm(e, '.content-wrapper');
+  L.verifier(/demandez à un gestionnaire de faire une facture interne/.test(aideEmp) && !/utilisez une facture interne/.test(aideEmp), 'employé : le transfert renvoie à un gestionnaire, pas à une page qu\'il ne peut pas ouvrir');
+  await L.aller(g, 'transfert');
+  L.verifier(/utilisez une facture interne/.test(await texteNorm(g, '.content-wrapper')), 'gestionnaire : le transfert renvoie à la facture interne');
+  await ouvrirDocuments(e);
+  L.verifier(!/annuler/i.test(await texteNorm(e, '.content-wrapper p.text-muted')), 'employé : la liste des documents ne parle pas d\'annulation');
+  await ouvrirDocuments(g);
+  L.verifier(/l'annuler/.test(await texteNorm(g, '.content-wrapper p.text-muted')), 'gestionnaire : la liste des documents mentionne l\'annulation');
+
+  // ---- totaux de ligne exacts (cents), pas de nombres à virgule
+  await L.aller(g, 'reception&emplacement_id=1');
+  await scan(g, 'P-0011', 1);
+  await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]', '0,5');
+  await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '2,01');
+  L.verifier((await texteNorm(g, '#lignes tbody tr:nth-child(1) td:nth-last-child(2)')) === '1,01 $' && /1,01 \$/.test(await texteNorm(g, '#mv-total')), 'total de ligne 0,5 x 2,01 = 1,01 $ (et non 1,00 $) : ' + await texteNorm(g, '#lignes tbody tr:nth-child(1) td:nth-last-child(2)'));
+  await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]', '1');
+  await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '1,005');
+  L.verifier((await texteNorm(g, '#lignes tbody tr:nth-child(1) td:nth-last-child(2)')) === '1,01 $', 'total de ligne 1 x 1,005 = 1,01 $ : ' + await texteNorm(g, '#lignes tbody tr:nth-child(1) td:nth-last-child(2)'));
+
+  // ---- vérification stricte des nombres, message qui désigne la pièce, champ surligné
+  const essais = [
+    ['Quantité', '12abc', /Quantité invalide pour « P-0011 »/],
+    ['Quantité', '1e1', /Quantité invalide/],
+    ['Quantité', '1.000.5', /Quantité invalide/],
+    ['Quantité', '1,2345', /plus de 3 décimales/],
+    ['Quantité', '100001', /trop grande/],
+    ['Quantité', '0', /supérieure à zéro/],
+    ['Coût', 'abc', /Coût unitaire invalide pour « P-0011 »/],
+    ['Coût', '-2', /Coût unitaire invalide/],
+    ['Coût', '1,23456', /plus de 4 décimales/],
+    ['Coût', '100001', /trop élevé/],
+    ['Coût', '', /Entrez le coût unitaire de « P-0011 »/],
+  ];
+  for (const [champ, valeur, motif] of essais) {
+    await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]', '1');
+    await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '2,50');
+    await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="' + champ + '"]', valeur);
+    await g.click('#btn-enregistrer');
+    await g.waitForSelector('#mv-erreur:not([hidden])');
+    const brut = (await g.textContent('#mv-erreur')).trim();
+    const surligne = await g.$eval('#lignes tbody tr:nth-child(1) input[aria-label^="' + champ + '"]', x => x.classList.contains('is-invalid') && document.activeElement === x);
+    L.verifier(motif.test(brut) && surligne, champ + ' « ' + valeur + ' » : message précis, champ surligné et sélectionné : ' + brut);
+  }
+  // le message d'erreur disparaît dès que l'on corrige, et le message de succès du document précédent dès qu'on scanne
+  await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]', '1');
+  await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '');
+  await g.click('#btn-enregistrer'); await erreurSaisie(g);
+  await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '14,5');
+  L.verifier(await g.$eval('#mv-erreur', x => x.hidden), 'après la correction du coût, le bandeau d\'erreur disparaît');
+  const nbAvantEnr = nbDocs();
+  await g.click('#btn-enregistrer'); await succesSaisie(g);
+  L.verifier(nbDocs() === nbAvantEnr + 1, 'les saisies refusées plus haut n\'ont créé aucun document, la bonne en crée un');
+  await scan(g, 'P-0001', 1);
+  L.verifier(await g.$eval('#mv-succes', x => x.hidden), 'le message de réussite du document précédent disparaît dès qu\'on scanne une nouvelle pièce');
+  // erreur du serveur « Ligne N » : traduite en code de pièce, rangée surlignée
+  await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '3');
+  await scan(g, 'P-0002', 2); await scan(g, 'P-0004', 3);
+  await g.route('**/reception_save.php', r => r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ ok: false, erreur: 'Ligne 3 : coût invalide.', champ: 'lignes' }) }));
+  await g.fill('#lignes tbody tr:nth-child(2) input[aria-label^="Coût"]', '4'); await g.fill('#lignes tbody tr:nth-child(3) input[aria-label^="Coût"]', '5');
+  await g.click('#btn-enregistrer'); err = await erreurSaisie(g);
+  await g.unroute('**/reception_save.php');
+  L.verifier(/^Pièce «\s?P-0004\s?» : coût invalide\./.test(err) && await g.$eval('#lignes tbody tr:nth-child(3) input[aria-label^="Coût"]', x => x.classList.contains('is-invalid')), 'erreur du serveur « Ligne 3 » : traduite en code de pièce, coût de la rangée surligné : ' + err);
+  await g.click('#lignes tbody tr:nth-child(3) button'); await g.click('#lignes tbody tr:nth-child(2) button'); await g.click('#lignes tbody tr:nth-child(1) button');
+
+  // ---- typographie : espaces insécables dans les guillemets et avant « : »
+  await scan(g, 'P-0011', 1);
+  await g.waitForFunction(() => document.querySelector('#lignes tbody tr input[aria-label^="Coût"]').value !== '');
+  await g.fill('#lignes tbody tr input[aria-label^="Coût"]', '');
+  await g.click('#btn-enregistrer'); await g.waitForSelector('#mv-erreur:not([hidden])');
+  const brutErr = await g.textContent('#mv-erreur');
+  L.verifier(brutErr.includes('«' + NBSP + 'P-0011' + NBSP + '»') && !/« P-|P-0011 »/.test(brutErr), 'typographie : espaces insécables dans « P-0011 » : ' + JSON.stringify(brutErr));
+  await g.click('#lignes tbody tr button');
+  await L.aller(g, 'sortie&emplacement_id=3'); await g.selectOption('#motif', 'service'); await scan(g, 'P-0003', 1);
+  await g.fill('#lignes tbody tr:nth-child(1) input', '999'); await g.click('#btn-enregistrer'); await g.waitForSelector('#mv-erreur:not([hidden])');
+  const brutStock = await g.textContent('#mv-erreur');
+  L.verifier(/« P-0003 — .* »/.test(brutStock) && / : ?disponible| : disponible/.test(brutStock.replace(/«.*?»/g, '')) && await g.$eval('#lignes tbody tr:nth-child(1) input', x => x.classList.contains('is-invalid')), 'message de stock insuffisant : typographie et quantité surlignée : ' + JSON.stringify(brutStock));
+  await g.click('#lignes tbody tr button');
+
+  // ---- avertissement avant de quitter une saisie en cours
+  {
+    const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+    const pq = await ctx.newPage(); const types = [];
+    pq.on('dialog', d => { types.push(d.type()); d.dismiss().catch(() => {}); });
+    await pq.goto(L.BASE + '/login.php'); await pq.fill('input[name=username]', 'gestionnaire1'); await pq.fill('input[name=password]', MDP);
+    await Promise.all([pq.waitForNavigation(), pq.click('button[type=submit]')]);
+    await L.aller(pq, 'sortie&emplacement_id=1');
+    await pq.click('#scan'); await pq.keyboard.type('P-0002'); await pq.keyboard.press('Enter'); await attendreLignes(pq, 1);
+    await pq.goto(L.BASE + '/index.php?page=documents').catch(() => {});
+    L.verifier(types.includes('beforeunload') && /page=sortie/.test(pq.url()), 'quitter la page avec des lignes saisies : avertissement (et on reste sur la page) : ' + types.join(',') + ' ' + pq.url());
+    types.length = 0;
+    await pq.selectOption('#motif', 'service'); await pq.click('#btn-enregistrer'); await succesSaisie(pq);
+    await pq.goto(L.BASE + '/index.php?page=documents'); await pq.waitForLoadState('networkidle');
+    L.verifier(!types.includes('beforeunload') && /page=documents/.test(pq.url()), 'après l\'enregistrement (plus de lignes) : aucun avertissement en quittant la page');
+    await ctx.close();
+  }
+
+  // ---- ajustement : colonne « Stock actuel », bouton +/−, quantité signée, avertissement de signe
+  await L.aller(g, 'ajustement&emplacement_id=3');
+  await scan(g, 'P-0003', 1);
+  l = await lignes(g);
+  L.verifier(num(l[0][2]) === num(stock(3, 3)), 'ajustement : « Stock actuel » = solde de l\'emplacement (' + l[0][2] + ')');
+  await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]', '3');
+  await g.click('#lignes tbody tr:nth-child(1) .mv-signe');
+  L.verifier(await g.inputValue('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]') === '-3', 'bouton +/− : « 3 » devient « -3 »');
+  await g.click('#lignes tbody tr:nth-child(1) .mv-signe');
+  L.verifier(await g.inputValue('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]') === '3', 'bouton +/− : « -3 » redevient « 3 »');
+  L.verifier((await lignes(g))[0][0] === 'P-0003' && await g.$eval('#lignes tbody tr:nth-child(1) .mv-signe', x => x.getAttribute('aria-label')) === 'Changer le signe de la quantité de P-0003', 'bouton +/− : nom accessible');
+  await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]', '');
+  await g.click('#lignes tbody tr:nth-child(1) .mv-signe');
+  L.verifier(await g.inputValue('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]') === '-', 'bouton +/− sur une quantité vide : le signe « - » est posé');
+  await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Retirer"]');
+
+  // ---- documents : messages de liste vide selon les filtres, dates inversées, erreurs de chargement, accessibilité
+  await ouvrirDocuments(g);
+  await g.selectOption('#f-type', 'ajustement'); await g.selectOption('#f-statut', 'annule'); t = await tableau(g);
+  L.verifier(t.vide && /ne correspond à ces critères/.test(t.rows[0]) && !/pour le moment/.test(t.rows[0]), 'filtres sans résultat : « Aucun document ne correspond à ces critères » (et non « pour le moment ») : ' + t.rows[0]);
+  await g.click('#f-effacer'); await tableau(g);
+  await g.fill('#f-du', '2026-04-01'); await g.fill('#f-au', '2026-03-01'); t = await tableau(g);
+  L.verifier(t.vide && /date de début est après la date de fin/.test(t.rows[0]) && !(await g.$eval('#f-avert', x => x.hidden)), 'dates inversées : avertissement sous les champs et dans le tableau : ' + t.rows[0]);
+  await g.click('#f-effacer'); await tableau(g);
+  L.verifier(await g.$eval('#f-avert', x => x.hidden), 'effacer les filtres : l\'avertissement des dates disparaît');
+  const ariaTri = await g.getAttribute('#table-documents thead th:nth-child(1)', 'aria-label');
+  L.verifier(/activer pour trier/.test(ariaTri) && !/activate/.test(ariaTri), 'en-têtes triables : nom accessible en français : ' + ariaTri);
+  L.verifier(/Page suivante|Page précédente/.test(await g.$$eval('#table-documents_paginate a', a => a.map(x => x.getAttribute('aria-label') || '').join('|'))), 'pagination : noms accessibles en français');
+  // erreur serveur puis réseau coupé : message français durable avec « Réessayer », jamais de texte anglais
+  const erreursAvantRoutes = g.erreurs.length;
+  await viderToasts(g);
+  await g.route('**/documents_data.php', r => r.fulfill({ status: 500, contentType: 'text/html', body: 'x' }));
+  await L.aller(g, 'documents'); await attendre(900);
+  const html500 = await g.textContent('.content-wrapper');
+  L.verifier(!(await g.$eval('#documents-erreur', x => x.hidden)) && /Impossible de charger la liste des documents/.test(await texteNorm(g, '#documents-erreur')) && !/DataTables|Ajax|datatables\.net/.test(html500 + await toastTexte(g)), 'erreur 500 : message français durable, aucun texte anglais : ' + await texteNorm(g, '#documents-erreur'));
+  await g.unroute('**/documents_data.php');
+  await g.route('**/documents_data.php', r => r.abort());
+  await g.click('#documents-erreur button'); await attendre(900);
+  L.verifier(/Connexion au serveur impossible/.test(await texteNorm(g, '#documents-erreur')) && /Connexion au serveur impossible/.test(await toastTexte(g)), 'réseau coupé : message français (bandeau et notification) : ' + await texteNorm(g, '#documents-erreur'));
+  await g.unroute('**/documents_data.php');
+  await g.click('#documents-erreur button'); await tableau(g);
+  L.verifier(await g.$eval('#documents-erreur', x => x.hidden) && (await g.$$('#table-documents tbody tr a')).length > 0, '« Réessayer » : la liste se recharge, le message disparaît');
+  g.erreurs.splice(erreursAvantRoutes);      // erreurs réseau volontaires de ce test
+
+  // ---- validation côté serveur : lignes mal formées, sommes nulles, total trop élevé, même réponse pour inexistant et inaccessible
+  const nbAvantSrv = nbDocs();
+  for (const bad of [['x'], { a: 1 }, true, '1abc', '2.9', '3e0', -1, 0, null]) {
+    const r = await appel(g, 'app/action/sortie_save.php', { emplacement_id: 1, motif: 'service', lignes: [{ piece_id: bad, quantite: '0.001' }] });
+    L.verifier(r.status === 400 && /pièce (invalide|manquante)/.test(r.json.erreur), 'piece_id ' + JSON.stringify(bad) + ' refusé (400) : ' + (r.json && r.json.erreur));
+  }
+  const rOk = await appel(g, 'app/action/sortie_save.php', { emplacement_id: 1, motif: 'service', lignes: [{ piece_id: '2', quantite: '0.001' }] });
+  L.verifier(rOk.json.ok, 'piece_id « 2 » (chaîne de chiffres) accepté');
+  const rLigne = await appel(g, 'app/action/sortie_save.php', { emplacement_id: 1, motif: 'service', lignes: ['x'] });
+  L.verifier(rLigne.status === 400 && /Ligne 1 invalide/.test(rLigne.json.erreur), 'ligne qui n\'est pas un objet : refusée');
+  const rZero = await appel(g, 'app/action/ajustement_save.php', { emplacement_id: 1, motif: 'correction', lignes: [{ piece_id: 3, quantite: '5' }, { piece_id: 3, quantite: '-5' }] });
+  L.verifier(rZero.status === 400 && /s'annulent/.test(rZero.json.erreur), 'ajustement +5 puis −5 de la même pièce : refusé : ' + (rZero.json && rZero.json.erreur));
+  L.verifier(nbDocs() === nbAvantSrv + 1, 'ces refus n\'ont créé aucun document (seule la sortie valide en a créé un)');
+  const gros = []; for (let p = 1; p <= 14; p++) for (let k = 0; k < 9; k++) gros.push({ piece_id: p, quantite: '99999.999', cout_unitaire: '99999.9999' });
+  const rGros = await appel(g, 'app/action/reception_save.php', { emplacement_id: 2, lignes: gros });
+  L.verifier(rGros.status === 400 && /total du document est trop élevé/.test(rGros.json.erreur), 'total au-delà de la capacité : message clair (et non 500) : ' + rGros.status + ' ' + (rGros.json && rGros.json.erreur));
+  const empInexistant = await appel(e, 'app/action/sortie_save.php', { emplacement_id: 99999, motif: 'service', lignes: [{ piece_id: 1, quantite: '1' }] });
+  const empAutre = await appel(e, 'app/action/sortie_save.php', { emplacement_id: 2, motif: 'service', lignes: [{ piece_id: 1, quantite: '1' }] });
+  L.verifier(empInexistant.status === empAutre.status && empInexistant.texte === empAutre.texte, 'emplacement inexistant ou d\'une autre entreprise : réponse identique : ' + empAutre.texte);
+  await L.aller(e, 'document_voir&id=99999'); const pageInexistante = await texteNorm(e, '.content-wrapper');
+  await L.aller(e, 'document_voir&id=2'); const pageAutreEnt = await texteNorm(e, '.content-wrapper');
+  L.verifier(pageInexistante === pageAutreEnt && /introuvable/i.test(pageAutreEnt), 'document inexistant ou d\'une autre entreprise : même page');
+  // paramètres de tableau envoyés au tableau des documents : aucune erreur (le journal est relu à la fin)
+  const rTab2 = await liste(g, { draw: '1', start: '0', length: '10', 'search[value][]': 'x', 'order[0][column]': '0', 'columns[0][data][]': 'x', 'order[0][dir][]': 'x' });
+  L.verifier(rTab2.status === 200 && rTab2.json && rTab2.json.data !== undefined, 'documents_data : paramètres de tableau (recherche, tri) ignorés proprement');
+
+  // ---- annulation : libellés, avertissement sur les prix du fournisseur, message d'impossibilité, focus
+  const rMaj = await appel(g, 'app/action/reception_save.php', { emplacement_id: 1, fournisseur_id: 1, maj_prix: true, reference: 'FAC-PRIX-1', lignes: [{ piece_id: 4, quantite: '1', cout_unitaire: '1090' }] });
+  await L.aller(g, 'document_voir&id=' + rMaj.json.id);
+  await g.click('#btn-annuler'); await g.waitForSelector('#modal-annuler.show');
+  L.verifier(/ne rétablit pas ces prix/.test(await texteNorm(g, '#annuler-prix')), 'annulation d\'une réception qui a mis à jour les prix du fournisseur : avertissement : ' + await texteNorm(g, '#annuler-prix').catch(() => '(absent)'));
+  L.verifier(await texteNorm(g, '#annuler-confirmer') === 'Confirmer l\'annulation' && await texteNorm(g, '#annuler-retour') === 'Ne pas annuler', 'fenêtre d\'annulation : boutons « Confirmer l\'annulation » et « Ne pas annuler »');
+  await g.waitForFunction(() => document.activeElement && document.activeElement.id === 'annuler-motif');      // fenêtre entièrement ouverte (fin de la transition)
+  await g.keyboard.press('Escape'); await g.waitForSelector('#modal-annuler', { state: 'hidden' });
+  await g.waitForFunction(() => document.activeElement && document.activeElement.id === 'btn-annuler', null, { timeout: 3000 }).catch(() => {});
+  L.verifier(await g.evaluate(() => document.activeElement && document.activeElement.id) === 'btn-annuler', 'fermeture de la fenêtre : le focus revient au bouton « Annuler ce document »');
+  const rSansMaj = await appel(g, 'app/action/reception_save.php', { emplacement_id: 1, fournisseur_id: 1, reference: 'FAC-PRIX-2', lignes: [{ piece_id: 4, quantite: '1', cout_unitaire: '110' }] });
+  await L.aller(g, 'document_voir&id=' + rSansMaj.json.id);
+  await g.click('#btn-annuler'); await g.waitForSelector('#modal-annuler.show');
+  L.verifier((await g.$$('#annuler-prix')).length === 0, 'réception sans mise à jour des prix : pas d\'avertissement');
+  await g.fill('#annuler-motif', 'Erreur'); await Promise.all([g.waitForNavigation(), g.click('#annuler-confirmer')]);
+  L.verifier(/le stock a été corrigé/.test(await texteNorm(g, '.alert-success')) && !/écritures inverses/.test(await g.textContent('.content-wrapper')), 'message après annulation : sans jargon');
+  L.verifier(await g.$eval('.alert-success', x => x.classList.contains('no-print')), 'le message passager ne s\'imprime pas');
+  await g.emulateMedia({ media: 'print' });
+  L.verifier(await g.$eval('.alert-success', x => getComputedStyle(x).display) === 'none', 'impression : le bandeau « annulé » passager est masqué');
+  await g.emulateMedia({ media: 'screen' });
+  // annulation refusée : message qui explique (la quantité n'est plus « demandée »)
+  const rr2 = await appel(g, 'app/action/reception_save.php', { emplacement_id: 1, reference: 'FAC-ANN-3', lignes: [{ piece_id: 7, quantite: '2', cout_unitaire: '10' }] });
+  await appel(g, 'app/action/sortie_save.php', { emplacement_id: 1, motif: 'service', lignes: [{ piece_id: 7, quantite: String(num(stock(7, 1))) }] });
+  const rAnnImp = await appel(g, 'app/action/document_annuler.php', { id: rr2.json.id, motif: 'test' });
+  L.verifier(rAnnImp.status === 400 && /^Annulation impossible : les pièces ne sont plus toutes en stock\. Stock insuffisant/.test(rAnnImp.json.erreur) && /à reprendre/.test(rAnnImp.json.erreur) && !/demandé/.test(rAnnImp.json.erreur), 'annulation impossible : cause expliquée, « à reprendre » : ' + (rAnnImp.json && rAnnImp.json.erreur));
+  // annuler une facture interne dont la marchandise a été utilisée chez l'autre entreprise : aucun détail du stock de l'autre entreprise
+  sql("INSERT INTO utilisateurs (nom_utilisateur, nom_complet, mot_de_passe, role) VALUES ('gestionnaire3', 'Gestionnaire BEA', '" + hash + "', 'gestionnaire');" +
+      "INSERT INTO utilisateur_entreprises (utilisateur_id, entreprise_id) SELECT id, 1 FROM utilisateurs WHERE nom_utilisateur = 'gestionnaire3';");
+  const g3 = await connecterAs('gestionnaire3');
+  await appel(g, 'app/action/sortie_save.php', { emplacement_id: 5, motif: 'service', lignes: [{ piece_id: 12, quantite: '1' }] });
+  const finId = sql("SELECT id FROM documents WHERE type='facture_interne' AND statut='valide' AND entreprise_id=1 ORDER BY id LIMIT 1");
+  const rFin = await appel(g3, 'app/action/document_annuler.php', { id: parseInt(finId, 10), motif: 'test' });
+  L.verifier(rFin.status === 400 && !/Centre-ville|Boutique|disponible\s?:?\s?\d|demandé/.test(rFin.json.erreur) && sql("SELECT statut FROM documents WHERE id=" + finId) === 'valide', 'annulation d\'une facture interne par un gestionnaire sans accès à l\'autre entreprise : aucun détail du stock de l\'autre entreprise : ' + (rFin.json && rFin.json.erreur));
+
+  // ---- onglets, champs obligatoires, focus, contrastes
+  await L.aller(g, 'reception');
+  const titres = [await g.title()];
+  await L.aller(g, 'documents'); titres.push(await g.title());
+  await L.aller(g, 'document_voir&id=1'); titres.push(await g.title());
+  L.verifier(titres[0].startsWith('Réception de marchandise') && titres[1].startsWith('Documents') && /^Document [A-Z]{3}-\d{4}-\d{5} — Beauchemin$/.test(titres[2]) && new Set(titres).size === 3, 'titre d\'onglet propre à chaque écran : ' + titres.join(' | '));
+  await L.aller(g, 'sortie');
+  L.verifier(await g.$eval('#emplacement', x => x.required && x.getAttribute('aria-required') === 'true') && await g.$eval('#date', x => x.required) && await g.$eval('#motif', x => x.required), 'champs obligatoires : required et aria-required');
+  await g.focus('#reference');
+  L.verifier(await g.$eval('#reference', x => getComputedStyle(x).boxShadow !== 'none'), 'focus visible : un contour marqué entoure le champ actif');
+  const couleurs = await g.evaluate(() => { const b = document.createElement('span'); b.className = 'badge badge-success'; document.querySelector('.mv-carte').appendChild(b); const c = getComputedStyle(b).backgroundColor; b.remove(); return c; });
+  L.verifier(couleurs === 'rgb(30, 126, 52)', 'badge « Valide » : contraste suffisant (' + couleurs + ')');
+
+  // ---- montants de 1 000 $ et plus : séparateur de milliers valide (aucun caractère de remplacement)
+  await L.aller(g, 'document_voir&id=1');
+  const totalDoc = await g.textContent('#total-document');
+  L.verifier(/^7[\s\u00a0]721,40[\s\u00a0]\$$/.test(totalDoc.trim()) && !totalDoc.includes('\ufffd'), 'total de 7 721,40 $ affiché sans caractère corrompu : ' + JSON.stringify(totalDoc));
+  const rawG2 = await liste(g, { draw: '1', start: '0', length: '100' });
+  L.verifier(rawG2.status === 200 && !rawG2.texte.includes('\ufffd') && !rawG2.texte.includes('\\ufffd') && /7[\s\u00a0]721,40/.test(JSON.stringify(rawG2.json.data)), 'liste des documents : montants de 1 000 $ et plus sans caractère corrompu');
+
+  // ---- tablette : menu, mise en page, cibles tactiles
+  {
+    const tb = await connecterAs('gestionnaire1', { width: 768, height: 1024 });
+    await L.aller(tb, 'transfert');
+    const droite = await tb.$eval('.main-sidebar', x => x.getBoundingClientRect().right);
+    L.verifier(droite <= 0, 'tablette 768 px : menu replié entièrement caché (bord droit à ' + droite + ' px)');
+    await tb.click('[data-widget=pushmenu]');
+    await attendre(500);
+    L.verifier(await tb.evaluate(() => document.body.classList.contains('sidebar-open')), 'tablette 768 px : le bouton du menu s\'ouvre au toucher');
+    for (const route of ['reception', 'transfert', 'sortie', 'ajustement']) {
+      await L.aller(tb, route);
+      const d = await tb.$eval('#date', x => [x.clientWidth, x.scrollWidth]);
+      L.verifier(d[0] >= 140 && d[1] <= d[0], 'tablette 768 px : champ date lisible en entier sur ' + route + ' (' + d.join('/') + ')');
+    }
+    await L.aller(tb, 'reception'); await scan(tb, 'P-0001', 1);
+    const hauteurs = await tb.evaluate(() => [...document.querySelectorAll('#lignes input, #lignes button')].map(x => Math.round(x.getBoundingClientRect().height)));
+    L.verifier(hauteurs.length >= 3 && hauteurs.every(h => h >= 44), 'tablette : champs de quantité, de coût et bouton de retrait ≥ 44 px (' + hauteurs.join(',') + ')');
+    await L.aller(tb, 'document_voir&id=3');
+    const hBoutons = await tb.evaluate(() => [...document.querySelectorAll('.mv-barre .btn, #table-lignes td.code a')].map(x => Math.round(x.getBoundingClientRect().height)));
+    L.verifier(hBoutons.length >= 3 && hBoutons.every(h => h >= 44), 'tablette : boutons du document et liens de pièces ≥ 44 px (' + hBoutons.join(',') + ')');
+    await ouvrirDocuments(tb);
+    const hSel = await tb.$eval('#table-documents_length select', x => Math.round(x.getBoundingClientRect().height));
+    const vis = await tb.evaluate(() => { const c = document.querySelector('.table-responsive').getBoundingClientRect(); return [...document.querySelectorAll('#table-documents thead th')].filter(th => th.offsetParent !== null).map(th => [th.textContent.trim(), Math.round(th.getBoundingClientRect().right - c.right)]); });
+    const statut = vis.find(x => x[0] === 'Statut'), total = vis.find(x => x[0] === 'Total');
+    L.verifier(hSel >= 44 && statut && statut[1] <= 0 && total && total[1] <= 0, 'tablette : liste des documents, « Statut » et « Total » visibles sans défilement, sélecteur ≥ 44 px (' + hSel + ' ; ' + JSON.stringify(vis.slice(-3)) + ')');
+    await tb.setViewportSize({ width: 1024, height: 768 }); await ouvrirDocuments(tb);
+    const debord1024 = await tb.$eval('.table-responsive', x => [x.scrollWidth, x.clientWidth]);
+    L.verifier(debord1024[0] <= debord1024[1] + 1, 'tablette en paysage 1024 px, menu ouvert : « Total » visible, aucun défilement horizontal (' + debord1024.join('/') + ')');
+    await tb.setViewportSize({ width: 1280, height: 800 }); await ouvrirDocuments(tb);
+    const debord = await tb.$eval('.table-responsive', x => [x.scrollWidth, x.clientWidth]);
+    L.verifier(debord[0] <= debord[1] + 1, 'portable 1280 px, menu ouvert : la liste des documents tient sans défilement horizontal (' + debord.join('/') + ')');
+    const largeurs = await tb.$eval('#f-recherche', x => { const cs = getComputedStyle(x), ph = getComputedStyle(x, '::placeholder'); const c = document.createElement('canvas').getContext('2d'); c.font = ph.fontStyle + ' ' + ph.fontWeight + ' ' + ph.fontSize + ' ' + cs.fontFamily; return [Math.ceil(c.measureText(x.placeholder).width), Math.floor(x.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight))]; });
+    L.verifier(largeurs[0] <= largeurs[1], 'portable 1280 px : l\'invite de la recherche n\'est pas tronquée (' + largeurs.join(' / ') + ')');
+    const libTous = await tb.$eval('#f-type', x => [x.scrollWidth, x.clientWidth]);
+    L.verifier(libTous[0] <= libTous[1] + 1, 'portable 1280 px : « Tous les types » n\'est pas tronqué (' + libTous.join('/') + ')');
+  }
 
   // =====================================================================================================================
   console.log('13. Intégrité, journal PHP, console');

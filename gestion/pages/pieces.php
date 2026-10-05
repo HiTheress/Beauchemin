@@ -18,14 +18,17 @@ $pre_q = (isset($_GET['q']) && is_string($_GET['q'])) ? mb_substr($_GET['q'], 0,
 <div class="content-wrapper" data-catalogue="pieces">
   <?php page_titre('Pièces', array('Catalogue')); ?>
   <section class="content"><div class="container-fluid">
+    <div class="cat-titre-impression"><div class="titre">Liste des pièces</div><div id="filtres-impression"></div></div>
     <div class="card"><div class="card-body">
 
       <div class="row cat-filtres">
         <div class="col-lg-4 col-md-6 form-group">
           <label for="recherche">Rechercher ou scanner une pièce</label>
-          <div class="input-group">
-            <div class="input-group-prepend"><span class="input-group-text"><i class="fas fa-barcode" aria-hidden="true"></i></span></div>
-            <input id="recherche" type="search" class="form-control" autocomplete="off" placeholder="Code, nom ou code-barres…" value="<?php echo e($pre_q); ?>">
+          <div class="scan-box cat-scan-box">
+            <div class="input-group">
+              <div class="input-group-prepend"><span class="input-group-text"><i class="fas fa-barcode" aria-hidden="true"></i></span></div>
+              <input id="recherche" type="search" class="form-control scan-input" autocomplete="off" placeholder="Code, nom ou code-barres…" value="<?php echo e($pre_q); ?>">
+            </div>
           </div>
         </div>
         <div class="col-lg-3 col-md-6 form-group">
@@ -72,7 +75,7 @@ $pre_q = (isset($_GET['q']) && is_string($_GET['q'])) ? mb_substr($_GET['q'], 0,
           <tbody></tbody>
         </table>
       </div>
-      <p class="text-muted small mt-2 mb-0">Quantités comptées dans : <strong><?php echo e($portee); ?></strong> (tous les emplacements). Pour changer d'entreprise, utilisez le sélecteur en haut de l'écran.</p>
+      <p class="text-muted small mt-2 mb-0 cat-portee">Quantités comptées dans : <strong><?php echo e($portee); ?></strong> (tous les emplacements). Pour changer d'entreprise, utilisez le sélecteur en haut de l'écran.</p>
     </div></div>
   </div></section>
 </div>

@@ -2,7 +2,9 @@
  * Les variables --pg-*, --et-*, --cols… sont posées par assets/js/etiquettes.js à partir du format choisi. */
 
 .et-table td, .et-table th { vertical-align: middle; }
-.et-table .btn, .et-copies-input, #et-ajouter-categorie, #et-tous-emplacements, #et-imprimer, #et-vider { min-height: 44px; }
+.et-table .btn, .et-copies-input, #et-ajouter-categorie, #et-tous-emplacements, #et-imprimer, #et-vider, #et-saut { min-height: 44px; }
+.et-table .btn { min-width: 44px; }
+.et-table td.code { white-space: nowrap; }
 .et-table .et-copies-input { width: 6rem; text-align: right; }
 .et-format-option { margin-bottom: .75rem; padding-left: 2rem; }
 .et-format-option .custom-control-label { cursor: pointer; }
@@ -70,6 +72,7 @@
     margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important;
     min-height: 0 !important; max-width: none !important; width: auto !important; background: #fff !important; overflow: visible !important;
   }
+  #toasts { display: none !important; }   /* une notification ne doit jamais s'imprimer sur la feuille d'étiquettes */
   .et-apercu:empty::before { content: none; }
   .et-page { margin: 0 !important; box-shadow: none !important; zoom: 1 !important; break-after: page; page-break-after: always; break-inside: avoid; }
   .et-page:last-child { break-after: auto; page-break-after: auto; }

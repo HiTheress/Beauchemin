@@ -11,6 +11,7 @@ endpoint(function () {
 	global $pdo;
 	$uid = utilisateur_id();
 	inventaire()->exiger($uid, 'catalogue');
+	ImportCatalogue::exigerTailleCorps();
 	$d = entree();
 	$options = ImportCatalogue::options($d);
 	$lignes = ImportCatalogue::lignesClient(isset($d['lignes']) ? $d['lignes'] : null);
@@ -19,6 +20,8 @@ endpoint(function () {
 	try {
 		return $imp->appliquer($lignes, $options, $fichier);
 	} catch (ImportException $ex) {
-		json_fail($ex->getMessage(), 400, array('erreurs' => $ex->details));
+		json_fail(ImportCatalogue::typo($ex->getMessage()), 400, array('erreurs' => $ex->details));
+	} catch (InventaireException $ex) {
+		throw new InventaireException(ImportCatalogue::typo($ex->getMessage()), $ex->champ);   // typographie française des messages
 	}
 });

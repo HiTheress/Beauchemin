@@ -15,23 +15,23 @@ $fournisseurs = $pdo->query('SELECT id, nom FROM fournisseurs WHERE actif = 1 OR
     <div class="card mv-carte"><div class="card-body">
 
       <div class="row">
-        <div class="col-lg-4 col-md-6 form-group">
+        <div class="col-xl-5 col-md-6 form-group">
           <label for="emplacement">Emplacement de réception <span class="text-danger" aria-hidden="true">*</span></label>
-          <select id="emplacement" class="form-control" disabled><option value="">Chargement…</option></select>
+          <select id="emplacement" class="form-control" required aria-required="true" disabled><option value="">Chargement…</option></select>
           <small class="form-text text-muted">Ou scannez son code-barres (EMP-…).</small>
         </div>
-        <div class="col-lg-2 col-md-6 form-group">
+        <div class="col-xl-3 col-md-6 form-group">
           <label for="date">Date de réception <span class="text-danger" aria-hidden="true">*</span></label>
-          <input id="date" type="date" class="form-control" value="<?php echo e(Mouvements::aujourdhui()); ?>" max="<?php echo e(Mouvements::aujourdhui()); ?>">
+          <input id="date" type="date" class="form-control" required aria-required="true" value="<?php echo e(Mouvements::aujourdhui()); ?>" max="<?php echo e(Mouvements::aujourdhui()); ?>">
         </div>
-        <div class="col-lg-3 col-md-6 form-group">
+        <div class="col-xl-4 col-md-6 form-group">
           <label for="fournisseur">Fournisseur</label>
           <select id="fournisseur" class="form-control">
             <option value="">— Aucun —</option>
             <?php foreach ($fournisseurs as $f) { ?><option value="<?php echo (int) $f['id']; ?>"><?php echo e($f['nom']); ?></option><?php } ?>
           </select>
         </div>
-        <div class="col-lg-3 col-md-6 form-group">
+        <div class="col-xl-5 col-md-6 form-group">
           <label for="reference">N° de facture du fournisseur</label>
           <input id="reference" type="text" class="form-control" maxlength="100" autocomplete="off">
         </div>

@@ -8,7 +8,7 @@ try {
 	inventaire()->exiger($uid, 'catalogue');
 	$entreprises = inventaire()->listeEntreprises($uid);
 } catch (InventaireException $ex) {
-	json_fail($ex->getMessage(), 403);
+	ImportCatalogue::refuserTelechargement($ex->getMessage(), 403);
 }
 $cols = ImportCatalogue::colonnesModele($entreprises);
 $exemples = array(

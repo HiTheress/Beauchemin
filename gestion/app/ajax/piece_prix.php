@@ -54,7 +54,7 @@ endpoint(function () {
 	}
 	unset($l);
 	$st = $pdo->prepare(
-		'SELECT h.date_prix, h.prix, f.nom AS fournisseur, us.nom_utilisateur AS utilisateur
+		'SELECT h.date_prix, h.prix, f.nom AS fournisseur, COALESCE(NULLIF(us.nom_complet, \'\'), us.nom_utilisateur) AS utilisateur
 		   FROM prix_fournisseurs_hist h LEFT JOIN fournisseurs f ON f.id = h.fournisseur_id LEFT JOIN utilisateurs us ON us.id = h.utilisateur_id
 		  WHERE h.piece_id = ? ORDER BY h.date_prix DESC, h.id DESC LIMIT 100'
 	);

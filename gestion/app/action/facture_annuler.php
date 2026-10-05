@@ -9,8 +9,8 @@ require_once __DIR__ . '/facture_lib.php';
 exiger_post();
 endpoint(function () {
 	global $pdo, $Ouser;
-	$d = entree();
 	Interentreprise::exigerRole('annulation');
+	$d = Interentreprise::donnees();
 	$id = Interentreprise::identifiant($d, 'id');
 	if ($id <= 0) {
 		throw new InventaireException('Facture introuvable.');
@@ -32,6 +32,23 @@ endpoint(function () {
 	if ($motif === '') {
 		throw new InventaireException('Indiquez le motif de l\'annulation.', 'motif');
 	}
-	$r = inventaire()->annuler(utilisateur_id(), $id, $motif);
+	try {
+		$r = inventaire()->annuler(utilisateur_id(), $id, $motif);
+	} catch (InventaireException $ex) {
+		// Refus pour manque de stock chez le destinataire (détail visible seulement si l'utilisateur a accès à cette entreprise :
+		// le service a déjà masqué ce détail dans le cas contraire) : on explique ce que cela veut dire et quoi faire.
+		if (strpos($ex->getMessage(), 'Stock insuffisant') === 0 && $doc['entreprise_dest_id']) {
+			$st = $pdo->prepare('SELECT nom FROM entreprises WHERE id = ?');
+			$st->execute(array((int) $doc['entreprise_dest_id']));
+			$nomDest = (string) $st->fetchColumn();
+			throw new InventaireException(
+				'Annulation refusée : des pièces de cette facture ne sont plus à l\'emplacement de destination de ' . $nomDest . '. Détail : ' . $ex->getMessage() .
+				' Remettez les pièces à cet emplacement (transfert ou ajustement), puis réessayez.',
+				$ex->champ
+			);
+		}
+		throw $ex;
+	}
+	$_SESSION['ie_flash_annule'] = (int) $r['id'];       // message de succès affiché une seule fois par la page de la facture
 	return array('id' => (int) $r['id'], 'numero' => $r['numero'], 'lien' => 'index.php?page=facture_interne_voir&id=' . (int) $r['id']);
 });

@@ -2,9 +2,12 @@
 //   cd gestion && tools/serveur.sh start bea_a2 8102 --neuf
 //   NODE_PATH=$(npm root -g) BASE_URL=http://127.0.0.1:8102 node tests/e2e/a2.js
 // Variables facultatives :
-//   DB_NAME        base du serveur testé (défaut bea_a2) : le test la remet à neuf au départ (sauf A2_SANS_RESET=1) et y ajoute des données de test
+//   DB_NAME        base du serveur testé (défaut : celle du serveur démarré par tools/serveur.sh sur ce port, sinon bea_a2) : le test la remet à neuf au départ (sauf A2_SANS_RESET=1) et y ajoute des données de test
 //   DECODEUR_DIR   dossier où sont installés zxing-wasm et pngjs (npm install zxing-wasm pngjs) : active la preuve de lisibilité
 //                  (décodage du code-barres rendu par Chromium, à l'écran et dans le PDF). Sans lui, ces vérifications sont ignorées.
+// Sections « Corrections de la relecture » : elles vérifient chaque constat de la relecture (numéro #n dans le libellé des vérifications).
+//   La section « gros catalogue » (#18) insère 56 000 pièces avec la table de séquence de MariaDB (seq_1_to_N), démarre un second serveur PHP
+//   avec memory_limit = 128M sur le port (PORT + 1000), puis supprime ces pièces et arrête ce serveur.
 const L = require('./lib.js');
 const fs = require('fs');
 const os = require('os');
@@ -13,13 +16,22 @@ const { execFileSync } = require('child_process');
 const { pathToFileURL } = require('url');
 
 const RACINE = path.resolve(__dirname, '..', '..');
-const DB = process.env.DB_NAME || 'bea_a2';
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'a2-'));
 const PORT = (/:(\d+)/.exec(L.BASE) || [])[1];
+/** Base du serveur testé : DB_NAME, sinon celle que lit le serveur démarré par tools/serveur.sh sur ce port (jamais une autre base par erreur). */
+function dbDuServeur() {
+  try {
+    const pid = fs.readFileSync(`/tmp/bea-${PORT}.pid`, 'utf8').trim();
+    const l = fs.readFileSync(`/proc/${pid}/environ`, 'latin1').split('\0').find(x => x.startsWith('DB_NAME='));
+    return l ? l.slice(8) : null;
+  } catch (e) { return null; }
+}
+const DB = process.env.DB_NAME || dbDuServeur() || 'bea_a2';
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'a2-'));
 
 function sql(q) { return execFileSync('mysql', ['-uroot', '--default-character-set=utf8mb4', '-N', '-B', DB, '-e', q], { encoding: 'utf8' }).trim(); }
 function section(t) { console.log('\n== ' + t); }
 const ok = L.verifier;
+const N = s => String(s).replace(/[\u00a0\u202f]/g, ' ');   // les messages utilisent l'espace insécable (typographie française)
 
 // ---- décodeur de codes-barres (facultatif) ----------------------------------------------------------------
 let decodeur = null;
@@ -193,8 +205,14 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   ok(['EMP-000001', 'EMP-000002', 'EMP-000003', 'EMP-000004', 'EMP-000005'].every(c => codes.includes(c)), 'tous les emplacements actifs ajoutés');
   await p.waitForTimeout(500);
   ok((await p.$$eval('.et-etiquette:not(.et-vide)', e => e.length)) === codes.length + 1, 'aperçu : une étiquette par copie');   // +1 : P-0001 en 2 copies
-  await p.click('#et-vider'); await p.waitForTimeout(500);
-  ok(await p.$$eval('#et-table tbody tr', e => e.length) === 0 && await p.$$eval('.et-etiquette', e => e.length) === 0, 'Vider la liste');
+  // #33 : une longue liste ne se vide pas d'un clic (confirmation ; « Annuler » garde la liste)
+  const nLignes = await p.$$eval('#et-table tbody tr', e => e.length);
+  await p.click('#et-vider'); await p.waitForSelector('#et-modal-confirmer.show');
+  ok((await p.textContent('#et-modal-message')).includes(nLignes + '\u00a0éléments') || (await p.textContent('#et-modal-message')).includes(nLignes + ' éléments'), 'Vider la liste : confirmation avec le nombre d\'éléments : ' + await p.textContent('#et-modal-message'));
+  await p.click('#et-modal-non'); await p.waitForSelector('#et-modal-confirmer', { state: 'hidden' });
+  ok(await p.$$eval('#et-table tbody tr', e => e.length) === nLignes, 'Annuler : la liste est conservée');
+  await p.click('#et-vider'); await p.waitForSelector('#et-modal-confirmer.show'); await p.click('#et-modal-oui'); await p.waitForSelector('#et-modal-confirmer', { state: 'hidden' }); await p.waitForTimeout(600);
+  ok(await p.$$eval('#et-table tbody tr', e => e.length) === 0 && await p.$$eval('.et-etiquette', e => e.length) === 0, 'Vider la liste (après confirmation)');
 
   section('Étiquettes : formats, feuille entamée, copies');
   await L.scanner(p, '#et-scan', 'P-0001'); await p.waitForTimeout(500);
@@ -491,7 +509,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   await p.click('#imp-analyser');
   await p.waitForSelector('#imp-apercu', { state: 'visible' });
   const txtModif = await p.textContent('#imp-table');
-  ok(txtModif.includes('Modifie : nom, catégorie, unité, alias (+1), prix fournisseur, minimum entreprise 1'), 'aperçu de mise à jour : liste des champs modifiés : ' + txtModif.replace(/\s+/g, ' ').slice(0, 300));
+  ok(N(txtModif).includes('Modifications : nom, catégorie, unité, alias (+1), prix fournisseur, minimum Beauchemin'), 'aperçu de mise à jour : liste des champs modifiés (noms d\'entreprise, pas de numéros) : ' + N(txtModif).replace(/\s+/g, ' ').slice(0, 300));
   ok(txtModif.includes('Stock ignoré'), 'avertissement : le stock d\'une pièce existante n\'est jamais modifié');
   ok(await p.$eval('#imp-confirmer', e => !e.disabled), 'mise à jour : confirmation possible (avertissement non bloquant)');
   await p.click('#imp-confirmer');
@@ -527,7 +545,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   r = await an('doublons');
   const msgsD = r.json.resultats.map(x => x.msgs.map(m => m[1]).join(' '));
   ok(msgsD[1].includes('Code en double') && msgsD[2].includes('Code en double') && r.json.totaux.erreurs === 4, 'codes en double dans le fichier (même casse différente) : erreurs bloquantes');
-  ok(msgsD[3].includes('déjà utilisé par la pièce « P-0001 »') && msgsD[5].includes('déjà utilisé à la ligne 6'), 'alias déjà utilisé (base ou fichier) : erreur claire');
+  ok(N(msgsD[3]).includes('déjà utilisé par la pièce « P-0001 »') && N(msgsD[5]).includes('déjà utilisé à la ligne 6'), 'alias déjà utilisé (base ou fichier) : erreur claire');
   ok(msgsD[6].includes('Le code existe déjà') && r.json.resultats[6].statut === 'avertissement', 'code existant en mode « créer seulement » : avertissement, ligne ignorée');
   r = await an('accents');
   ok(r.json.totaux.erreurs === 3 && r.json.resultats[0].msgs[0][1].includes('caractères non permis') && r.json.resultats[3].msgs[0][1].includes('trop long'), 'accent, espace, 41 caractères dans le code : erreurs');
@@ -573,7 +591,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   r = await ANALYSE(p, multi, 'multi.csv', { mode: 'creer' });
   const mm = r.json.resultats.map(x => x.msgs.map(y => y[1]).join(' '));
   ok(r.json.totaux.erreurs === 2 && r.json.totaux.lignes_stock === 2 && mm[1].includes('Code répété') && r.json.resultats[1].action === 'stock', 'ligne répétée = stock supplémentaire dans un autre emplacement (avertissement)');
-  ok(mm[2].includes('déjà une ligne de stock pour cet emplacement') && mm[4].includes('Code en double') && mm[4].includes('« nom »'), 'même emplacement répété ou informations différentes : erreurs');
+  ok(N(mm[2]).includes('déjà une ligne de stock pour cet emplacement') && N(mm[4]).includes('Code en double') && N(mm[4]).includes('« nom »'), 'même emplacement répété ou informations différentes : erreurs');
   r = await ANALYSE(p, U8(ENT + 'M-1;Pièce multi;Contrôles;unité;;;;;;;;EMP-000001;5;2\r\nM-1;;;;;;;;;;;EMP-000003;3;2,5\r\n'), 'multi.csv', { mode: 'creer' });
   ok(r.json.totaux.erreurs === 0 && r.json.totaux.documents === 2 && r.json.totaux.creer === 1, 'une pièce, deux emplacements : 2 documents prévus');
   r = await appliquerSource(p, r.json.source);
@@ -693,6 +711,415 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
     ok(!/cout|coût|prix/i.test(ent) && ent.includes('quantite_entreprise_1') && !ent.includes('entreprise_2'), 'export employé : aucune colonne de coût, entreprise 1 seulement : ' + ent);
     ok(!/14,50|78,00|312,5/.test(t), 'export employé : aucun montant dans le fichier');
     await ctx.close();
+  }
+
+  // ====================================================================================================================
+  section('Corrections de la relecture : serveur (nombres, taille, journal, codes trop longs, typographie, téléchargements)');
+  {
+    // #6 et #7 : nombres mal formés refusés, espaces fines acceptées
+    const lignesNb = [['NUM-1', '1.5.2'], ['NUM-2', '1,5,'], ['NUM-3', '1 2 3'], ['NUM-4', '1,2,3'], ['NUM-5', '1 234,5'], ['NUM-6', '1 234,5'], ['NUM-7', '1 234,5'], ['NUM-8', '1.234,5'], ['NUM-9', '12,5'], ['NUM-10', '12 345']];
+    const fNb = U8('code;nom;emplacement;quantite;cout\r\n' + lignesNb.map(([c, q]) => `${c};Nombre ${c};EMP-000001;"${q}";1\r\n`).join(''));
+    let r = await ANALYSE(p, fNb, 'nb.csv', { mode: 'creer' });
+    const res = r.json.resultats;
+    ok([0, 1, 2, 3].every(i => res[i].statut === 'erreur' && N(res[i].msgs.map(m => m[1]).join(' ')).includes('Quantité invalide')), '#6 « 1.5.2 », « 1,5, », « 1 2 3 », « 1,2,3 » : refusés (plus jamais lus 152, 15, 123) : ' + res.slice(0, 4).map(x => x.statut + ':' + (x.stock ? x.stock.quantite : '-')));
+    ok(res[4].stock && res[4].stock.quantite === '1234.500' && res[5].stock && res[5].stock.quantite === '1234.500', '#7 espace fine insécable (U+202F) et espace fine (U+2009) acceptées : ' + (res[4].stock && res[4].stock.quantite) + ' / ' + (res[5].stock && res[5].stock.quantite));
+    ok(['1234.500', '1234.500', '12.500', '12345.000'].join() === res.slice(6).map(x => x.stock && x.stock.quantite).join(), '#6 les formes valides restent lues : « 1 234,5 », « 1.234,5 », « 12,5 », « 12 345 »');
+
+    // #5 : un fichier de 5000 lignes proche de 2 Mo reste confirmable sous la limite de corps de 3 Mo des serveurs web fournis
+    const desc = 'D'.repeat(330);
+    let gros = ENT;
+    for (let i = 0; i < 5000; i++) gros += `GRO-${String(i).padStart(5, '0')};Pièce grosse ${i};;unité;;${desc};;;;;;;;\r\n`;
+    r = await ANALYSE(p, U8(gros), 'gros.csv', { mode: 'creer' });
+    ok(r.status === 200 && r.json.source.length === 5000 && U8(gros).length < 2097152, '#5 fichier de 5 000 lignes (' + U8(gros).length + ' octets) analysé');
+    const corps = Buffer.byteLength(JSON.stringify({ lignes: r.json.source, mode: 'creer', creer_categories: false, creer_fournisseurs: false, fichier: 'gros.csv' }));
+    ok(corps < 3 * 1024 * 1024, '#5 corps de la confirmation sous 3 Mo (nginx/Apache) : ' + corps + ' octets');
+    ok(r.json.source.every(l => Object.values(l.v).every(x => x !== '') && !('trop' in l)), '#5 le « source » ne contient aucune cellule vide ni drapeau inutile');
+    r = await post(p, 'app/ajax/import_analyser.php', { lignes: [{ no: 2, v: { code: 'Z-1' } }, { no: 3, v: { code: 'Z-1', nom: 'Seul le code est fourni' } }], mode: 'creer' });
+    ok(r.status === 200 && r.json.resultats.length === 2, '#5 des lignes sans cellules vides (sans clé « nom ») se ré-analysent sans erreur serveur');
+
+    // #16 : le journal de l'import n'est pas perdu quand il crée beaucoup de catégories
+    let jrn = ENT;
+    for (let i = 0; i < 800; i++) jrn += `JRN-${i};n;Cat${String(i).padStart(4, '0')}-${'x'.repeat(85)};;;;;;;;;;;;\r\n`;
+    r = await ANALYSE(p, U8(jrn), 'jrn.csv', { mode: 'creer', creer_categories: '1' });
+    r = await appliquerSource(p, r.json.source, { mode: 'creer', creer_categories: true, fichier: 'jrn.csv' });
+    ok(r.status === 200 && r.json.categories_creees === 800, '#16 import de 800 pièces avec 800 nouvelles catégories');
+    ok(sql("SELECT COUNT(*) FROM journal WHERE action = 'import.catalogue' AND details LIKE '%jrn.csv%'") === '1', '#16 l\'entrée de journal « import.catalogue » existe');
+    ok(Number(sql("SELECT CHAR_LENGTH(details) FROM journal WHERE action = 'import.catalogue' AND details LIKE '%jrn.csv%'")) < 20000 && sql("SELECT JSON_EXTRACT(details, '$.categories_creees_total') FROM journal WHERE action = 'import.catalogue' AND details LIKE '%jrn.csv%'") === '800', '#16 le journal garde 50 noms et le total (800)');
+
+    // #17 : un corps JSON démesuré est refusé avant d'être lu
+    const enorme = [];
+    for (let i = 0; i < 700; i++) enorme.push({ no: i + 2, v: { code: 'ENORME-' + i, nom: 'n', description: 'x'.repeat(9000) } });
+    r = await post(p, 'app/ajax/import_analyser.php', { lignes: enorme, mode: 'creer' });
+    ok(r.status === 400 && /trop volumineuses/.test(r.json.erreur), '#17 ré-analyse d\'un corps de plus de 6 Mo : refusée en français (' + r.status + ')');
+    r = await post(p, 'app/action/import_appliquer.php', { lignes: enorme, mode: 'creer', fichier: 'enorme.csv' });
+    ok(r.status === 400 && /trop volumineuses/.test(r.json.erreur) && sql("SELECT COUNT(*) FROM pieces WHERE code LIKE 'ENORME-%'") === '0', '#17 confirmation d\'un corps de plus de 6 Mo : refusée, rien d\'importé');
+
+    // #13, #25, #19 : codes trop longs ou avec un saut de ligne final
+    sql("INSERT INTO pieces (code, nom, unite) VALUES ('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCD', 'Code de 40 caractères', 'unité'), (CONCAT('LF', CHAR(10)), 'Code avec saut de ligne', 'unité'), ('AAAAAAAAAAAAAAAAAAAA', 'Code de 20 caractères', 'unité')");
+    const id40 = sql("SELECT id FROM pieces WHERE code = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCD'"), idLF = sql("SELECT id FROM pieces WHERE code LIKE 'LF%' AND CHAR_LENGTH(code) = 3"), id20 = sql("SELECT id FROM pieces WHERE code = 'AAAAAAAAAAAAAAAAAAAA'");
+    for (const f of ['feuille30', 'rouleau']) {
+      r = await post(p, 'app/ajax/etiquettes_donnees.php', { format: f, elements: [{ type: 'piece', id: Number(id40), copies: 1 }] });
+      const e0 = r.json.elements[0];
+      ok(e0.ok === false && N(e0.erreur).includes('Choisissez le format « Grande 100 × 50 mm »') && !/Choisissez un format plus grand/.test(e0.erreur), '#13 #25 code de 40 caractères (' + f + ') : le message nomme le format qui convient : ' + N(e0.erreur));
+    }
+    r = await post(p, 'app/ajax/etiquettes_donnees.php', { format: 'grande', elements: [{ type: 'piece', id: Number(id40), copies: 1 }] });
+    ok(r.json.elements[0].ok === true, '#13 #25 le code de 40 caractères (maximum de la fiche) s\'imprime sur la grande étiquette (plus d\'impasse)');
+    if (decodeur && pdfOk) {
+      await p.goto(L.BASE + `/index.php?page=etiquettes&pieces=${id40}`);
+      await p.waitForSelector('#et-table tbody tr');
+      await p.$eval('#et-format-grande', e => e.click());
+      await p.waitForSelector('.et-etiquette'); await p.waitForTimeout(600);
+      await p.emulateMedia({ media: 'print' });
+      const f40 = path.join(TMP, 'quarante.pdf');
+      await p.pdf({ path: f40, preferCSSPageSize: true, printBackground: true });
+      await p.emulateMedia({ media: 'screen' });
+      execFileSync('pdftoppm', ['-r', '300', '-png', '-f', '1', '-l', '1', f40, path.join(TMP, 'quarante')]);
+      const png40 = fs.readdirSync(TMP).filter(x => x.startsWith('quarante-') && x.endsWith('.png')).sort()[0];
+      const lu40 = await decodeur.lire(path.join(TMP, png40));
+      ok(lu40.length === 1 && lu40[0] === 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCD', '#13 PDF grande étiquette : le code de 40 caractères est relu tel quel : ' + lu40);
+      const bx40 = decodeur.boite(path.join(TMP, png40), 300);
+      ok(bx40.left > 1 && bx40.right < bx40.largeur - 1, '#13 le code de 40 caractères reste entièrement dans la page (' + bx40.left.toFixed(1) + ' à ' + bx40.right.toFixed(1) + ' mm sur ' + bx40.largeur.toFixed(0) + ')');
+    }
+    r = await post(p, 'app/ajax/etiquettes_donnees.php', { format: 'rouleau', elements: [{ type: 'piece', id: Number(id20), copies: 1 }] });
+    ok(r.json.elements[0].ok === false && N(r.json.elements[0].erreur).includes('Grande 100 × 50 mm'), '#25 code de 20 caractères sur le rouleau : le message nomme le format qui convient : ' + N(r.json.elements[0].erreur));
+    r = await post(p, 'app/ajax/etiquettes_donnees.php', { format: 'grande', elements: [{ type: 'piece', id: Number(id20), copies: 1 }] });
+    ok(r.json.elements[0].ok === true, '#25 le même code s\'imprime sur la grande étiquette');
+    for (const f of ['feuille30', 'rouleau', 'grande']) {
+      r = await post(p, 'app/ajax/etiquettes_donnees.php', { format: f, elements: [{ type: 'piece', id: Number(idLF), copies: 1 }] });
+      ok(r.json.elements[0].ok === false && !/svg/.test(JSON.stringify(r.json.elements[0])) && /caractères/.test(r.json.elements[0].erreur), '#19 code terminé par un saut de ligne (' + f + ') : refusé, aucun code-barres faux');
+    }
+
+    // #37 : typographie (espaces insécables) dans les messages du serveur
+    r = await ANALYSE(p, FICHIERS.erreurs, 'e.csv', { mode: 'creer' });
+    const tous = r.json.resultats.flatMap(x => x.msgs.map(m => m[1]));
+    ok(tous.length > 5 && tous.some(m => m.includes('« ')) && tous.every(m => !/« | »| [:;?!]/.test(m)), '#37 messages : espace insécable dans « … » et avant : ; ? ! (' + tous.length + ' messages)');
+    r = await post(p, 'app/action/import_appliquer.php', { lignes: (await ANALYSE(p, FICHIERS.erreurs, 'e.csv', { mode: 'creer' })).json.source, mode: 'creer', fichier: 'e.csv' });
+    ok(r.status === 400 && !/ [:;?!]/.test(r.json.erreur), '#37 message de refus : espace insécable avant les deux-points : ' + JSON.stringify(r.json.erreur));
+
+    // #36 : modèle et export ouverts par un lien : page lisible (et non du JSON brut) pour un navigateur, JSON pour le JavaScript
+    {
+      const ctx = await b.newContext(); const e = await ctx.newPage();
+      await connecterComme(e, 'employe1');
+      for (const url of ['app/ajax/import_modele.php']) {
+        const h = await e.request.get(L.BASE + '/' + url, { headers: { Accept: 'text/html,application/xhtml+xml' } });
+        const t = await h.text();
+        ok(h.status() === 403 && /text\/html/.test(h.headers()['content-type']) && t.includes('Téléchargement impossible') && !t.includes('"ok"'), '#36 ' + url + ' refusé à un employé : page HTML lisible (' + h.status() + ')');
+        const j = await e.request.get(L.BASE + '/' + url, { headers: { Accept: 'application/json' } });
+        ok(j.status() === 403 && /application\/json/.test(j.headers()['content-type']), '#36 ' + url + ' : JSON pour le JavaScript');
+      }
+      await ctx.close();
+    }
+  }
+
+  // ====================================================================================================================
+  section('Corrections de la relecture : étiquettes (écran, clavier, impression)');
+  {
+    const contr = async (page, sel) => page.$$eval(sel, els => {
+      const lum = c => { const a = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2]; };
+      const fond = el => { while (el) { const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g).map(Number); if (m.length === 3 || m[3] > 0.5) return m.slice(0, 3); el = el.parentElement; } return [255, 255, 255]; };
+      return els.filter(e => e.offsetParent !== null).map(e => { const c = getComputedStyle(e).color.match(/[\d.]+/g).map(Number).slice(0, 3); const l1 = lum(c), l2 = lum(fond(e)); return +((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)).toFixed(2); });
+    }).then(a => a.length ? Math.min(...a) : 0);
+    const codesListe = () => p.$$eval('#et-table tbody tr td:nth-child(2)', e => e.map(x => x.textContent));
+    const actif = () => p.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
+
+    // #1 : les notifications ne s'impriment jamais sur la feuille d'étiquettes
+    await L.aller(p, 'etiquettes&pieces=1,2,3'); await p.waitForSelector('.et-etiquette');
+    await L.scanner(p, '#et-scan', 'ZZZ-INCONNU'); await p.waitForSelector('#toasts .alert');
+    await p.emulateMedia({ media: 'print' });
+    ok(await p.$eval('#toasts', e => getComputedStyle(e).display === 'none'), '#1 impression : #toasts est masqué');
+    if (outil('pdftotext')) {
+      const pdf = path.join(TMP, 'toast.pdf');
+      await p.pdf({ path: pdf, preferCSSPageSize: true, printBackground: true });
+      const txt = execFileSync('pdftotext', [pdf, '-'], { encoding: 'utf8' });
+      ok(!txt.includes('Code inconnu') && txt.includes('P-0001'), '#1 le PDF des étiquettes ne contient aucune notification (code inconnu) mais contient les codes');
+    }
+    await p.emulateMedia({ media: 'screen' });
+
+    // #4 : après un choix dans la recherche ou la liste d'emplacements, le focus revient au champ de scan (aucun scan perdu)
+    await L.aller(p, 'etiquettes');
+    await p.click('#et-recherche + .select2 .select2-selection');
+    await p.waitForSelector('.select2-search__field');
+    await p.fill('.select2-search__field', 'Thermo');
+    await p.waitForSelector('.select2-results__option:has-text("P-0001")');
+    await p.click('.select2-results__option:has-text("P-0001")');
+    await p.waitForTimeout(400);
+    ok(await actif() === 'et-scan', '#4 focus dans #et-scan après un choix dans la recherche de pièces : ' + await actif());
+    await p.keyboard.type('P-0005'); await p.keyboard.press('Enter'); await p.waitForTimeout(500);
+    ok(JSON.stringify(await codesListe()) === JSON.stringify(['P-0001', 'P-0005']), '#4 le code tapé juste après le choix est lu (pas perdu) : ' + await codesListe());
+    await p.click('#et-emplacements + .select2 .select2-selection');
+    await p.waitForSelector('.select2-results__option:text-is("Boutique Centre-ville — EMP-000005")');
+    await p.click('.select2-results__option:text-is("Boutique Centre-ville — EMP-000005")');
+    await p.waitForTimeout(400);
+    ok(await actif() === 'et-scan', '#4 focus dans #et-scan après le choix d\'un emplacement : ' + await actif());
+    await p.keyboard.type('P-0006'); await p.keyboard.press('Enter'); await p.waitForTimeout(500);
+    ok((await codesListe()).includes('P-0006'), '#4 code lu après le choix d\'un emplacement');
+    await p.selectOption('#et-categorie', await p.$$eval('#et-categorie option', o => (o.find(x => x.textContent.startsWith('Contrôles (')) || {}).value));
+    ok((await p.textContent('#et-ajouter-categorie')).includes('Ajouter les pièces de la catégorie'), '#29 le bouton dit « Ajouter les pièces de la catégorie »');
+    await p.click('#et-ajouter-categorie'); await p.waitForTimeout(800);
+    ok(await actif() === 'et-scan', '#4 focus dans #et-scan après « Ajouter les pièces de la catégorie » : ' + await actif());
+    await p.click('#et-tous-emplacements'); await p.waitForTimeout(300);
+    ok(await actif() === 'et-scan', '#4 focus dans #et-scan après « Tous les emplacements actifs »');
+
+    // #12 : une rafale de codes (sans pause) ne perd aucun scan (file d'attente du noyau)
+    await L.aller(p, 'etiquettes');
+    await p.focus('#et-scan');
+    await p.keyboard.type('P-0001\nP-0002\nP-0003\nP-0004\nP-0005\nP-0006\n');
+    await p.waitForTimeout(1500);
+    ok(JSON.stringify(await codesListe()) === JSON.stringify(['P-0001', 'P-0002', 'P-0003', 'P-0004', 'P-0005', 'P-0006']), '#12 6 codes tapés en rafale : 6 lignes dans la liste : ' + await codesListe());
+
+    // #11 #23 : « première étiquette » et « copies » invalides : message, impression bloquée, jamais remplacés en silence
+    await L.aller(p, 'etiquettes&pieces=1,2,3'); await p.waitForSelector('.et-etiquette');
+    for (const v of ['31', '0', '', 'abc']) {
+      await p.fill('#et-depart', v); await p.waitForTimeout(200);
+      ok(await p.$eval('#et-imprimer', e => e.disabled) && (await p.textContent('#et-resume')).includes('Première étiquette') && await p.$eval('#et-depart', e => e.classList.contains('is-invalid')) && await p.$eval('#et-depart-err', e => getComputedStyle(e).display !== 'none'),
+        '#11 case de départ « ' + v + ' » : message visible, Imprimer désactivé : ' + await p.textContent('#et-resume'));
+    }
+    await p.fill('#et-depart', '1'); await p.waitForTimeout(200);
+    ok(await p.$eval('#et-imprimer', e => !e.disabled), '#11 case de départ valide : Imprimer de nouveau possible');
+    await p.fill('#et-copies-defaut', 'abc');
+    ok(await p.$eval('#et-copies-defaut-err', e => getComputedStyle(e).display !== 'none'), '#23 « Copies par élément » invalide : message sous le champ');
+    await L.scanner(p, '#et-scan', 'P-0004'); await p.waitForTimeout(500);
+    ok((await p.textContent('#toasts')).includes('copies par élément est invalide') && await p.$eval('#et-table tbody tr:last-child input', e => e.value) === '1', '#23 copies par défaut invalides : 1 copie ajoutée ET message clair');
+    await p.fill('#et-copies-defaut', '1');
+    await p.fill('#et-table tbody tr:nth-child(1) input', 'abc'); await p.waitForTimeout(300);
+    ok(await p.$eval('#et-table tbody tr:nth-child(1) .invalid-feedback', e => getComputedStyle(e).display !== 'none' && e.textContent.includes('1 à 200')), '#23 copies invalides d\'une ligne : message sous le champ');
+    await p.fill('#et-table tbody tr:nth-child(1) input', '1');
+
+    // #28 : nombres formatés (« 1 200 » et non « 1200 »)
+    await L.aller(p, 'etiquettes&pieces=1,2,3,4,5,6'); await p.waitForSelector('.et-etiquette');
+    for (let i = 1; i <= 6; i++) await p.fill(`#et-table tbody tr:nth-child(${i}) input`, '200');
+    await p.waitForTimeout(500);
+    const tropTxt = N(await p.textContent('#et-resume')).replace(/[ ]/g, ' ');
+    ok(/1 200 \(maximum 1 000 par impression\)/.test(tropTxt), '#28 « Trop d\'étiquettes d\'un coup : 1 200 (maximum 1 000 par impression) » : ' + tropTxt);
+
+    // #24 : le résumé parle des éléments refusés, et la liste des refus est juste dessous
+    const idRefus = sql("SELECT id FROM pieces WHERE code = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCD'");   // code trop long : refusé par le serveur
+    await p.goto(L.BASE + `/index.php?page=etiquettes&pieces=1,${idRefus}`);
+    await p.waitForSelector('.et-etiquette'); await p.waitForTimeout(500);
+    const resTxt = N(await p.textContent('#et-resume'));
+    ok(await p.$eval('#et-resume', e => e.classList.contains('alert-warning')) && /1 élément refusé n'est pas imprimé/.test(resTxt), '#24 résumé en avertissement avec le nombre d\'éléments refusés : ' + resTxt);
+    ok(await p.$eval('#et-refus', e => getComputedStyle(e).display !== 'none' && !!e.closest('#et-carte-impression')) && await p.$eval('#et-imprimer', e => !e.disabled), '#24 la liste des refus est dans la carte d\'impression, juste sous le résumé');
+
+    // #35 : lien « Aller à l'impression » (évite des dizaines de Tab)
+    await L.aller(p, 'etiquettes&pieces=1,2,3,4,5,6,7,8'); await p.waitForSelector('.et-etiquette');
+    await p.focus('#et-saut'); await p.keyboard.press('Enter'); await p.waitForTimeout(200);
+    ok(await actif() === 'et-carte-impression', '#35 « Aller à l\'impression » amène le focus à la carte Format et impression : ' + await actif());
+    await p.keyboard.press('Tab');
+    ok(await p.evaluate(() => (document.activeElement.name || document.activeElement.id)) === 'et-format', '#35 le Tab suivant arrive sur les formats : ' + await actif());
+
+    // #34 : noms accessibles, focus visible, pas de zone « live » reconstruite
+    ok(await p.$eval('#et-recherche + .select2 .select2-search__field', e => !!e.getAttribute('aria-label')) && await p.$eval('#et-emplacements + .select2 .select2-search__field', e => !!e.getAttribute('aria-label')), '#34 les champs de recherche select2 ont un aria-label');
+    ok(await p.$eval('#et-apercu', e => !e.hasAttribute('aria-live')) && await p.$eval('#et-resume', e => e.getAttribute('role') === 'status'), '#34 l\'aperçu n\'est plus une zone aria-live (le résumé l\'est)');
+    await p.focus('#et-format-rouleau');
+    ok(await p.$eval('label[for=et-format-rouleau]', e => getComputedStyle(e, '::before').boxShadow !== 'none'), '#34 focus visible sur un format (halo)');
+
+    // #30 : contrastes (≥ 4,5 pour 1)
+    await p.goto(L.BASE + `/index.php?page=etiquettes&pieces=1,${idRefus},${idXss}`);
+    await p.waitForSelector('.et-etiquette'); await p.waitForTimeout(500);
+    for (const sel of ['#et-resume', '.badge', '.btn-outline-primary', '.btn-outline-danger', 'tr.table-danger .text-danger', 'tr.table-danger small', '.text-muted', '.et-table .code']) {
+      const c = await contr(p, sel);
+      ok(c >= 4.5 || c === 0, '#30 contraste ' + sel + ' : ' + c);
+    }
+  }
+
+  // ====================================================================================================================
+  section('Corrections de la relecture : import (écran, clavier, erreurs)');
+  {
+    const contr = async (page, sel) => page.$$eval(sel, els => {
+      const lum = c => { const a = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2]; };
+      const fond = el => { while (el) { const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g).map(Number); if (m.length === 3 || m[3] > 0.5) return m.slice(0, 3); el = el.parentElement; } return [255, 255, 255]; };
+      return els.filter(e => e.offsetParent !== null).map(e => { const c = getComputedStyle(e).color.match(/[\d.]+/g).map(Number).slice(0, 3); const l1 = lum(c), l2 = lum(fond(e)); return +((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)).toFixed(2); });
+    }).then(a => a.length ? Math.min(...a) : 0);
+    const lotS = (n, pre) => { let t = ENT; for (let i = 0; i < n; i++) t += `${pre}-${String(i).padStart(5, '0')};Pièce simple ${i};;unité;;;;;;;;;;\r\n`; return U8(t); };
+    const q = await L.nouvellePage(b);
+    await L.connecter(q, 'gestionnaire');
+    const actifQ = () => q.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.getAttribute('data-filtre') || document.activeElement.tagName));
+    const analyser = async (buf, nom) => {
+      await q.setInputFiles('#imp-fichier', { name: nom || 'f.csv', mimeType: 'text/csv', buffer: buf });
+      await q.click('#imp-analyser');
+      await q.waitForSelector('#imp-apercu', { state: 'visible' });
+      await q.waitForTimeout(150);
+    };
+    await L.aller(q, 'pieces_import');
+
+    // #29 : repères de l'étape en cours et libellés harmonisés
+    ok(await q.$$eval('.imp-steps li[aria-current="step"]', e => e.length) === 1, '#29 une seule étape « en cours » (aria-current) au départ');
+    ok((await q.textContent('.imp-steps')).includes('3. Aperçu et confirmation') && (await q.textContent('#imp-titre-3')) === '3. Aperçu et confirmation' && (await q.textContent('#imp-titre-4')) === '4. Résultat', '#29 stepper et titres des cartes portent les mêmes noms');
+
+    // #20 : Entrée sur le champ fichier vide ne doit pas être détournée (elle ouvre le sélecteur de fichier)
+    await q.focus('#imp-fichier');
+    await q.evaluate(() => { window.__dp = null; window.addEventListener('keydown', e => { if (e.key === 'Enter') window.__dp = e.defaultPrevented; }); });
+    await q.keyboard.press('Enter'); await q.waitForTimeout(150);
+    ok(await q.evaluate(() => window.__dp) === false && await q.$eval('#imp-erreur', e => e.style.display === 'none'), '#20 Entrée sur le champ fichier vide : non détournée, aucune fausse erreur');
+
+    // #26 #27 #21 #3 #8 #30 : un fichier avec une seule ligne en erreur
+    await analyser(U8(ENT + 'OK-1;Bonne pièce;;;;;;;;;;;;\r\nBAD-1;;;;;;;;;;;;;\r\n'));
+    const bilan1 = N(await q.textContent('#imp-bilan'));
+    ok(bilan1.includes('1 ligne est en erreur : rien ne sera importé tant que l\'erreur n\'est pas corrigée dans le fichier'), '#26 accord correct avec une seule erreur : ' + bilan1);
+    ok((await q.textContent('#imp-erreurs-csv')).includes('Télécharger les erreurs (CSV)') && !(await q.textContent('#imp-erreurs-csv')).includes('avertissements'), '#27 seulement des erreurs : « Télécharger les erreurs (CSV) »');
+    ok(await actifQ() === 'imp-titre-3', '#21 après l\'analyse, le focus est au titre de l\'étape 3 : ' + await actifQ());
+    ok((await q.textContent('#imp-annonce')).includes('Analyse terminée'), '#21 l\'analyse est annoncée dans une zone toujours visible');
+    ok(await q.$$eval('.imp-steps li[aria-current="step"]', e => e.length) === 1 && await q.$eval('#imp-s3', e => e.getAttribute('aria-current') === 'step') && (await q.textContent('#imp-s1')).includes('terminée'), '#29 étape 3 en cours, étapes 1 et 2 annoncées « terminée »');
+    await q.click('#imp-filtres [data-filtre="erreurs"]');
+    ok(await actifQ() === 'erreurs', '#21 après un clic sur un filtre, le focus revient au bouton recréé : ' + await actifQ());
+    for (const sel of ['#imp-filtres .btn.active', '.imp-steps li.actif', '.imp-steps li.fait', '.imp-steps li:not(.actif):not(.fait)', '#imp-table .badge', '#imp-erreurs-csv', '#imp-changer', '.imp-msg-erreur', '#imp-bilan .alert', '.imp-tuile .small', '#imp-depart code']) {
+      const c = await contr(q, sel);
+      ok(c >= 4.5 || c === 0, '#3 #8 #30 contraste ' + sel + ' : ' + c);
+    }
+    ok((await contr(q, '#imp-filtres .btn.active')) >= 4.5, '#3 #8 le bouton de filtre actif est lisible (≥ 4,5 pour 1) : ' + await contr(q, '#imp-filtres .btn.active'));
+
+    // #27 : avertissements seulement, puis erreurs et avertissements
+    await q.click('#imp-changer'); await q.waitForSelector('#imp-depart', { state: 'visible' });
+    ok(await actifQ() === 'imp-fichier', '#21 « Choisir un autre fichier » : le focus revient au champ fichier');
+    await analyser(U8(ENT + 'AV-1;Avertissement;;;;;;;;;;EMP-000001;5;\r\n'));
+    ok((await q.textContent('#imp-erreurs-csv')).includes('Télécharger les avertissements (CSV)') && await q.$eval('#imp-erreurs-csv', e => e.style.display !== 'none'), '#27 seulement des avertissements : « Télécharger les avertissements (CSV) »');
+    await q.click('#imp-changer'); await q.waitForSelector('#imp-depart', { state: 'visible' });
+    await analyser(U8(ENT + 'AV-2;Avertissement;;;;;;;;;;EMP-000001;5;\r\nBAD-2;;;;;;;;;;;;;\r\n'));
+    ok((await q.textContent('#imp-erreurs-csv')).includes('Télécharger les erreurs et avertissements (CSV)'), '#27 les deux : « Télécharger les erreurs et avertissements (CSV) »');
+    const [dlErr] = await Promise.all([q.waitForEvent('download'), q.click('#imp-erreurs-csv')]);
+    ok(dlErr.suggestedFilename() === 'erreurs-import.csv', '#27 le fichier des erreurs se télécharge');
+
+    // #37 (JavaScript) : typographie des messages affichés
+    await q.click('#imp-changer'); await q.waitForSelector('#imp-depart', { state: 'visible' });
+    await q.setInputFiles('#imp-fichier', { name: 'x.xlsx', mimeType: 'application/octet-stream', buffer: Buffer.from('x') });
+    await q.click('#imp-analyser');
+    const txtExt = await q.textContent('#imp-erreur');
+    ok(txtExt.includes('« Enregistrer sous »') && !/ [:;?!]| »|« /.test(txtExt), '#37 message d\'erreur du navigateur : espaces insécables : ' + JSON.stringify(txtExt));
+    await q.setInputFiles('#imp-fichier', []);
+
+    // #36 : modèle et export passent par un téléchargement contrôlé (session expirée : retour à la connexion)
+    const [dlMod] = await Promise.all([q.waitForEvent('download'), q.click('#imp-modele')]);
+    const contenuMod = fs.readFileSync(await dlMod.path());
+    ok(dlMod.suggestedFilename() === 'modele-import-pieces.csv' && contenuMod[0] === 0xEF && contenuMod.toString('utf8').includes('code;nom;categorie'), '#36 le modèle CSV se télécharge normalement (BOM, nom du fichier)');
+    const [dlExp] = await Promise.all([q.waitForEvent('download'), q.click('#imp-exporter')]);
+    ok(/^catalogue-pieces-\d{4}-\d{2}-\d{2}\.csv$/.test(dlExp.suggestedFilename()), '#36 l\'export se télécharge normalement : ' + dlExp.suggestedFilename());
+    {
+      const exp = await L.nouvellePage(b);   // page jetable : l'expiration provoque des erreurs réseau attendues
+      await L.connecter(exp, 'gestionnaire'); await L.aller(exp, 'pieces_import');
+      await exp.context().clearCookies();
+      await Promise.all([exp.waitForURL(/login\.php/), exp.click('#imp-modele')]);
+      ok(/login\.php/.test(exp.url()), '#36 session expirée : un clic sur « Télécharger le modèle » ramène à la connexion (pas de JSON brut)');
+      await exp.context().close();
+    }
+
+    // #34 : bascule « Description des colonnes » : état annoncé ; focus visible sur les cases
+    ok(await q.$eval('#imp-desc-bascule', e => e.getAttribute('aria-expanded') === 'false'), '#34 bascule de description : aria-expanded="false" au départ');
+    await q.click('#imp-desc-bascule'); await q.waitForTimeout(600);
+    ok(await q.$eval('#imp-desc-bascule', e => e.getAttribute('aria-expanded') === 'true'), '#34 après ouverture : aria-expanded="true"');
+    await q.click('#imp-desc-bascule'); await q.waitForTimeout(600);
+    ok(await q.$eval('#imp-desc-bascule', e => e.getAttribute('aria-expanded') === 'false'), '#34 après fermeture : aria-expanded="false"');
+    await q.focus('#imp-creer-cat');
+    ok(await q.$eval('label[for=imp-creer-cat]', e => getComputedStyle(e, '::before').boxShadow !== 'none'), '#34 focus visible sur une case à cocher (halo)');
+
+    // #2 : un échec de la confirmation reste visible, amené à l'écran, annoncé (jamais effacé par la ré-analyse)
+    const inj = await L.nouvellePage(b);
+    await L.connecter(inj, 'gestionnaire'); await L.aller(inj, 'pieces_import');
+    await inj.setInputFiles('#imp-fichier', { name: 'cer.csv', mimeType: 'text/csv', buffer: lotS(60, 'CER') });
+    await inj.click('#imp-analyser'); await inj.waitForSelector('#imp-apercu', { state: 'visible' });
+    const URL_APPL = '**/app/action/import_appliquer.php';
+    await inj.route(URL_APPL, r => r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, erreur: 'Erreur inattendue. Réessayez ou contactez l\'administrateur.' }) }));
+    await inj.click('#imp-confirmer'); await inj.waitForTimeout(900);
+    const vis = () => inj.$eval('#imp-erreur', e => { const r = e.getBoundingClientRect(); return { affiche: e.style.display !== 'none', txt: e.textContent, dansEcran: r.top >= 0 && r.bottom <= window.innerHeight, focus: document.activeElement === e }; });
+    let v = await vis();
+    ok(v.affiche && N(v.txt).includes('Erreur inattendue') && N(v.txt).includes('Aucune pièce n\'a été importée'), '#2 erreur 500 : message affiché, avec « Aucune pièce n\'a été importée » : ' + N(v.txt));
+    ok(v.dansEcran && v.focus, '#2 l\'erreur est amenée à l\'écran et reçoit le focus');
+    ok((await inj.textContent('#toasts')).includes('refusé') && await inj.$eval('#imp-confirmer', e => !e.disabled), '#2 notification d\'échec, bouton Confirmer de nouveau actif');
+    await inj.unroute(URL_APPL);
+    await inj.route(URL_APPL, r => r.abort());
+    await inj.click('#imp-confirmer'); await inj.waitForTimeout(900);
+    v = await vis();
+    ok(v.affiche && N(v.txt).includes('peut-être été appliqué') && N(v.txt).includes('vérifiez'), '#2 réseau coupé : on dit que l\'import a peut-être été appliqué et de vérifier : ' + N(v.txt));
+    await inj.unroute(URL_APPL);
+    await inj.route(URL_APPL, r => r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ ok: false, erreur: 'Le fichier contient 1 ligne en erreur : rien n\'a été importé. Corrigez le fichier puis analysez-le de nouveau.', erreurs: [{ no: 3, code: 'CER-00001', msgs: [['erreur', 'Le code « CER-00001 » vient d\'être pris.']] }] }) }));
+    await inj.click('#imp-confirmer'); await inj.waitForTimeout(900);
+    v = await vis();
+    ok(v.affiche && N(v.txt).includes('Ligne 3 (CER-00001)') && N(v.txt).includes('rien n\'a été importé') && !N(v.txt).includes('Aucune pièce n\'a été importée'), '#2 refus avec lignes en erreur : détail conservé, message non doublé : ' + N(v.txt));
+    await inj.unroute(URL_APPL);
+    await inj.click('#imp-confirmer'); await inj.waitForSelector('#imp-resultat', { state: 'visible' });
+    ok(await inj.evaluate(() => document.activeElement.id) === 'imp-titre-4', '#21 résultat : focus au titre de l\'étape 4');
+    ok(sql("SELECT COUNT(*) FROM pieces WHERE code LIKE 'CER-%'") === '60', '#2 après les échecs, la confirmation suivante importe bien les 60 pièces (une seule fois)');
+    await inj.context().close();
+
+    // #21 #22 #28 #32 #33 : fichier de 1 200 lignes (pagination, focus, nombres, confirmation avant d'abandonner)
+    await L.aller(q, 'pieces_import');
+    await analyser(lotS(1200, 'PAG'));
+    const nbN = s => N(s).replace(/ /g, ' ');
+    ok(nbN(await q.textContent('#imp-filtres')).includes('Toutes (1 200)') && nbN(await q.textContent('#imp-pagination')).includes('Lignes 1 à 100 sur 1 200'), '#28 nombres formatés dans les filtres et la pagination : ' + nbN(await q.textContent('#imp-pagination')));
+    ok(await q.$eval('#imp-table td.code', e => getComputedStyle(e).whiteSpace === 'nowrap'), '#9 #32 les codes ne se coupent pas (white-space: nowrap)');
+    await q.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await q.click('#imp-pagination button:has-text("Suivant")'); await q.waitForTimeout(1500);   // le thème fait défiler en douceur
+    const posTable = await q.$eval('#imp-zone-table', e => e.getBoundingClientRect().top);
+    ok(nbN(await q.textContent('#imp-pagination')).includes('Lignes 101 à 200 sur 1 200') && posTable >= 0 && posTable < 250, '#22 après « Suivant », la page remonte au haut du tableau : top = ' + Math.round(posTable));
+    ok(await actifQ() === 'imp-zone-table', '#21 après « Suivant », le focus est sur le tableau : ' + await actifQ());
+    await q.click('#imp-changer'); await q.waitForSelector('#imp-modal-confirmer.show');
+    ok(nbN(await q.textContent('#imp-modal-message')).includes('1 200 lignes'), '#33 « Choisir un autre fichier » avec une grosse analyse : confirmation : ' + nbN(await q.textContent('#imp-modal-message')));
+    await q.click('#imp-modal-non'); await q.waitForSelector('#imp-modal-confirmer', { state: 'hidden' });
+    ok(await q.$eval('#imp-apercu', e => e.style.display !== 'none'), '#33 Annuler : l\'aperçu est conservé');
+    await q.click('#imp-changer'); await q.waitForSelector('#imp-modal-confirmer.show'); await q.click('#imp-modal-oui'); await q.waitForSelector('#imp-depart', { state: 'visible' });
+    ok(await q.$eval('#imp-apercu', e => e.style.display === 'none'), '#33 Abandonner : retour à l\'étape du fichier');
+    ok(q.erreurs.length === 0, 'aucune erreur console sur la page d\'import (corrections) : ' + JSON.stringify(q.erreurs));
+    await q.context().close();
+  }
+
+  // ====================================================================================================================
+  section('Corrections de la relecture : tablette (768 px) : zones tactiles, titres, menu');
+  {
+    const lotS = (n, pre) => { let t = ENT; for (let i = 0; i < n; i++) t += `${pre}-${String(i).padStart(5, '0')};Pièce simple ${i};;unité;;;;;;;;;;\r\n`; return U8(t); };
+    const ctx = await b.newContext({ viewport: { width: 768, height: 1024 } });
+    const t = await ctx.newPage(); t.erreurs = [];
+    t.on('pageerror', e => t.erreurs.push(e.message));
+    await connecterComme(t, 'gestionnaire1');
+    const mesures = (sel) => t.$$eval(sel, els => els.filter(e => e.offsetParent !== null).map(e => { const r = e.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), id: e.id || e.className.toString().slice(0, 30) }; }));
+    await t.goto(L.BASE + '/index.php?page=etiquettes&pieces=1,2'); await t.waitForSelector('.et-etiquette'); await t.waitForTimeout(500);
+    for (const sel of ['#et-recherche + .select2 .select2-selection', '#et-emplacements + .select2 .select2-selection', '#et-categorie', '.et-table .btn', '#et-saut', '.custom-control-label']) {
+      const m = await mesures(sel);
+      ok(m.length > 0 && m.every(x => x.h >= 44 && (sel !== '.et-table .btn' || x.w >= 44)), '#10 #31 ' + sel + ' ≥ 44 px : ' + JSON.stringify(m.slice(0, 3)));
+    }
+    ok(await t.$eval('h1', e => { const h = e.getBoundingClientRect(), s = document.querySelector('.main-sidebar').getBoundingClientRect(); return h.left >= 0 && h.left >= s.right; }), '#15 titre de la page non recouvert par le menu replié (768 px)');
+    await t.goto(L.BASE + '/index.php?page=pieces_import'); await t.waitForSelector('#imp-analyser');
+    for (const sel of ['.custom-control-label', '#imp-desc-bascule', '.imp-btn']) {
+      const m = await mesures(sel);
+      ok(m.length > 0 && m.every(x => x.h >= 43 && (sel !== '#imp-desc-bascule' || x.w >= 43)), '#10 #31 import : ' + sel + ' ≥ 44 px : ' + JSON.stringify(m.slice(0, 3)));
+    }
+    ok(await t.$$eval('.main-sidebar .nav-link.active', e => e.length) >= 1, '#14 la page d\'import allume une entrée du menu (« Pièces »)');
+    await t.setInputFiles('#imp-fichier', { name: 'f.csv', mimeType: 'text/csv', buffer: lotS(5, 'TAB') });
+    await t.click('#imp-analyser'); await t.waitForSelector('#imp-apercu', { state: 'visible' });
+    ok(await t.$$eval('#imp-table td.code', e => e.every(td => { const r = document.createRange(); r.selectNodeContents(td); return r.getClientRects().length === 1; })), '#9 #32 tablette : chaque code tient sur une seule ligne');
+    ok(t.erreurs.length === 0, 'aucune erreur JS en tablette : ' + JSON.stringify(t.erreurs));
+    await ctx.close();
+  }
+
+  // ====================================================================================================================
+  section('Import : gros catalogue sous memory_limit = 128 Mo (#18)');
+  {
+    const { spawn } = require('child_process');
+    const port2 = String(Number(PORT || 8152) + 1000);
+    sql("INSERT INTO pieces (code, nom, description, unite) SELECT CONCAT('MEM-', LPAD(seq, 6, '0')), CONCAT('Pièce mémoire ', seq), REPEAT('d', 300), 'unité' FROM seq_1_to_56000");
+    sql("INSERT INTO pieces_codes (piece_id, code, type) SELECT id, CONCAT('88', SUBSTRING(code, 5)), 'fabricant' FROM pieces WHERE code LIKE 'MEM-%'");
+    sql("INSERT INTO pieces_codes (piece_id, code, type) SELECT id, CONCAT('77', SUBSTRING(code, 5)), 'fabricant' FROM pieces WHERE code LIKE 'MEM-%' AND CAST(SUBSTRING(code, 5) AS UNSIGNED) % 6 = 0");
+    const journalMem = path.join(TMP, 'mem.log');
+    const srv = spawn('php', ['-d', 'memory_limit=128M', '-S', '127.0.0.1:' + port2, 'tools/router.php'], { cwd: RACINE, env: Object.assign({}, process.env, { DB_NAME: DB, PHP_CLI_SERVER_WORKERS: '2' }), stdio: ['ignore', 'ignore', fs.openSync(journalMem, 'a')] });
+    try {
+      const ctx2 = await b.newContext();
+      const m = await ctx2.newPage();
+      for (let i = 0; i < 40; i++) { try { await m.goto('http://127.0.0.1:' + port2 + '/login.php'); break; } catch (e) { await new Promise(r => setTimeout(r, 250)); } }
+      await m.fill('input[name=username]', 'gestionnaire1'); await m.fill('input[name=password]', 'Test-Beauchemin-1');
+      await Promise.all([m.waitForNavigation(), m.click('button[type=submit]')]);
+      const jeton = await m.getAttribute('meta[name="csrf-token"]', 'content');
+      let fic = ENT;
+      for (let i = 1; i <= 5000; i++) fic += `MEM-${String(i).padStart(6, '0')};Pièce mémoire ${i} (modifiée);;;88${String(i).padStart(6, '0')};;;;;;;;;\r\n`;
+      const rr = await m.request.post('http://127.0.0.1:' + port2 + '/app/ajax/import_analyser.php', { headers: { 'X-CSRF-Token': jeton }, multipart: { fichier: { name: 'mem.csv', mimeType: 'text/csv', buffer: U8(fic) }, mode: 'creer_maj' } });
+      let jj = null; try { jj = await rr.json(); } catch (e) { /* non JSON */ }
+      ok(rr.status() === 200 && jj && jj.totaux && jj.totaux.total === 5000, '#18 catalogue de 56 000 pièces et 65 000 alias, memory_limit = 128 Mo : analyse de 5 000 lignes réussie (' + rr.status() + ')');
+      ok(jj && jj.totaux.maj === 5000 && jj.totaux.erreurs === 0, '#18 les 5 000 pièces existantes sont reconnues (mise à jour), sans erreur');
+      const journalTxt = fs.readFileSync(journalMem, 'utf8');
+      ok(!/Allowed memory size|Fatal/.test(journalTxt), '#18 aucune erreur fatale « mémoire épuisée » dans le journal PHP');
+      await ctx2.close();
+    } finally {
+      srv.kill();
+      sql("DELETE FROM pieces WHERE code LIKE 'MEM-%'");
+    }
+    ok(sql("SELECT COUNT(*) FROM pieces WHERE code LIKE 'MEM-%'") === '0', 'nettoyage du gros catalogue');
   }
 
   section('Journal et état final');

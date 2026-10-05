@@ -1,9 +1,9 @@
 // Test de bout en bout du module D1 — Scanner / chercher et comptage d'inventaire.
 //   cd gestion && tools/serveur.sh start bea_d1 8105 --neuf
-//   NODE_PATH=$(npm root -g) BASE_URL=http://127.0.0.1:8105 DB_NAME=bea_d1 node tests/e2e/d1.js
+//   NODE_PATH=$(npm root -g) BASE_URL=http://127.0.0.1:8105 node tests/e2e/d1.js      (la base est celle du serveur ; DB_NAME=bea_d1 pour la forcer)
 // Le test remet d'abord la base de démonstration à zéro (tools/serveur.sh reset $DB_NAME), crée ses propres données
 // (compte gest_bea = gestionnaire de l'entreprise 1 seulement ; pièces renommées / désactivées) et la remet à zéro à la fin.
-// Il suppose donc un serveur de DÉVELOPPEMENT branché sur la base $DB_NAME (défaut bea_d1) ; le journal PHP est lu
+// Il suppose donc un serveur de DÉVELOPPEMENT (base bea_*) : la base ciblée est déduite du serveur du port de BASE_URL, ou donnée par DB_NAME ; le journal PHP est lu
 // dans /tmp/bea-<port>.log (port de BASE_URL) et ne doit contenir aucun avertissement.
 // Les valeurs attendues (stock, écarts, ajustements) sont recalculées par des requêtes SQL indépendantes du service d'inventaire.
 const { execFileSync } = require('child_process');
@@ -11,9 +11,27 @@ const fs = require('fs');
 const path = require('path');
 const L = require('./lib.js');
 
-const DB = process.env.DB_NAME || 'bea_d1';
 const RACINE = path.resolve(__dirname, '..', '..');
 const PORT = new URL(L.BASE).port || '80';
+/** Base ciblée : DB_NAME, sinon celle du serveur de développement qui écoute sur le port de BASE_URL (tools/serveur.sh l'écrit dans son environnement).
+ *  Jamais de valeur par défaut : le test remet la base à zéro, il ne doit pas viser une autre base que celle du serveur testé. */
+function baseCible() {
+  let nom = process.env.DB_NAME || '';
+  if (!nom) {
+    try {
+      const pid = fs.readFileSync('/tmp/bea-' + PORT + '.pid', 'utf8').trim();
+      const e = fs.readFileSync('/proc/' + pid + '/environ', 'utf8').split('\0').find(x => x.startsWith('DB_NAME='));
+      if (e) { nom = e.slice('DB_NAME='.length); }
+    } catch (err) { /* pas de serveur de développement sur ce port */ }
+  }
+  if (!/^bea_[A-Za-z0-9_]+$/.test(nom)) {
+    console.error('Base de développement introuvable pour ' + L.BASE + ' : démarrez le serveur avec tools/serveur.sh start <base> ' + PORT + ' ou définissez DB_NAME=bea_….');
+    process.exit(2);
+  }
+  console.log('Test D1 : serveur ' + L.BASE + ', base ' + nom);
+  return nom;
+}
+const DB = baseCible();
 const JOURNAL = '/tmp/bea-' + PORT + '.log';
 const XSS = '<img src=x onerror=alert(1)>';
 const verifier = L.verifier;

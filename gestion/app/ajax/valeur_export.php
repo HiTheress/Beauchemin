@@ -60,6 +60,10 @@ try {
 					$N((string) (int) $e['nb_pieces'], 0, 0), $N($e['valeur'], 2, 2),
 				);
 			}
+			$arrondi = isset($v['arrondi'][(int) $en['id']]) ? $v['arrondi'][(int) $en['id']] : '0.00';
+			if (Dec::parse($arrondi, Dec::TOTAL) !== 0) {      // chaque emplacement est arrondi au cent, le total de l'entreprise une seule fois
+				$lignes[] = array($C($en['nom']), $C('Écart d\'arrondi'), '', '', $N($arrondi, 2, 2));
+			}
 			$lignes[] = array($C($en['nom']), $C('Total de l\'entreprise'), '', '', $N($en['valeur'], 2, 2));
 		}
 		$lignes[] = array($C('Total général'), '', '', '', $N($v['total'], 2, 2));

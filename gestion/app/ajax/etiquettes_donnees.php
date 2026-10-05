@@ -112,7 +112,7 @@ endpoint(function () {
 		}
 		$base += array('code' => $code, 'nom' => $nom);
 		if ($inactif !== null) {
-			$sortie[] = $base + array('ok' => false, 'erreur' => $inactif);
+			$sortie[] = $base + array('ok' => false, 'erreur' => Etiquettes::typo($inactif));
 			continue;
 		}
 		try {
@@ -120,7 +120,7 @@ endpoint(function () {
 				$cache[$code] = Etiquettes::codeBarres($code, $fmt);
 			}
 		} catch (InventaireException $ex) {
-			$sortie[] = $base + array('ok' => false, 'erreur' => $ex->getMessage());
+			$sortie[] = $base + array('ok' => false, 'erreur' => Etiquettes::typo($ex->getMessage()));
 			continue;
 		}
 		$sortie[] = $base + array(

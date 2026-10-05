@@ -23,39 +23,39 @@ for ($a = $annee_courante; $a >= min($premiere, $annee_courante); $a--) { $annee
 if ($pre_annee && !in_array($pre_annee, $annees, true)) { $annees[] = $pre_annee; rsort($annees); }
 ?>
 <link rel="stylesheet" href="assets/css/interentreprise.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/interentreprise.css'); ?>">
-<div class="content-wrapper" data-ie="factures_internes">
+<div class="content-wrapper" data-ie="factures_internes" data-titre="Factures internes — Beauchemin">
   <?php page_titre('Factures internes', array('Rapports')); ?>
   <section class="content"><div class="container-fluid">
     <div class="card ie-carte"><div class="card-body">
 
       <div class="row ie-filtres">
-        <div class="col-lg-3 col-md-6 form-group">
+        <div class="col-md-6 col-xl-4 form-group">
           <label for="f-recherche">Rechercher</label>
-          <input id="f-recherche" type="search" class="form-control" autocomplete="off" maxlength="100" placeholder="Numéro, note, emplacement…" value="<?php echo e($pre_q); ?>">
+          <input id="f-recherche" type="search" class="form-control" autocomplete="off" maxlength="100" placeholder="Numéro, note ou emplacement" value="<?php echo e($pre_q); ?>">
         </div>
-        <div class="col-lg-2 col-md-3 col-6 form-group">
+        <div class="col-6 col-md-3 col-xl-2 form-group">
           <label for="f-annee">Année</label>
           <select id="f-annee" class="form-control">
             <option value="">Toutes</option>
             <?php foreach ($annees as $a) { ?><option value="<?php echo (int) $a; ?>"<?php echo $pre_annee === $a ? ' selected' : ''; ?>><?php echo (int) $a; ?></option><?php } ?>
           </select>
         </div>
-        <div class="col-lg-2 col-md-3 col-6 form-group">
+        <div class="col-6 col-md-3 col-xl-2 form-group">
           <label for="f-mois">Mois</label>
           <select id="f-mois" class="form-control">
             <option value="">Tous</option>
             <?php foreach (MOIS_FR as $n => $lib) { ?><option value="<?php echo (int) $n; ?>"<?php echo $pre_mois === $n ? ' selected' : ''; ?>><?php echo e(mb_strtoupper(mb_substr($lib, 0, 1)) . mb_substr($lib, 1)); ?></option><?php } ?>
           </select>
         </div>
-        <div class="col-lg-3 col-md-6 form-group">
+        <div class="col-md-6 col-xl-4 form-group">
           <label for="f-sens">Sens</label>
           <select id="f-sens" class="form-control">
             <option value="">Émises et reçues</option>
-            <option value="emises"<?php echo $pre_sens === 'emises' ? ' selected' : ''; ?>>Émises par mon entreprise</option>
-            <option value="recues"<?php echo $pre_sens === 'recues' ? ' selected' : ''; ?>>Reçues par mon entreprise</option>
+            <option value="emises"<?php echo $pre_sens === 'emises' ? ' selected' : ''; ?>>Émises par l'entreprise affichée</option>
+            <option value="recues"<?php echo $pre_sens === 'recues' ? ' selected' : ''; ?>>Reçues par l'entreprise affichée</option>
           </select>
         </div>
-        <div class="col-lg-2 col-md-6 form-group">
+        <div class="col-md-6 col-xl-3 form-group">
           <label for="f-statut">Statut</label>
           <select id="f-statut" class="form-control">
             <option value="">Tous</option>
@@ -71,6 +71,7 @@ if ($pre_annee && !in_array($pre_annee, $annees, true)) { $annees[] = $pre_annee
 
       <div class="table-responsive">
         <table id="table-factures" class="table table-striped ie-table w-100">
+          <caption class="sr-only">Factures internes de vos entreprises</caption>
           <thead><tr>
             <th scope="col">Numéro</th>
             <th scope="col">Date</th>
@@ -84,7 +85,7 @@ if ($pre_annee && !in_array($pre_annee, $annees, true)) { $annees[] = $pre_annee
       </div>
 
       <div id="ie-totaux" class="ie-totaux" aria-live="polite">Calcul des totaux…</div>
-      <p class="text-muted small mt-2 mb-0">Seules les factures de vos entreprises sont listées. Les montants sont facturés au coût : aucune marge. Cliquez sur un numéro pour voir la facture, l'imprimer ou, au besoin, l'annuler.</p>
+      <p class="text-muted small mt-2 mb-0">Seules les factures de vos entreprises sont listées. Les montants sont établis au coût : aucune marge. Cliquez sur un numéro pour voir la facture, l'imprimer ou, au besoin, l'annuler.</p>
     </div></div>
   </div></section>
 </div>

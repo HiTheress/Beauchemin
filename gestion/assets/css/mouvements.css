@@ -18,10 +18,11 @@
 /* Lignes de saisie (composant) */
 .mv-lignes table { background: #fff; }
 .mv-lignes td, .mv-lignes th { vertical-align: middle; }
-.mv-lignes input.form-control { min-width: 84px; min-height: 40px; }
-.mv-lignes .btn { min-width: 44px; min-height: 40px; }
+.mv-lignes input.form-control { min-width: 84px; min-height: 44px; }
+.mv-lignes .btn { min-width: 44px; min-height: 44px; }
 .mv-lignes input.is-invalid { border-color: #dc3545; }
 .mv-lignes th { white-space: nowrap; }
+.mv-lignes td.code { white-space: nowrap; }     /* « P-0001 » ne se coupe jamais au trait d'union */
 
 /* Total estimé et actions */
 .mv-total-estime { margin: .75rem 0 0; font-size: 1.15rem; font-weight: 600; text-align: right; }
@@ -35,7 +36,7 @@
 .mv-btn-danger { background: #dc3545; border-color: #dc3545; color: #fff; font-size: 1rem; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
 .mv-btn-danger:hover, .mv-btn-danger:focus { background: #bd2130; border-color: #b21f2d; color: #fff; }
 .mv-btn-danger[disabled] { opacity: .65; }
-.mv-barre .btn { margin-bottom: .25rem; }
+.mv-barre .btn { margin-bottom: .25rem; min-height: 44px; }
 .modal .btn, .modal .form-control { min-height: 44px; }
 .modal textarea.form-control { min-height: 88px; }
 
@@ -47,7 +48,7 @@
 #table-documents tbody tr.mv-ligne-annule td { color: #6c757d; }
 #table-documents tbody tr.mv-ligne-annule td:first-child a { text-decoration: line-through; }
 .dataTables_wrapper .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
-.dataTables_wrapper .dataTables_length select { min-height: 38px; }
+.dataTables_wrapper .dataTables_length select { min-height: 44px; }
 
 /* Détail d'un document */
 .mv-entete dt { font-weight: 600; color: #495057; }
@@ -76,7 +77,7 @@
 .mv-actions { position: sticky; bottom: 0; z-index: 5; background: #fff; margin: .75rem -1.25rem -1.25rem; padding: .75rem 1.25rem; border-top: 1px solid #dee2e6; border-radius: 0 0 .25rem .25rem; }
 .mv-erreur { scroll-margin-bottom: 110px; }
 .mv-succes { scroll-margin-top: 80px; }
-#table-documents td:first-child, #table-documents td:nth-child(3) { white-space: nowrap; }
+#table-documents td:nth-child(-n+2), #table-documents td:nth-child(4) { white-space: nowrap; }      /* numéro, statut, date */
 
 /* Case à cocher : la case elle-même est cliquable (et grande), le libellé aussi */
 .mv-check { display: flex; align-items: center; gap: .6rem; min-height: 44px; margin: 0; cursor: pointer; font-weight: 600; }
@@ -100,3 +101,35 @@ html { scroll-padding-bottom: 6rem; }
 @media print {
   body { min-width: 0 !important; }      /* Bootstrap impose 992 px : la mise en page suit la largeur du papier */
 }
+
+/* Tableaux : cibles tactiles >= 44 px pour les liens (numéros, codes de pièces) */
+.mv-table td a { display: inline-flex; align-items: center; min-height: 44px; }
+#table-documents { font-size: .94rem; }
+#table-documents th, #table-documents td { padding-left: .55rem; padding-right: .55rem; }
+
+/* +/− de l'ajustement : un bouton à côté de la quantité */
+.mv-qte-signee { display: flex; align-items: center; justify-content: flex-end; gap: .35rem; }
+.mv-qte-signee .mv-signe { min-width: 54px; padding-left: .4rem; padding-right: .4rem; white-space: nowrap; }
+.mv-qte-signee input.form-control { min-width: 84px; max-width: 120px; }
+
+/* Focus bien visible (la bordure de 1 px d'origine ne suffit pas sur une tablette) */
+.mv-carte .form-control:focus, .mv-filtres .form-control:focus, .modal .form-control:focus {
+  border-color: #0b5ed7; box-shadow: 0 0 0 .2rem rgba(11, 94, 215, .5); outline: 0;
+}
+.mv-carte .select2-container--focus .select2-selection, .mv-carte .select2-container--open .select2-selection {
+  border-color: #0b5ed7 !important; box-shadow: 0 0 0 .2rem rgba(11, 94, 215, .5);
+}
+.mv-carte .btn:focus-visible, .mv-barre .btn:focus-visible, .modal .btn:focus-visible, .mv-table a:focus-visible,
+.mv-carte a:focus-visible, .mv-check input:focus-visible, .dataTables_wrapper .page-link:focus-visible {
+  outline: 3px solid #0b5ed7; outline-offset: 2px;
+}
+
+/* Contrastes : badges et textes d'invite d'au moins 4,5:1 */
+.mv-carte .badge-success { background-color: #1e7e34; color: #fff; }
+.mv-carte .badge-info { background-color: #117a8b; color: #fff; }
+.mv-carte .badge-danger { background-color: #bd2130; color: #fff; }
+.mv-carte .scan-input::placeholder, .mv-carte textarea::placeholder, .mv-carte input::placeholder { color: #6c757d; opacity: 1; }
+.mv-carte .select2-container--default .select2-selection--single .select2-selection__placeholder { color: #6c757d; }
+
+/* L'invite de la recherche des documents doit tenir en entier dans le champ */
+#f-recherche::placeholder { font-size: .92rem; }

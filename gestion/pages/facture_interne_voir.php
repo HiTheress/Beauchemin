@@ -18,7 +18,8 @@ if ($id > 0) {
 // Un document d'un autre type (accès déjà vérifié par le service) : la page des documents
 if ($r && $r['doc']['type'] !== 'facture_interne') {
 	while (ob_get_level() > 0) { ob_end_clean(); }
-	redirect('index.php?page=document_voir&id=' . (int) $r['doc']['id']);
+	header('Location: index.php?page=document_voir&id=' . (int) $r['doc']['id']);      // relative : aucun nom d'hôte réfléchi
+	exit;
 }
 if (!$r) {
 	http_response_code($refus ? 403 : 404);
@@ -35,15 +36,20 @@ $lignes = $r['lignes'];
 $annule = ($d['statut'] === 'annule');
 $moment = function ($s) { return $s ? substr((string) $s, 0, 16) : ''; };
 $qte = function ($s) { return Interentreprise::nombre($s); };
-$flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
+// Message de succès de l'annulation : affiché UNE seule fois (mémorisé dans la session par facture_annuler.php), pas à chaque rechargement
+$flash = ($annule && isset($_GET['ok']) && $_GET['ok'] === 'annule' && isset($_SESSION['ie_flash_annule']) && (int) $_SESSION['ie_flash_annule'] === (int) $d['id']);
+if ($flash) { unset($_SESSION['ie_flash_annule']); }
+// Le service ne communique pas le nom d'un emplacement d'une entreprise à laquelle l'utilisateur n'a pas accès (valeur nulle)
+$nom_emp = function ($n) { return ($n === null || $n === '') ? '<span class="text-muted">non communiqué</span>' : '<strong>' . e($n) . '</strong>'; };
+$guill = function ($t) { return "«\xc2\xa0" . $t . "\xc2\xa0»"; };
 $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
 ?>
 <?php echo $css; ?>
-<div class="content-wrapper" data-ie="facture_interne_voir" data-document-id="<?php echo (int) $d['id']; ?>" data-numero="<?php echo e($d['numero']); ?>">
+<div class="content-wrapper" data-ie="facture_interne_voir" data-document-id="<?php echo (int) $d['id']; ?>" data-numero="<?php echo e($d['numero']); ?>" data-titre="<?php echo e('Facture interne ' . $d['numero'] . ' — Beauchemin'); ?>">
   <?php page_titre($d['numero'], array('Rapports', 'Factures internes')); ?>
   <section class="content"><div class="container-fluid">
 
-    <?php if ($flash) { ?><div class="alert alert-success no-print" role="status">La facture a été annulée : les pièces sont retournées à l'emplacement source et ont quitté l'emplacement de destination.</div><?php } ?>
+    <?php if ($flash) { ?><div class="alert ie-succes no-print" role="status" id="flash-annule"><i class="fas fa-check-circle mr-1" aria-hidden="true"></i> La facture <strong><?php echo e($d['numero']); ?></strong> a été annulée : les pièces sont retournées à l'emplacement source de <?php echo e($d['entreprise']); ?> et ont quitté l'emplacement de destination de <?php echo e($d['entreprise_dest']); ?>.</div><?php } ?>
 
     <div class="mb-3 no-print ie-barre">
       <a class="btn btn-outline-secondary" href="index.php?page=factures_internes"><i class="fas fa-arrow-left mr-1" aria-hidden="true"></i> Liste des factures</a>
@@ -61,7 +67,7 @@ $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
           <span class="badge badge-danger ie-badge-annule">ANNULÉE</span>
           <span class="ml-2">
             Annulée<?php echo $d['annule_par_nom'] ? ' par <strong>' . e($d['annule_par_nom']) . '</strong>' : ''; ?><?php echo $d['annule_le'] ? ' le ' . e($moment($d['annule_le'])) : ''; ?>.
-            <?php if ($d['motif_annulation'] !== null && $d['motif_annulation'] !== '') { ?>Motif : « <?php echo e($d['motif_annulation']); ?> ».<?php } ?>
+            <?php if ($d['motif_annulation'] !== null && $d['motif_annulation'] !== '') { ?>Motif : <?php echo e($guill($d['motif_annulation'])); ?>.<?php } ?>
           </span>
         </div>
         <?php } ?>
@@ -82,17 +88,18 @@ $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
           <section class="ie-partie" aria-labelledby="ie-emetteur">
             <h3 id="ie-emetteur">Émetteur</h3>
             <p class="ie-partie-nom"><?php echo e($d['entreprise']); ?></p>
-            <p class="mb-0">Emplacement source : <strong><?php echo e($d['emplacement']); ?></strong></p>
+            <p class="mb-0">Emplacement source : <?php echo $nom_emp($d['emplacement']); ?></p>
           </section>
           <section class="ie-partie" aria-labelledby="ie-destinataire">
             <h3 id="ie-destinataire">Destinataire</h3>
             <p class="ie-partie-nom"><?php echo e($d['entreprise_dest']); ?></p>
-            <p class="mb-0">Emplacement de destination : <strong><?php echo e($d['emplacement_dest']); ?></strong></p>
+            <p class="mb-0">Emplacement de destination : <?php echo $nom_emp($d['emplacement_dest']); ?></p>
           </section>
         </div>
 
         <div class="table-responsive">
           <table class="table table-sm ie-table-facture" id="table-lignes">
+            <caption class="sr-only">Pièces de la facture <?php echo e($d['numero']); ?></caption>
             <thead><tr>
               <th scope="col">Code</th><th scope="col">Pièce</th><th scope="col" class="nombre">Quantité</th>
               <th scope="col" class="nombre">Coût unitaire</th><th scope="col" class="nombre">Total</th>
@@ -137,10 +144,10 @@ $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
       <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
     </div>
     <div class="modal-body">
-      <p>Les pièces retourneront à l'emplacement source de <?php echo e($d['entreprise']); ?> et quitteront l'emplacement de destination de <?php echo e($d['entreprise_dest']); ?>. La facture reste dans la liste, marquée « ANNULÉE », et n'est plus comptée dans le bilan. Si les pièces ont déjà été sorties de la destination, l'annulation est refusée.</p>
+      <p>Les pièces retourneront à l'emplacement source de <?php echo e($d['entreprise']); ?> et quitteront l'emplacement de destination de <?php echo e($d['entreprise_dest']); ?>. La facture reste dans la liste, marquée «&nbsp;ANNULÉE&nbsp;», et n'est plus comptée dans le bilan. Si les pièces ont déjà été sorties de la destination, l'annulation est refusée.</p>
       <div class="form-group mb-2">
-        <label for="annuler-motif">Motif de l'annulation <span class="text-danger" aria-hidden="true">*</span></label>
-        <textarea id="annuler-motif" class="form-control" rows="3" maxlength="255" placeholder="Par exemple : erreur de quantité, mauvaise destination…"></textarea>
+        <label for="annuler-motif">Motif de l'annulation <span class="text-danger" aria-hidden="true">*</span><span class="sr-only">(obligatoire)</span></label>
+        <textarea id="annuler-motif" class="form-control" rows="3" maxlength="255" required aria-required="true" placeholder="Par exemple : erreur de quantité, mauvaise destination…"></textarea>
       </div>
       <div id="annuler-erreur" class="alert alert-danger mb-0" role="alert" hidden></div>
     </div>

@@ -10,11 +10,11 @@ $couts = $Ouser->peutVoirCouts();
 $acc = array_map('intval', $Ouser->entreprisesAutorisees());
 
 $r = null;
-try { $r = inventaire()->document(utilisateur_id(), $id); } catch (InventaireException $ex) { $r = null; $erreur_doc = $ex->getMessage(); }
+try { $r = inventaire()->document(utilisateur_id(), $id); } catch (InventaireException $ex) { $r = null; }   // inexistant ou inaccessible : même réponse
 if (!$r) { ?>
 <div class="content-wrapper"><?php page_titre('Document introuvable', array('Rapports', 'Documents')); ?>
   <section class="content"><div class="container-fluid">
-    <div class="alert alert-warning" role="alert"><?php echo e(isset($erreur_doc) ? $erreur_doc : 'Ce document n\'existe pas.'); ?> <a class="alert-link" href="index.php?page=documents">Retour à la liste des documents</a></div>
+    <div class="alert alert-warning" role="alert">Ce document n'existe pas, ou vous n'y avez pas accès. <a class="alert-link" href="index.php?page=documents">Retour à la liste des documents</a></div>
   </div></section>
 </div>
 <?php return; }
@@ -27,6 +27,14 @@ if ($d['type'] === 'facture_interne' && $gest) {
 	while (ob_get_level() > 0) { ob_end_clean(); }
 	redirect('index.php?page=facture_interne_voir&id=' . (int) $d['id']);
 }
+
+// Noms complets (la liste des documents affiche déjà le nom complet, pas l'identifiant de connexion)
+$st = $pdo->prepare("SELECT COALESCE(NULLIF(u.nom_complet, ''), u.nom_utilisateur) AS saisi, COALESCE(NULLIF(ua.nom_complet, ''), ua.nom_utilisateur) AS annule
+	FROM documents d LEFT JOIN utilisateurs u ON u.id = d.utilisateur_id LEFT JOIN utilisateurs ua ON ua.id = d.annule_par WHERE d.id = ?");
+$st->execute(array((int) $d['id']));
+$noms = $st->fetch();
+$nom_saisi = ($noms && $noms['saisi'] !== null) ? $noms['saisi'] : $d['utilisateur'];
+$nom_annule = ($noms && $noms['annule'] !== null) ? $noms['annule'] : $d['annule_par_nom'];
 
 $annule = ($d['statut'] === 'annule');
 $type = $d['type'];
@@ -64,6 +72,14 @@ $st = $pdo->prepare('SELECT COUNT(*) FROM mouvements WHERE document_id = ?');
 $st->execute(array((int) $d['id']));
 $nb_mouv_total = (int) $st->fetchColumn();
 $nb_masques = $nb_mouv_total - count($mouvements);
+// Réception qui a modifié les prix du fournisseur : l'annulation reprend le stock et le coût moyen, mais pas ces prix
+$prix_modifies = 0;
+if ($peut_annuler && $type === 'reception' && $d['fournisseur_id']) {
+	$st = $pdo->prepare('SELECT COUNT(DISTINCT pf.piece_id) FROM prix_fournisseurs pf JOIN document_lignes l ON l.piece_id = pf.piece_id
+		WHERE l.document_id = ? AND pf.fournisseur_id = ? AND pf.note = ?');
+	$st->execute(array((int) $d['id'], (int) $d['fournisseur_id'], 'Réception ' . $d['numero']));
+	$prix_modifies = (int) $st->fetchColumn();
+}
 $flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
 ?>
 <link rel="stylesheet" href="assets/css/mouvements.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/mouvements.css'); ?>">
@@ -71,14 +87,14 @@ $flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
   <?php page_titre($d['numero'], array('Rapports', 'Documents')); ?>
   <section class="content"><div class="container-fluid">
 
-    <?php if ($flash) { ?><div class="alert alert-success" role="status">Le document a été annulé : les écritures inverses ont été passées dans le stock.</div><?php } ?>
+    <?php if ($flash) { ?><div class="alert alert-success no-print" role="status">Le document a été annulé et le stock a été corrigé.</div><?php } ?>
 
     <?php if ($annule) { ?>
     <div class="alert mv-bandeau-annule" role="status" id="bandeau-annule">
       <span class="badge badge-danger mv-badge-annule">ANNULÉ</span>
       <span class="ml-2">
-        Annulé<?php echo $d['annule_par_nom'] ? ' par <strong>' . e($d['annule_par_nom']) . '</strong>' : ''; ?><?php echo $d['annule_le'] ? ' le ' . e($moment($d['annule_le'])) : ''; ?>.
-        <?php if ($d['motif_annulation'] !== null && $d['motif_annulation'] !== '') { ?>Motif : « <?php echo e($d['motif_annulation']); ?> ».<?php } ?>
+        Annulé<?php echo $nom_annule ? ' par <strong>' . e($nom_annule) . '</strong>' : ''; ?><?php echo $d['annule_le'] ? ' le ' . e($moment($d['annule_le'])) : ''; ?>.
+        <?php if ($d['motif_annulation'] !== null && $d['motif_annulation'] !== '') { ?>Motif : « <?php echo e($d['motif_annulation']); ?> ».<?php } ?>
       </span>
     </div>
     <?php } ?>
@@ -116,7 +132,7 @@ $flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
         <?php if ($d['reference'] !== null && $d['reference'] !== '') { ?><dt class="col-sm-3"><?php echo e($etiquette_ref); ?></dt><dd class="col-sm-9"><?php echo e($d['reference']); ?></dd><?php } ?>
         <?php if ($d['motif'] !== null && $d['motif'] !== '') { ?><dt class="col-sm-3">Motif</dt><dd class="col-sm-9"><?php echo e(Mouvements::libelleMotif($type, $d['motif'])); ?></dd><?php } ?>
         <?php if ($d['note'] !== null && $d['note'] !== '') { ?><dt class="col-sm-3">Note</dt><dd class="col-sm-9 mv-note"><?php echo e($d['note']); ?></dd><?php } ?>
-        <dt class="col-sm-3">Saisi par</dt><dd class="col-sm-9"><?php echo e($d['utilisateur'] !== null ? $d['utilisateur'] : '—'); ?> <span class="text-muted">· <?php echo e($moment($d['cree_le'])); ?></span></dd>
+        <dt class="col-sm-3">Saisi par</dt><dd class="col-sm-9"><?php echo e($nom_saisi !== null ? $nom_saisi : '—'); ?> <span class="text-muted">· <?php echo e($moment($d['cree_le'])); ?></span></dd>
       </dl>
     </div></div>
 
@@ -187,7 +203,10 @@ $flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
       <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
     </div>
     <div class="modal-body">
-      <p><?php echo e(isset($consequence[$type]) ? $consequence[$type] : ''); ?> Le document reste dans la liste, marqué « ANNULÉ ». Si les pièces ne sont plus là, l'annulation est refusée.</p>
+      <p><?php echo e(isset($consequence[$type]) ? $consequence[$type] : ''); ?> Le document reste dans la liste, marqué « ANNULÉ ». Si les pièces ne sont plus là, l'annulation est refusée.</p>
+      <?php if ($prix_modifies > 0) { ?>
+      <p class="alert alert-warning" id="annuler-prix"><i class="fas fa-exclamation-triangle mr-1" aria-hidden="true"></i> Cette réception a mis à jour <?php echo $prix_modifies; ?> prix de <?php echo e($d['fournisseur']); ?>. L'annulation ne rétablit pas ces prix&nbsp;: vérifiez-les ensuite dans le catalogue.</p>
+      <?php } ?>
       <div class="form-group mb-2">
         <label for="annuler-motif">Motif de l'annulation <span class="text-danger" aria-hidden="true">*</span></label>
         <textarea id="annuler-motif" class="form-control" rows="3" maxlength="255" placeholder="Par exemple : erreur de saisie, mauvaise quantité…"></textarea>
@@ -195,8 +214,8 @@ $flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
       <div id="annuler-erreur" class="alert alert-danger mb-0" role="alert" hidden></div>
     </div>
     <div class="modal-footer">
-      <button type="button" class="btn btn-outline-secondary" data-dismiss="modal" id="annuler-retour">Retour</button>
-      <button type="button" class="btn mv-btn-danger" id="annuler-confirmer">Annuler ce document</button>
+      <button type="button" class="btn btn-outline-secondary" data-dismiss="modal" id="annuler-retour">Ne pas annuler</button>
+      <button type="button" class="btn mv-btn-danger" id="annuler-confirmer">Confirmer l'annulation</button>
     </div>
   </div></div>
 </div>

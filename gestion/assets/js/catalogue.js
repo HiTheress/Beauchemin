@@ -16,11 +16,11 @@
   // ===================================================================================
   function q(sel, ctx) { return (ctx || document).querySelector(sel); }
   function qa(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
-  /** Message d'erreur affichable : jamais de texte technique anglais (réseau coupé : « Failed to fetch »). */
+  /** Message d'erreur affichable : jamais de texte technique anglais (api.get / api.post traduisent déjà le réseau coupé ; ceci couvre le reste). */
   function msg(err) {
     var m = (err && err.message) ? String(err.message) : '';
     if (err instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed/i.test(m)) {
-      return 'Connexion au serveur impossible. Vérifiez le réseau, puis réessayez.';
+      return 'Connexion impossible au serveur. Vérifiez le réseau, puis réessayez.';
     }
     return m || 'Erreur inattendue. Réessayez.';
   }
@@ -39,15 +39,71 @@
     return p[0] + ',' + frac;
   }
 
-  // Session expirée pendant le chargement d'un tableau : retour à la connexion (comme api.get / api.post)
-  $(document).ajaxError(function (e, xhr) { if (xhr && xhr.status === 401) { w.location.href = 'login.php'; } });
+  // Les erreurs de chargement des tableaux (session expirée, accès refusé, serveur, réseau) sont gérées une seule fois par le noyau
+  // (app.js : événement error.dt). Ici on ne fait que signaler le tableau périmé (voir surveillerChargement).
 
-  // Erreur de chargement d'un tableau : message en français (le texte de DataTables est technique et en anglais)
-  $.fn.dataTable.ext.errMode = function () { w.toast('Impossible de charger le tableau. Rechargez la page ou réessayez dans un instant.', 'danger'); };
+  /** Libellés français des tableaux : espace insécable comme séparateur de milliers (« 3 014 »), aria-labels de tri en français. */
+  var LANG = $.extend(true, {}, w.DT_LANG, {
+    thousands: '\u00a0',
+    aria: { sortAscending: ' : activer pour trier en ordre croissant', sortDescending: ' : activer pour trier en ordre décroissant' }
+  });
+
+  /** Texte sans accents ni majuscules (tri et recherche à la française). */
+  function sansAccents(v) { return String(v === null || v === undefined ? '' : v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
 
   /** Tri français (accents et casse ignorés) pour les tableaux entièrement chargés dans le navigateur. */
   $.fn.dataTable.ext.type.order['fr-asc'] = function (a, b) { return String(a === null ? '' : a).localeCompare(String(b === null ? '' : b), 'fr', { sensitivity: 'base' }); };
   $.fn.dataTable.ext.type.order['fr-desc'] = function (a, b) { return -$.fn.dataTable.ext.type.order['fr-asc'](a, b); };
+  /** Recherche française : « electro » trouve « Électro Plus » (le serveur fait de même pour la liste des pièces). */
+  $.fn.dataTable.ext.type.search['fr'] = function (d) { return sansAccents(d); };
+
+  /** Branche la recherche d'un tableau chargé dans le navigateur sur le texte sans accents. */
+  function rechercheSansAccents(table) {
+    var champ = $(table.table().container()).find('.dataTables_filter input');
+    champ.off('.DT').on('input.cat search.cat', function () { table.search(sansAccents(this.value)).draw(); });
+  }
+
+  /**
+   * Un chargement qui échoue (réseau coupé, serveur, accès) ne doit pas laisser les anciennes lignes sous un nouveau filtre :
+   * on remplace le contenu par un message. Le message d'erreur lui-même (une seule fois) vient du noyau (error.dt).
+   */
+  function surveillerChargement(selecteur, colonnes) {
+    $(selecteur).on('xhr.dt', function (e, settings, json, xhr) {
+      if (json) { return; }
+      var etat = (xhr && xhr.status) || 0;
+      if (etat === 401) { return; }          // retour à la connexion, géré par le noyau
+      if (etat === 0) {
+        // Réseau coupé : DataTables ne signale rien (pas de réponse HTTP) ; le message vient d'ici, une seule fois
+        // (si le noyau l'a déjà affiché, on ne le répète pas).
+        setTimeout(function () {
+          var boite = document.getElementById('toasts');
+          if (!boite || boite.textContent.indexOf('Connexion impossible au serveur') === -1) { w.toast('Connexion impossible au serveur. Vérifiez le réseau, puis réessayez.', 'danger'); }
+        }, 0);
+      }
+      var td = document.createElement('td');
+      td.colSpan = colonnes; td.className = 'text-center text-danger py-4';
+      td.textContent = 'Le chargement a échoué : cette liste n\'est pas à jour. Modifiez un filtre ou rechargez la page pour réessayer.';
+      var tr = document.createElement('tr'); tr.className = 'cat-echec'; tr.appendChild(td);
+      $(selecteur + ' tbody').empty().append(tr);
+    });
+  }
+
+  /** Remet le focus sur l'élément qui avait ouvert une fenêtre (sinon sur le repli) : la navigation au clavier reprend là où elle était. */
+  function memoriserFocus() { var a = document.activeElement; return (a && a !== document.body) ? a : null; }
+  function rendreFocus(el, repli) {
+    setTimeout(function () {
+      var cible = (el && el.isConnected && !el.disabled) ? el : (typeof repli === 'function' ? repli() : repli);
+      if (cible && typeof cible.focus === 'function') { cible.focus(); }
+    }, 0);
+  }
+  /** Ouvre une fenêtre modale : premier champ ciblé à l'ouverture, focus rendu à la fermeture. */
+  function ouvrirModal(selecteur, premierChamp, repli, declencheur) {
+    var avant = declencheur || memoriserFocus();
+    $(selecteur).off('shown.bs.modal.cat hidden.bs.modal.cat')
+      .one('shown.bs.modal.cat', function () { var c = typeof premierChamp === 'function' ? premierChamp() : (premierChamp ? q(premierChamp) : null); if (c) { c.focus(); } })
+      .one('hidden.bs.modal.cat', function () { rendreFocus(avant, repli); })
+      .modal('show');
+  }
 
   /** Message d'erreur dans une zone .alert (ou toast si la zone n'existe pas). */
   function alerte(zone, texte) {
@@ -58,14 +114,27 @@
 
   function effacerErreurs(form) {
     qa('.is-invalid', form).forEach(function (e) { e.classList.remove('is-invalid'); });
+    qa('[aria-invalid]', form).forEach(function (e) { e.removeAttribute('aria-invalid'); e.removeAttribute('aria-describedby'); });
     qa('[data-erreur-pour]', form).forEach(function (e) { e.hidden = true; e.textContent = ''; });
+  }
+  /** Marque un champ en erreur : bordure rouge, aria-invalid et lien vers son message (lu par les lecteurs d'écran). */
+  function marquerInvalide(el, zone) {
+    if (!el) { return; }
+    el.classList.add('is-invalid');
+    el.setAttribute('aria-invalid', 'true');
+    if (zone) { if (!zone.id) { zone.id = 'err-' + String(zone.getAttribute('data-erreur-pour') || Math.random()).replace(/[^a-z0-9_-]/gi, ''); } el.setAttribute('aria-describedby', zone.id); }
+  }
+  function demarquerInvalide(el) {
+    if (!el) { return; }
+    el.classList.remove('is-invalid'); el.removeAttribute('aria-invalid'); el.removeAttribute('aria-describedby');
   }
 
   /** Boîte de confirmation (Promise<boolean>). Le message est inséré en texte, jamais en HTML. */
   var confirmationOuverte = false;
-  function confirmer(titre, message, libelle, classe) {
+  function confirmer(titre, message, libelle, classe, repli) {
     if (confirmationOuverte) { return Promise.resolve(false); }      // double clic : une seule boîte à la fois
     confirmationOuverte = true;
+    var declencheur = memoriserFocus();
     return new Promise(function (resolve) {
       var m = document.getElementById('modal-confirmer');
       if (!m) {
@@ -93,18 +162,16 @@
       oui.onclick = function () { decision = true; $(m).modal('hide'); };
       $(m).off('hidden.bs.modal.confirmer shown.bs.modal.confirmer')
         .on('shown.bs.modal.confirmer', function () { q('#modal-confirmer-non', m).focus(); })
-        .one('hidden.bs.modal.confirmer', function () { confirmationOuverte = false; resolve(decision); });
+        .one('hidden.bs.modal.confirmer', function () { confirmationOuverte = false; resolve(decision); rendreFocus(declencheur, repli); });
       $(m).modal('show');
     });
   }
 
   /** Confirmation de désactivation d'une pièce : un seul message, avec le stock restant s'il y en a (vérifié côté serveur, sans rien changer). */
-  function confirmerDesactivation(id, code) {
-    return api.post('app/action/piece_activer.php', { id: id, actif: false, simuler: true }).then(function () {
-      return confirmer('Désactiver la pièce ?', 'Désactiver « ' + code + ' » ? Elle n\'apparaîtra plus dans les listes de saisie ; son historique est conservé.', 'Désactiver', 'cat-btn-danger');
-    }, function (err) {
-      if (err.champ === 'confirmation') { return confirmer('Désactiver la pièce ?', err.message, 'Désactiver quand même', 'cat-btn-danger'); }
-      throw err;
+  function confirmerDesactivation(id, code, repli) {
+    return api.post('app/action/piece_activer.php', { id: id, actif: false, simuler: true }).then(function (r) {
+      if (r && r.confirmation_requise) { return confirmer('Désactiver la pièce ?', r.message, 'Désactiver quand même', 'cat-btn-danger', repli); }
+      return confirmer('Désactiver la pièce ?', 'Désactiver « ' + code + ' » ? Elle n\'apparaîtra plus dans les listes de saisie ni dans les réceptions ; son historique est conservé.', 'Désactiver', 'cat-btn-danger', repli);
     });
   }
 
@@ -147,12 +214,14 @@
             return parseInt(v, 10) === 1 ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-secondary">Désactivée</span>';
           } }
       ],
-      language: $.extend({}, w.DT_LANG, {
+      // le serveur applique les filtres au total : « vide » veut donc toujours dire « rien ne correspond à ces critères »
+      language: $.extend({}, LANG, {
         zeroRecords: 'Aucune pièce ne correspond à ces critères.',
-        emptyTable: 'Aucune pièce dans le catalogue.'
+        emptyTable: 'Aucune pièce ne correspond à ces critères.'
       }),
       createdRow: function (tr) { tr.classList.add('cliquable'); }
     });
+    surveillerChargement('#table-pieces', 6);
 
     // Un clic sur la ligne ouvre la fiche (zone de clic large pour la tablette)
     $('#table-pieces tbody').on('click', 'tr.cliquable', function (e) {
@@ -161,37 +230,90 @@
       if (a) { w.location.href = a.getAttribute('href'); }
     });
 
+    var tactile = !!(w.matchMedia && w.matchMedia('(pointer: coarse)').matches);   // pas de clavier virtuel intempestif sur tablette
+    function focusRecherche() { if (!tactile) { champRech.focus(); } }
+
+    // Après un changement de filtre, le focus revient au champ : le scan suivant n'est pas perdu
     ['#f-categorie', '#f-statut', '#f-stock'].forEach(function (s) {
-      q(s).addEventListener('change', function () { table.draw(); });
+      q(s).addEventListener('change', function () { table.draw(); focusRecherche(); });
     });
 
-    // Recherche en tapant ; Entrée (lecteur de codes-barres) : un code exact ouvre directement la fiche
+    // Rappel des filtres pour l'impression (les filtres eux-mêmes ne s'impriment pas)
+    function texteFiltres() {
+      var cat = q('#f-categorie'), st = q('#f-statut');
+      var parts = ['Statut : ' + st.options[st.selectedIndex].text.toLowerCase()];
+      if (cat.value !== '') { parts.push('Catégorie : ' + cat.options[cat.selectedIndex].text); }
+      if (q('#f-stock').checked) { parts.push('Avec stock seulement'); }
+      if (champRech.value.trim() !== '') { parts.push('Recherche : « ' + champRech.value.trim() + ' »'); }
+      var portee = q('.cat-portee strong');
+      if (portee) { parts.push('Entreprises : ' + portee.textContent); }
+      return parts.join(' · ');
+    }
+    table.on('draw', function () { var z = q('#filtres-impression'); if (z) { z.textContent = texteFiltres(); } });
+
+    // Recherche en tapant (code, nom ou alias, côté serveur)
     function filtrer() { table.search(champRech.value.trim()).draw(); }
-    champRech.addEventListener('input', function () { clearTimeout(minuteur); minuteur = setTimeout(filtrer, 300); });
-    champRech.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter') { return; }
-      e.preventDefault();
-      clearTimeout(minuteur);
-      var code = nettoyer(champRech.value);
-      if (code === '') { filtrer(); return; }
+    var dernierInput = 0;
+    champRech.addEventListener('input', function () { dernierInput = Date.now(); clearTimeout(minuteur); minuteur = setTimeout(filtrer, 300); });
+
+    // Lecteur de codes-barres : le code arrive suivi d'Entrée (ou de Tab). On le copie, on vide le champ tout de suite et on traite
+    // les scans à la file (aucun scan perdu ni collé au précédent, même en rafale). Un code de pièce ouvre sa fiche ; sinon le texte
+    // revient dans le champ, sélectionné, pour que le scan suivant le remplace (et la liste est filtrée dessus).
+    var box = champRech.closest('.scan-box'), file = [], enCours = false, navigue = false, minuterieBox = null;
+    function marquer(cls) {
+      if (!box) { return; }
+      box.classList.remove('ok', 'erreur'); void box.offsetWidth; box.classList.add(cls);
+      clearTimeout(minuterieBox); minuterieBox = setTimeout(function () { box.classList.remove(cls); }, 900);
+    }
+    function echec(code, texte) {
+      w.bip(false); marquer('erreur');
+      if (texte) { w.toast(texte, 'warning'); }
+      if (!file.length && champRech.value === '') { champRech.value = code; champRech.select(); filtrer(); }
+    }
+    function traiter() {
+      if (enCours || navigue) { return; }
+      var code = file.shift();
+      if (code === undefined) { champRech.setAttribute('data-attente', '0'); return; }
+      enCours = true;
+      champRech.setAttribute('data-attente', String(file.length + 1));
       api.get('app/ajax/scan_code.php', { code: code }).then(function (r) {
         if (r.trouve && r.type === 'piece') {
-          w.bip(true);
+          navigue = true; file.length = 0;
+          w.bip(true); marquer('ok');
           w.location.href = 'index.php?page=piece_voir&id=' + encodeURIComponent(r.piece.id);
         } else if (r.trouve && r.type === 'emplacement') {
-          w.bip(false);
-          w.toast('« ' + code + ' » est le code de l\'emplacement « ' + r.emplacement.nom + ' », pas d\'une pièce.', 'warning');
-          filtrer();
+          echec(code, '« ' + code + ' » est le code de l\'emplacement « ' + r.emplacement.nom + ' », pas d\'une pièce.');
         } else {
           // code inconnu : on filtre quand même (c'est peut-être un bout de nom) ; si rien ne correspond, bip d'erreur et message clair
+          if (file.length) { return; }          // d'autres scans attendent : on ne filtre pas sur celui-ci
+          if (champRech.value === '') { champRech.value = code; champRech.select(); }
+          else if (nettoyer(champRech.value) !== code) { return; }      // la personne tape autre chose : on n'y touche pas
           table.one('draw', function () {
-            if (table.page.info().recordsDisplay === 0) { w.bip(false); w.toast('Aucune pièce ne correspond à « ' + code + ' ».', 'warning'); }
+            if (table.page.info().recordsDisplay === 0) { w.bip(false); marquer('erreur'); w.toast('Aucune pièce ne correspond à « ' + code + ' ».', 'warning'); }
+            else { marquer('ok'); }
           });
           filtrer();
         }
-      }).catch(function (err) { w.toast(msg(err), 'danger'); filtrer(); });
+      }).catch(function (err) { echec(code, msg(err)); })
+        .then(function () { enCours = false; traiter(); });
+    }
+    function soumettre(code) {
+      if (file.length >= 500) { w.bip(false); w.toast('Trop de scans en attente : patientez un instant.', 'warning'); return; }
+      file.push(code); traiter();
+    }
+    champRech.addEventListener('keydown', function (e) {
+      var enter = (e.key === 'Enter');
+      // Tab : suffixe de certains lecteurs. Un Tab tapé par une personne (plus de 200 ms après la dernière touche) reste un Tab normal.
+      var tab = (e.key === 'Tab' && !e.shiftKey && champRech.value.trim() !== '' && (Date.now() - dernierInput) < 200);
+      if (!enter && !tab) { return; }
+      e.preventDefault();
+      clearTimeout(minuteur);
+      var code = nettoyer(champRech.value);
+      if (code === '') { if (enter) { filtrer(); } return; }
+      champRech.value = '';
+      soumettre(code);
     });
-    if (!w.matchMedia || !w.matchMedia('(pointer: coarse)').matches) { champRech.focus(); }   // pas de clavier virtuel intempestif sur tablette
+    focusRecherche();
   }
 
   // ===================================================================================
@@ -213,7 +335,7 @@
         }
         if (actif) { appliquer(); return; }
         btnAct.disabled = true;      // évite de lancer deux fois la vérification (double clic)
-        confirmerDesactivation(pid, code).then(function (ok) { btnAct.disabled = false; if (ok) { appliquer(); } },
+        confirmerDesactivation(pid, code, btnAct).then(function (ok) { btnAct.disabled = false; if (ok) { appliquer(); } },
           function (err) { btnAct.disabled = false; w.toast(msg(err), 'danger'); });
       });
     }
@@ -221,13 +343,15 @@
     if (!q('#section-prix')) { return; }   // employé : aucune donnée de coût n'est même demandée
 
     var etat = null;
+    var FPCT = new Intl.NumberFormat('fr-CA', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 
+    /** Écart au coût moyen : « +1,25 $ (+9 776,3 %) » ; mêmes signes que les quantités (« + » et « - »), pourcentage au format fr-CA, espace insécable avant « % ». */
     function fmtEcart(e) {
       if (!e) { return '<span class="text-muted">—</span>'; }
       var n = parseFloat(e.ecart), p = Math.abs(parseFloat(e.pct));
       var cls = n < 0 ? 'cat-ecart-bon' : (n > 0 ? 'cat-ecart-mauvais' : '');
-      var signe = n > 0 ? '+' : (n < 0 ? '−' : '');
-      return '<span class="' + cls + '">' + signe + esc(w.fmtArgent(String(Math.abs(n)), 4)) + ' (' + signe + esc(String(p).replace('.', ',')) + ' %)</span>';
+      var signe = n > 0 ? '+' : (n < 0 ? '-' : '');
+      return '<span class="text-nowrap ' + cls + '">' + signe + esc(w.fmtArgent(String(Math.abs(n)), 4)) + ' (' + signe + esc(FPCT.format(p)) + ' %)</span>';
     }
 
     function rendre() {
@@ -241,20 +365,26 @@
       if (!etat.prix.length) {
         zone.innerHTML = '<p class="text-muted mb-0">Aucun prix de fournisseur enregistré pour cette pièce. Cliquez sur « Ajouter un prix ».</p>';
       } else {
-        var h = '<table class="table table-sm cat-table mb-0" id="table-prix"><thead><tr><th scope="col">Fournisseur</th><th scope="col">N° fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date</th>';
-        etat.couts.forEach(function (c) { h += '<th scope="col" class="nombre">Écart vs coût moyen<br><small class="text-muted font-weight-normal">' + esc(c.nom) + '</small></th>'; });
+        // une seule colonne d'écart (une ligne par entreprise) : le tableau tient sur une tablette
+        var h = '<table class="table table-sm cat-table mb-0" id="table-prix"><thead><tr><th scope="col">Fournisseur</th><th scope="col" class="cat-th-souple">N° de pièce chez le fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date du prix</th>';
+        if (etat.couts.length) { h += '<th scope="col" class="cat-th-souple cat-ecarts">Écart vs coût moyen</th>'; }
         h += '<th scope="col" class="no-print"><span class="sr-only">Actions</span></th></tr></thead><tbody>';
         etat.prix.forEach(function (l) {
-          h += '<tr data-fournisseur="' + esc(l.fournisseur_id) + '"><td>' + esc(l.fournisseur) +
+          h += '<tr data-fournisseur="' + esc(l.fournisseur_id) + '"><td class="cat-souple">' + esc(l.fournisseur) +
             (l.actif ? '' : ' <span class="badge badge-secondary">Désactivé</span>') +
             (l.meilleur ? ' <span class="badge badge-success">Meilleur prix</span>' : '') +
             (l.note ? '<div class="small text-muted">' + esc(l.note) + '</div>' : '') + '</td>' +
             '<td class="code">' + esc(l.no_fournisseur || '') + '</td>' +
             '<td class="nombre">' + esc(w.fmtArgent(l.prix, 4)) + '</td>' +
             '<td class="text-nowrap">' + esc(l.date_prix) + '</td>';
-          etat.couts.forEach(function (c) { h += '<td class="nombre">' + fmtEcart(l.ecarts[String(c.entreprise_id)]) + '</td>'; });
-          h += '<td class="text-nowrap text-right no-print">' +
-            '<button type="button" class="btn btn-outline-primary btn-sm mr-1" data-action="modifier-prix" data-fournisseur="' + esc(l.fournisseur_id) + '" title="Modifier le prix"><i class="fas fa-pen" aria-hidden="true"></i><span class="sr-only">Modifier le prix de ' + esc(l.fournisseur) + '</span></button>' +
+          if (etat.couts.length) {
+            h += '<td class="cat-ecarts">' + etat.couts.map(function (c) {
+              var e = l.ecarts[String(c.entreprise_id)];
+              return e ? '<div><small class="text-muted">' + esc(c.nom) + '</small> ' + fmtEcart(e) + '</div>' : '';
+            }).join('') + (Object.keys(l.ecarts).length ? '' : '<span class="text-muted">—</span>') + '</td>';
+          }
+          h += '<td class="text-nowrap text-right no-print col-actions">' +
+            '<button type="button" class="btn btn-outline-primary btn-sm" data-action="modifier-prix" data-fournisseur="' + esc(l.fournisseur_id) + '" title="Modifier le prix"><i class="fas fa-pen" aria-hidden="true"></i><span class="sr-only">Modifier le prix de ' + esc(l.fournisseur) + '</span></button>' +
             '<button type="button" class="btn btn-outline-danger btn-sm" data-action="supprimer-prix" data-fournisseur="' + esc(l.fournisseur_id) + '" title="Retirer le prix"><i class="fas fa-trash" aria-hidden="true"></i><span class="sr-only">Retirer le prix de ' + esc(l.fournisseur) + '</span></button>' +
             '</td></tr>';
         });
@@ -265,9 +395,9 @@
       if (!etat.historique.length) {
         hz.innerHTML = '<p class="text-muted mb-0">Aucun changement de prix enregistré.</p>';
       } else {
-        var t = '<div class="table-responsive"><table class="table table-sm cat-table mb-0" id="table-hist-prix"><thead><tr><th scope="col">Date</th><th scope="col">Fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Par</th></tr></thead><tbody>';
+        var t = '<div class="table-responsive"><table class="table table-sm cat-table mb-0" id="table-hist-prix"><thead><tr><th scope="col">Date du prix</th><th scope="col">Fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Utilisateur</th></tr></thead><tbody>';
         etat.historique.forEach(function (l) {
-          t += '<tr><td class="text-nowrap">' + esc(l.date_prix) + '</td><td>' + esc(l.fournisseur || '') + '</td><td class="nombre">' + esc(w.fmtArgent(l.prix, 4)) + '</td><td>' + esc(l.utilisateur || '') + '</td></tr>';
+          t += '<tr><td class="text-nowrap">' + esc(l.date_prix) + '</td><td class="cat-souple">' + esc(l.fournisseur || '') + '</td><td class="nombre">' + esc(w.fmtArgent(l.prix, 4)) + '</td><td>' + esc(l.utilisateur || '') + '</td></tr>';
         });
         hz.innerHTML = t + '</tbody></table></div>';
       }
@@ -284,12 +414,15 @@
 
     // ---- fenêtre d'ajout / modification d'un prix ------------------------------------------------
     var formPrix = q('#form-prix'), selFour = q('#prix-fournisseur'), zoneErr = q('#prix-erreur');
-    var modeEdition = false;
+    var modeEdition = false, ligneEditee = null, dateTouchee = false;
+    function repliPrix() { return q('#btn-ajouter-prix'); }
 
     function ouvrirPrix(ligne) {
       effacerErreurs(formPrix);
       montrer(zoneErr, false);
       modeEdition = !!ligne;
+      ligneEditee = ligne || null;
+      dateTouchee = false;
       selFour.innerHTML = '';
       function option(id, nom) { var o = document.createElement('option'); o.value = String(id); o.textContent = nom; selFour.appendChild(o); }
       if (ligne) {
@@ -317,9 +450,19 @@
       }
       var d = q('#prix-date'), auj = etat.aujourdhui || aujourdhui();      // date du serveur (le fuseau du poste peut différer)
       d.max = auj;
-      d.value = auj;
-      $('#modal-prix').off('shown.bs.modal.cat').one('shown.bs.modal.cat', function () { (ligne ? q('#prix-montant') : selFour).focus(); }).modal('show');
+      // Modification : on garde la date du prix (changer la note ou le numéro n'en fait pas un prix « du jour ») ;
+      // elle passe à aujourd'hui seulement si le montant change et que la date n'a pas été touchée (voir plus bas).
+      d.value = (ligne && ligne.date_prix) ? ligne.date_prix : auj;
+      ouvrirModal('#modal-prix', function () { return ligne ? q('#prix-montant') : selFour; }, repliPrix);
     }
+
+    q('#prix-date').addEventListener('change', function () { dateTouchee = true; });
+    q('#prix-montant').addEventListener('input', function () {
+      if (!ligneEditee || dateTouchee) { return; }
+      var saisi = q('#prix-montant').value.trim().replace(/\s*\$\s*$/, '').replace(',', '.'), avant = String(ligneEditee.prix);
+      var change = saisi !== '' && !isNaN(parseFloat(saisi)) && parseFloat(saisi) !== parseFloat(avant);
+      q('#prix-date').value = change ? (etat.aujourdhui || aujourdhui()) : (ligneEditee.date_prix || (etat.aujourdhui || aujourdhui()));
+    });
 
     q('#btn-ajouter-prix').addEventListener('click', function () { if (etat) { ouvrirPrix(null); } });
 
@@ -332,17 +475,20 @@
         piece_id: parseInt(pieceId, 10), fournisseur_id: parseInt(selFour.value, 10) || 0, prix: q('#prix-montant').value.trim(),
         no_fournisseur: q('#prix-no').value.trim(), date: q('#prix-date').value, note: q('#prix-note').value.trim()
       };
+      var nomFour = selFour.options[selFour.selectedIndex] ? selFour.options[selFour.selectedIndex].text : '';
       envoyer([btn], function () { return api.post('app/action/prix_save.php', donnees); }, true)
-        .then(function () {
+        .then(function (r) {
           $('#modal-prix').modal('hide');
-          w.toast(modeEdition ? 'Prix modifié.' : 'Prix ajouté.', 'success');
+          w.toast('Prix de ' + w.fmtArgent(r.prix, 4) + ' enregistré pour « ' + nomFour + ' ».', 'success');
           return charger();
         })
         .catch(function (err) {
           alerte(zoneErr, msg(err));
-          if (err.champ === 'fournisseur_id') { selFour.classList.add('is-invalid'); selFour.focus(); }
-          else if (err.champ === 'prix') { q('#prix-montant').classList.add('is-invalid'); q('#prix-montant').focus(); }
-          else if (err.champ === 'date') { q('#prix-date').classList.add('is-invalid'); q('#prix-date').focus(); }
+          var cible = null;
+          if (err.champ === 'fournisseur_id') { cible = selFour; }
+          else if (err.champ === 'prix') { cible = q('#prix-montant'); }
+          else if (err.champ === 'date') { cible = q('#prix-date'); }
+          if (cible) { marquerInvalide(cible, zoneErr); cible.focus(); }
         });
     });
 
@@ -353,10 +499,10 @@
       var ligne = etat.prix.filter(function (l) { return String(l.fournisseur_id) === fid; })[0];
       if (!ligne) { return; }
       if (b.getAttribute('data-action') === 'modifier-prix') { ouvrirPrix(ligne); return; }
-      confirmer('Retirer ce prix ?', 'Retirer le prix de « ' + ligne.fournisseur + ' » pour la pièce « ' + code + ' » ? L\'historique des prix est conservé.', 'Retirer le prix', 'cat-btn-danger').then(function (ok) {
+      confirmer('Retirer ce prix ?', 'Retirer le prix de « ' + ligne.fournisseur + ' » pour la pièce « ' + code + ' » ? L\'historique des prix est conservé.', 'Retirer le prix', 'cat-btn-danger', repliPrix).then(function (ok) {
         if (!ok) { return; }
         envoyer([b], function () { return api.post('app/action/prix_supprimer.php', { piece_id: parseInt(pieceId, 10), fournisseur_id: parseInt(fid, 10) }); }, true)
-          .then(function () { w.toast('Prix retiré.', 'success'); return charger(); })
+          .then(function () { w.toast('Prix de « ' + ligne.fournisseur + ' » retiré.', 'success'); return charger(); })
           .catch(function (err) { w.toast(msg(err), 'danger'); charger(); });
       });
     });
@@ -378,17 +524,19 @@
     var enCours = false, confirmeDesactivation = false;
     var boutons = [q('#btn-enregistrer'), q('#btn-enregistrer-nouveau')];
 
+    /** Élément de formulaire d'un champ du serveur : name=…, ou le champ de saisie des alias (« codes »). */
+    function champDe(champ) { return champ === 'codes' ? champAlias : form.querySelector('[name="' + champ + '"]'); }
+    /** Les minimums (seuil_<id>) partagent un seul message sous le tableau. */
+    function zoneDe(champ) { return q('[data-erreur-pour="' + (/^seuil_/.test(champ) ? 'seuils' : champ) + '"]', form); }
     function erreurChamp(champ, texte) {
-      var zone = q('[data-erreur-pour="' + champ + '"]', form);
+      var zone = zoneDe(champ);
       if (zone) { zone.textContent = texte; zone.hidden = false; }
-      var el = form.querySelector('[name="' + champ + '"]');
-      if (el) { el.classList.add('is-invalid'); }
+      marquerInvalide(champDe(champ), zone);
     }
     function effacer(champ) {
-      var zone = q('[data-erreur-pour="' + champ + '"]', form);
+      var zone = zoneDe(champ);
       if (zone) { zone.hidden = true; zone.textContent = ''; }
-      var el = form.querySelector('[name="' + champ + '"]');
-      if (el) { el.classList.remove('is-invalid'); }
+      demarquerInvalide(champDe(champ));
     }
 
     // ---- code interne -------------------------------------------------------------------------
@@ -417,6 +565,7 @@
       var el = form.querySelector('[name="' + n + '"]');
       if (el) { el.addEventListener('input', function () { effacer(n); }); el.addEventListener('change', function () { effacer(n); }); }
     });
+    qa('.champ-seuil').forEach(function (el) { el.addEventListener('input', function () { demarquerInvalide(el); var z = zoneDe('seuils'); if (z && !qa('.champ-seuil.is-invalid').length) { z.hidden = true; z.textContent = ''; } }); });
 
     // ---- nouvelle catégorie sans quitter la page ---------------------------------------------------
     var blocCat = q('#bloc-nouvelle-categorie'), champNc = q('#nc-nom'), erreurNc = q('#nc-erreur');
@@ -470,34 +619,42 @@
       });
     }
 
-    function ajouterAlias() {
-      var code = nettoyer(champAlias.value);
+    /** Ajoute un alias (Promise<boolean>). Le champ est déjà vidé par l'appelant : un autre scan peut arriver pendant la vérification. */
+    function ajouterAlias(code) {
       effacer('codes');
+      code = nettoyer(code);
       if (code === '') { return Promise.resolve(false); }
       var cle = code.toLowerCase();
       if (alias.some(function (a) { return a.code.toLowerCase() === cle; })) {
-        erreurChamp('codes', 'Le code « ' + code + ' » est déjà dans la liste.'); w.bip(false); return Promise.resolve(false);
+        erreurChamp('codes', 'Le code « ' + code + ' » est déjà dans la liste.'); return Promise.resolve(false);
       }
       if (code.toUpperCase() === nettoyer(champCode.value).toUpperCase()) {
-        erreurChamp('codes', 'Le code « ' + code + ' » est déjà le code interne de cette pièce : il n\'a pas besoin d\'alias.'); w.bip(false); return Promise.resolve(false);
+        erreurChamp('codes', 'Le code « ' + code + ' » est déjà le code interne de cette pièce : il n\'a pas besoin d\'alias.'); return Promise.resolve(false);
       }
-      return envoyer([q('#btn-alias')], function () { return api.get('app/ajax/piece_code_verifier.php', { code: code, role: 'alias', piece_id: pieceId }); }, true)
+      return api.get('app/ajax/piece_code_verifier.php', { code: code, role: 'alias', piece_id: pieceId })
         .then(function (r) {
-          if (!r.disponible) { erreurChamp('codes', r.message); w.bip(false); champAlias.select(); return false; }
+          if (!r.disponible) { erreurChamp('codes', r.message); return false; }
           alias.push({ code: r.code, type: q('#f-alias-type').value });
-          champAlias.value = '';
           rendreAlias();
-          w.bip(true);
-          champAlias.focus();
           return true;
         })
-        .catch(function (err) { erreurChamp('codes', msg(err)); w.bip(false); return false; });
+        .catch(function (err) { erreurChamp('codes', msg(err)); return false; });
     }
-    q('#btn-alias').addEventListener('click', ajouterAlias);
-    champAlias.addEventListener('keydown', function (e) {
-      // le lecteur envoie Entrée (ou Tab) après le code : on l'ajoute sans envoyer le formulaire
-      if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey && nettoyer(champAlias.value) !== '')) { e.preventDefault(); ajouterAlias(); }
+    // Lecteur de codes-barres : le noyau vide le champ tout de suite et traite les scans à la file (Entrée ou Tab) :
+    // deux scans en rafale ne se collent plus en un seul faux code.
+    var lecteurAlias = w.scanner(champAlias, ajouterAlias, { focusInitial: false });
+    q('#btn-alias').addEventListener('click', function () {
+      var c = nettoyer(champAlias.value);
+      champAlias.value = '';
+      if (c === '') { champAlias.focus(); return; }
+      ajouterAlias(c).then(function (ok) { w.bip(!!ok); champAlias.focus(); });
     });
+    // Le type se choisit avant de scanner : le focus revient au champ du code (sinon le scan changerait le type par recherche à la frappe)
+    // (au clavier, les flèches changent le type à chaque touche : on ne vole pas le focus dans ce cas)
+    var typeAuClavier = false, selType = q('#f-alias-type');
+    selType.addEventListener('keydown', function () { typeAuClavier = true; });
+    selType.addEventListener('pointerdown', function () { typeAuClavier = false; });
+    selType.addEventListener('change', function () { if (!typeAuClavier) { champAlias.focus(); } });
     champAlias.addEventListener('input', function () { effacer('codes'); });
     rendreAlias();
 
@@ -511,8 +668,30 @@
         categorie_id: q('#f-categorie').value, unite: q('#f-unite').value.trim(),
         codes: alias.map(function (a) { return { code: a.code, type: a.type }; }), seuils: seuils
       };
-      if (pieceId) { d.id = pieceId; d.actif = q('#f-actif').checked; d.confirmer_desactivation = confirmeDesactivation; }
+      if (pieceId) { d.id = pieceId; d.actif = q('#f-actif').checked; d.confirmer_desactivation = confirmeDesactivation; d.empreinte = donnees.empreinte || ''; }
       return d;
+    }
+
+    /** Erreur de validation : le message précis sous le champ fautif (marqué en rouge, lié par aria-describedby) ; le bandeau reste court. */
+    function montrerErreur(err) {
+      var champ = err.champ;
+      if (champ === 'empreinte') {
+        zoneErr.textContent = msg(err) + ' ';
+        var a = document.createElement('a'); a.href = ''; a.className = 'alert-link'; a.textContent = 'Recharger la page';
+        zoneErr.appendChild(a); zoneErr.hidden = false;
+        zoneErr.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      var el = champ ? champDe(champ) : null;
+      if (el) {
+        erreurChamp(champ, msg(err));
+        zoneErr.textContent = 'Enregistrement impossible : corrigez le champ signalé en rouge.';
+        zoneErr.hidden = false;
+        if (typeof el.focus === 'function') { el.focus(); }
+      } else {
+        alerte(zoneErr, msg(err));
+        zoneErr.scrollIntoView({ block: 'nearest' });
+      }
     }
 
     function enregistrer(mode) {
@@ -524,6 +703,10 @@
         champAlias.focus();
         return;
       }
+      if (lecteurAlias.attente() > 0) {
+        erreurChamp('codes', 'Un code-barres est en cours de vérification : réessayez dans un instant.');
+        return;
+      }
       enCours = true;
       envoyer(boutons, function () { return api.post('app/action/piece_save.php', charge()); })
         .then(function (r) {
@@ -533,19 +716,12 @@
         .catch(function (err) {
           enCours = false;
           if (err.champ === 'confirmation' && !confirmeDesactivation) {
-            return confirmer('Désactiver la pièce ?', err.message, 'Désactiver quand même', 'cat-btn-danger').then(function (ok) {
+            return confirmer('Désactiver la pièce ?', err.message, 'Désactiver quand même', 'cat-btn-danger', q('#btn-enregistrer')).then(function (ok) {
               if (ok) { confirmeDesactivation = true; enregistrer(mode); }
               else { q('#f-actif').checked = true; }
             });
           }
-          alerte(zoneErr, msg(err));
-          if (err.champ) {
-            var cible = err.champ === 'codes' ? 'codes' : err.champ;
-            erreurChamp(cible, msg(err));
-            var el = form.querySelector('[name="' + cible + '"]') || (cible === 'codes' ? champAlias : null) || (cible === 'seuils' ? q('.champ-seuil') : null);
-            if (el && typeof el.focus === 'function') { el.focus(); }
-          }
-          zoneErr.scrollIntoView({ block: 'nearest' });
+          montrerErreur(err);
         });
     }
     // Décocher « active » sur une pièce active : confirmation (avec le stock restant) avant d'enregistrer
@@ -554,7 +730,7 @@
       if (pieceId && actifInitial && !q('#f-actif').checked && !confirmeDesactivation && !enCours) {
         if (verification) { return; }
         verification = true;
-        confirmerDesactivation(pieceId, form.getAttribute('data-piece-code') || nettoyer(champCode.value))
+        confirmerDesactivation(pieceId, form.getAttribute('data-piece-code') || nettoyer(champCode.value), q('#btn-enregistrer'))
           .then(function (ok) { verification = false; if (ok) { confirmeDesactivation = true; enregistrer(mode); } else { q('#f-actif').checked = true; } },
             function (err) { verification = false; alerte(zoneErr, msg(err)); });
         return;
@@ -577,6 +753,8 @@
   function initFournisseurs() {
     var formF = q('#form-fournisseur'), zoneErr = q('#fournisseur-erreur');
     var idEdition = 0;
+    function repli() { return q('#btn-nouveau'); }
+    function texteSur(v, t) { return t === 'display' ? esc(v) : (v || ''); }
 
     var table = $('#table-fournisseurs').DataTable({
       ajax: {
@@ -586,30 +764,33 @@
       },
       order: [[0, 'asc']],
       columns: [
-        { data: 'nom', type: 'fr', render: function (v, type, row) {
+        { data: 'nom', type: 'fr', render: function (v, type) {
             if (type !== 'display') { return v; }
             return '<a href="#" class="font-weight-bold" data-action="prix" title="Voir les prix de ce fournisseur">' + esc(v) + '</a>';
           } },
-        { data: 'contact', type: 'fr', defaultContent: '', render: function (v, t) { return t === 'display' ? esc(v) : (v || ''); } },
-        { data: 'telephone', defaultContent: '', className: 'text-nowrap', render: function (v, t) { return t === 'display' ? esc(v) : (v || ''); } },
-        { data: 'courriel', defaultContent: '', render: function (v, t) { return t === 'display' ? esc(v) : (v || ''); } },
+        // Contact et courriel : masqués sous 1200 px (tablette, menu ouvert) pour que les boutons d'action restent à l'écran ; ils se voient dans « Modifier »
+        { data: 'contact', type: 'fr', defaultContent: '', className: 'd-none d-xl-table-cell', render: texteSur },
+        { data: 'telephone', defaultContent: '', className: 'text-nowrap', render: texteSur },
+        { data: 'courriel', type: 'fr', defaultContent: '', className: 'd-none d-xl-table-cell', render: texteSur },
         { data: 'nb_prix', className: 'nombre' },
         { data: 'actif', render: function (v, t) {
             if (t !== 'display') { return v ? 1 : 0; }
             return v ? '<span class="badge badge-success">Actif</span>' : '<span class="badge badge-secondary">Désactivé</span>';
           } },
-        { data: null, orderable: false, searchable: false, className: 'text-nowrap text-right no-print', render: function (v, t, row) {
-            return '<button type="button" class="btn btn-outline-primary btn-sm mr-1" data-action="modifier" title="Modifier"><i class="fas fa-pen" aria-hidden="true"></i><span class="sr-only">Modifier ' + esc(row.nom) + '</span></button>' +
+        { data: null, orderable: false, searchable: false, className: 'text-nowrap text-right no-print col-actions', render: function (v, t, row) {
+            return '<button type="button" class="btn btn-outline-primary btn-sm" data-action="modifier" title="Modifier"><i class="fas fa-pen" aria-hidden="true"></i><span class="sr-only">Modifier ' + esc(row.nom) + '</span></button>' +
               '<button type="button" class="btn ' + (row.actif ? 'btn-outline-danger' : 'btn-outline-success') + ' btn-sm" data-action="activer" title="' + (row.actif ? 'Désactiver' : 'Réactiver') + '"><i class="fas ' + (row.actif ? 'fa-ban' : 'fa-undo') + '" aria-hidden="true"></i><span class="sr-only">' + (row.actif ? 'Désactiver ' : 'Réactiver ') + esc(row.nom) + '</span></button>';
           } }
       ],
-      language: $.extend({}, w.DT_LANG, { zeroRecords: 'Aucun fournisseur ne correspond.', emptyTable: 'Aucun fournisseur. Cliquez sur « Nouveau fournisseur » pour commencer.', search: 'Rechercher :' }),
+      language: $.extend({}, LANG, { zeroRecords: 'Aucun fournisseur ne correspond.', emptyTable: 'Aucun fournisseur. Cliquez sur « Nouveau fournisseur » pour commencer.', search: 'Rechercher :' }),
       createdRow: function (tr) { tr.classList.add('cliquable'); }
     });
+    rechercheSansAccents(table);
+    surveillerChargement('#table-fournisseurs', 7);
     q('#f-statut').addEventListener('change', function () { table.ajax.reload(); });
 
     // ---- création / modification ------------------------------------------------------------------------
-    function ouvrir(f) {
+    function ouvrir(f, declencheur) {
       effacerErreurs(formF);
       montrer(zoneErr, false);
       idEdition = f ? f.id : 0;
@@ -620,7 +801,7 @@
       q('#fo-courriel').value = f ? (f.courriel || '') : '';
       q('#fo-adresse').value = f ? (f.adresse || '') : '';
       q('#fo-notes').value = f ? (f.notes || '') : '';
-      $('#modal-fournisseur').off('shown.bs.modal.cat').one('shown.bs.modal.cat', function () { q('#fo-nom').focus(); }).modal('show');
+      ouvrirModal('#modal-fournisseur', '#fo-nom', repli, declencheur);
     }
     q('#btn-nouveau').addEventListener('click', function () { ouvrir(null); });
 
@@ -635,27 +816,27 @@
       envoyer([q('#fournisseur-enregistrer')], function () { return api.post('app/action/fournisseur_save.php', d); }, true)
         .then(function (r) {
           $('#modal-fournisseur').modal('hide');
-          w.toast(r.cree ? 'Fournisseur créé.' : 'Fournisseur modifié.', 'success');
+          w.toast('Fournisseur « ' + d.nom + ' » ' + (r.cree ? 'créé.' : 'modifié.'), 'success');
           table.ajax.reload(null, false);
         })
         .catch(function (err) {
           alerte(zoneErr, msg(err));
           var map = { nom: '#fo-nom', courriel: '#fo-courriel', contact: '#fo-contact', telephone: '#fo-telephone', adresse: '#fo-adresse', notes: '#fo-notes' };
-          if (err.champ && map[err.champ]) { q(map[err.champ]).classList.add('is-invalid'); q(map[err.champ]).focus(); }
+          if (err.champ && map[err.champ]) { marquerInvalide(q(map[err.champ]), zoneErr); q(map[err.champ]).focus(); }
         });
     });
 
     // ---- prix de ce fournisseur ----------------------------------------------------------------------------
-    function voirPrix(f) {
+    function voirPrix(f, declencheur) {
       var zone = q('#prix-fournisseur-contenu');
       q('#modal-prix-fournisseur-titre').textContent = 'Prix de ce fournisseur — ' + f.nom;
       zone.innerHTML = '<span class="text-muted">Chargement…</span>';
-      $('#modal-prix-fournisseur').modal('show');
+      ouvrirModal('#modal-prix-fournisseur', null, repli, declencheur);
       api.get('app/ajax/fournisseur_prix.php', { id: f.id }).then(function (r) {
         if (!r.prix.length) { zone.innerHTML = '<p class="mb-0 text-muted">Aucun prix enregistré pour ce fournisseur. Les prix s\'ajoutent depuis la fiche d\'une pièce.</p>'; return; }
-        var h = '<div class="table-responsive"><table class="table table-sm cat-table mb-0" id="table-prix-fournisseur"><thead><tr><th scope="col">Pièce</th><th scope="col">N° fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date</th></tr></thead><tbody>';
+        var h = '<div class="table-responsive"><table class="table table-sm cat-table mb-0" id="table-prix-fournisseur"><thead><tr><th scope="col">Pièce</th><th scope="col" class="cat-th-souple">N° de pièce chez le fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date du prix</th></tr></thead><tbody>';
         r.prix.forEach(function (l) {
-          h += '<tr><td><a class="code" href="index.php?page=piece_voir&amp;id=' + esc(l.piece_id) + '">' + esc(l.code) + '</a> ' + esc(l.nom) +
+          h += '<tr><td class="cat-souple"><a class="code" href="index.php?page=piece_voir&amp;id=' + esc(l.piece_id) + '">' + esc(l.code) + '</a> ' + esc(l.nom) +
             (l.actif ? '' : ' <span class="badge badge-secondary">Désactivée</span>') + '</td><td class="code">' + esc(l.no_fournisseur || '') + '</td>' +
             '<td class="nombre">' + esc(w.fmtArgent(l.prix, 4)) + ' <small class="text-muted">/ ' + esc(l.unite) + '</small></td><td class="text-nowrap">' + esc(l.date_prix) + '</td></tr>';
         });
@@ -672,14 +853,14 @@
       var b = $(e.target).closest('button[data-action]')[0];
       if (b) {
         var action = b.getAttribute('data-action');
-        if (action === 'modifier') { ouvrir(ligne); }
+        if (action === 'modifier') { ouvrir(ligne, b); }
         else if (action === 'activer') {
           var activer = !ligne.actif;
-          var go = activer ? Promise.resolve(true) : confirmer('Désactiver le fournisseur ?', 'Désactiver « ' + ligne.nom + ' » ? Il n\'apparaîtra plus dans les listes de saisie ; ses prix et son historique sont conservés.', 'Désactiver', 'cat-btn-danger');
+          var go = activer ? Promise.resolve(true) : confirmer('Désactiver le fournisseur ?', 'Désactiver « ' + ligne.nom + ' » ? Il n\'apparaîtra plus dans les listes de saisie ; ses prix et son historique sont conservés.', 'Désactiver', 'cat-btn-danger', repli);
           go.then(function (ok) {
             if (!ok) { return; }
             envoyer([b], function () { return api.post('app/action/fournisseur_activer.php', { id: ligne.id, actif: activer }); }, true)
-              .then(function () { w.toast(activer ? 'Fournisseur réactivé.' : 'Fournisseur désactivé.', 'success'); table.ajax.reload(null, false); })
+              .then(function () { w.toast('Fournisseur « ' + ligne.nom + ' » ' + (activer ? 'réactivé.' : 'désactivé.'), 'success'); table.ajax.reload(null, false); })
               .catch(function (err) { w.toast(msg(err), 'danger'); });
           });
         }
@@ -687,7 +868,7 @@
       }
       if ($(e.target).closest('a, input').length && !$(e.target).closest('a[data-action="prix"]').length) { return; }
       e.preventDefault();
-      voirPrix(ligne);
+      voirPrix(ligne, $(this).find('a[data-action="prix"]')[0]);
     });
   }
 
@@ -697,6 +878,7 @@
   function initCategories() {
     var formC = q('#form-categorie'), zoneErr = q('#categorie-erreur');
     var idEdition = 0;
+    function repli() { return q('#btn-nouvelle'); }
 
     var table = $('#table-categories').DataTable({
       ajax: { url: 'app/ajax/categorie_liste.php', dataSrc: 'categories' },
@@ -706,24 +888,26 @@
         { data: 'description', type: 'fr', defaultContent: '', render: function (v, t) { return t === 'display' ? esc(v) : (v || ''); } },
         { data: 'nb_pieces', className: 'nombre', render: function (v, t, row) {
             if (t !== 'display') { return v; }
-            return v > 0 ? '<a href="index.php?page=pieces&amp;statut=toutes&amp;categorie_id=' + esc(row.id) + '" title="Voir ces pièces">' + esc(v) + '</a>' : '0';
+            return v > 0 ? '<a class="cat-lien-cible" href="index.php?page=pieces&amp;statut=toutes&amp;categorie_id=' + esc(row.id) + '" title="Voir ces pièces">' + esc(v) + '</a>' : '0';
           } },
-        { data: null, orderable: false, searchable: false, className: 'text-nowrap text-right no-print', render: function (v, t, row) {
-            return '<button type="button" class="btn btn-outline-primary btn-sm mr-1" data-action="modifier" title="Modifier"><i class="fas fa-pen" aria-hidden="true"></i><span class="sr-only">Modifier ' + esc(row.nom) + '</span></button>' +
+        { data: null, orderable: false, searchable: false, className: 'text-nowrap text-right no-print col-actions', render: function (v, t, row) {
+            return '<button type="button" class="btn btn-outline-primary btn-sm" data-action="modifier" title="Modifier"><i class="fas fa-pen" aria-hidden="true"></i><span class="sr-only">Modifier ' + esc(row.nom) + '</span></button>' +
               '<button type="button" class="btn btn-outline-danger btn-sm" data-action="supprimer" title="Supprimer"><i class="fas fa-trash" aria-hidden="true"></i><span class="sr-only">Supprimer ' + esc(row.nom) + '</span></button>';
           } }
       ],
-      language: $.extend({}, w.DT_LANG, { zeroRecords: 'Aucune catégorie ne correspond.', emptyTable: 'Aucune catégorie. Cliquez sur « Nouvelle catégorie » pour commencer.' })
+      language: $.extend({}, LANG, { zeroRecords: 'Aucune catégorie ne correspond.', emptyTable: 'Aucune catégorie. Cliquez sur « Nouvelle catégorie » pour commencer.' })
     });
+    rechercheSansAccents(table);
+    surveillerChargement('#table-categories', 4);
 
-    function ouvrir(c) {
+    function ouvrir(c, declencheur) {
       effacerErreurs(formC);
       montrer(zoneErr, false);
       idEdition = c ? c.id : 0;
       q('#modal-categorie-titre').textContent = c ? 'Modifier la catégorie' : 'Nouvelle catégorie';
       q('#ca-nom').value = c ? c.nom : '';
       q('#ca-description').value = c ? (c.description || '') : '';
-      $('#modal-categorie').off('shown.bs.modal.cat').one('shown.bs.modal.cat', function () { q('#ca-nom').focus(); }).modal('show');
+      ouvrirModal('#modal-categorie', '#ca-nom', repli, declencheur);
     }
     q('#btn-nouvelle').addEventListener('click', function () { ouvrir(null); });
 
@@ -735,28 +919,29 @@
       envoyer([q('#categorie-enregistrer')], function () { return api.post('app/action/categorie_save.php', d); }, true)
         .then(function (r) {
           $('#modal-categorie').modal('hide');
-          w.toast(r.cree ? 'Catégorie créée.' : 'Catégorie modifiée.', 'success');
+          w.toast('Catégorie « ' + r.nom + ' » ' + (r.cree ? 'créée.' : 'modifiée.'), 'success');
           table.ajax.reload(null, false);
         })
         .catch(function (err) {
           alerte(zoneErr, msg(err));
-          if (err.champ === 'nom') { q('#ca-nom').classList.add('is-invalid'); q('#ca-nom').focus(); }
+          if (err.champ === 'nom') { marquerInvalide(q('#ca-nom'), zoneErr); q('#ca-nom').focus(); }
         });
     });
 
     $('#table-categories tbody').on('click', 'button[data-action]', function () {
       var b = this, ligne = table.row($(b).closest('tr')).data();
       if (!ligne) { return; }
-      if (b.getAttribute('data-action') === 'modifier') { ouvrir(ligne); return; }
+      if (b.getAttribute('data-action') === 'modifier') { ouvrir(ligne, b); return; }
       if (ligne.nb_pieces > 0) {
-        w.toast('Impossible de supprimer la catégorie « ' + ligne.nom + ' » : ' + (ligne.nb_pieces === 1 ? '1 pièce l\'utilise encore' : ligne.nb_pieces + ' pièces l\'utilisent encore') + '. Changez d\'abord la catégorie de ' + (ligne.nb_pieces === 1 ? 'cette pièce' : 'ces pièces') + '.', 'warning');
+        // message long avec une action à faire : il reste affiché 12 secondes
+        w.toast('Impossible de supprimer la catégorie « ' + ligne.nom + ' » : ' + (ligne.nb_pieces === 1 ? '1 pièce l\'utilise encore' : ligne.nb_pieces + ' pièces l\'utilisent encore') + '. Changez d\'abord la catégorie de ' + (ligne.nb_pieces === 1 ? 'cette pièce' : 'ces pièces') + '.', 'warning', 12000);
         return;
       }
-      confirmer('Supprimer la catégorie ?', 'Supprimer définitivement la catégorie « ' + ligne.nom + ' » ? Aucune pièce ne l\'utilise.', 'Supprimer', 'cat-btn-danger').then(function (ok) {
+      confirmer('Supprimer la catégorie ?', 'Supprimer définitivement la catégorie « ' + ligne.nom + ' » ? Aucune pièce ne l\'utilise.', 'Supprimer', 'cat-btn-danger', repli).then(function (ok) {
         if (!ok) { return; }
         envoyer([b], function () { return api.post('app/action/categorie_supprimer.php', { id: ligne.id }); }, true)
-          .then(function () { w.toast('Catégorie supprimée.', 'success'); table.ajax.reload(null, false); })
-          .catch(function (err) { w.toast(msg(err), 'danger'); table.ajax.reload(null, false); });
+          .then(function () { w.toast('Catégorie « ' + ligne.nom + ' » supprimée.', 'success'); table.ajax.reload(null, false); })
+          .catch(function (err) { w.toast(msg(err), 'danger', 12000); table.ajax.reload(null, false); });
       });
     });
   }

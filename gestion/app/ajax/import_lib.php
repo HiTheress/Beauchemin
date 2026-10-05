@@ -26,6 +26,7 @@ final class ImportCatalogue
 	const MAX_OCTETS = 2097152;     // 2 Mo
 	const MAX_LIGNES = 5000;        // lignes de données (hors en-tête)
 	const MAX_COLONNES = 60;
+	const MAX_JSON_OCTETS = 6291456;   // 6 Mo : corps JSON de la ré-analyse et de la confirmation (le fichier, lui, est limité à 2 Mo)
 	const MAX_CELLULE = 5000;       // caractères gardés par cellule (le reste est rejeté par les limites de champ)
 	const MAX_ALIAS = 10;           // alias par cellule
 	const NOTE_STOCK = 'Stock initial (import)';
@@ -106,6 +107,15 @@ final class ImportCatalogue
 	private static function uneLigne($v)
 	{
 		return trim(preg_replace('/\s+/u', ' ', (string) $v));
+	}
+
+	/** Typographie française : espace insécable à l'intérieur de « … » et avant : ; ? ! (jamais de « » ou de « : » seul en début de ligne). */
+	public static function typo($t)
+	{
+		$nb = "\u{00A0}";
+		$t = preg_replace('/« +/u', '«' . $nb, (string) $t);
+		$t = preg_replace('/ +»/u', $nb . '»', $t);
+		return preg_replace('/ +([:;?!])/u', $nb . '$1', $t);
 	}
 
 	/** Nom de colonne -> forme normalisée (« Catégorie » -> « categorie », « Code-barres » -> « code_barres »). */
@@ -320,7 +330,10 @@ final class ImportCatalogue
 		foreach ($csv['lignes'] as $l) {
 			$v = array();
 			foreach ($cols['index'] as $idx => $cle) {
-				$v[$cle] = self::cellule(isset($l['cellules'][$idx]) ? $l['cellules'][$idx] : '');
+				$val = self::cellule(isset($l['cellules'][$idx]) ? $l['cellules'][$idx] : '');
+				if ($val !== '') {   // cellules vides omises : le « source » renvoyé au navigateur (puis à la confirmation) reste léger
+					$v[$cle] = $val;
+				}
 			}
 			// Cellules en trop (non vides) : colonne mal guillemetée -> données décalées
 			$trop = false;
@@ -416,6 +429,16 @@ final class ImportCatalogue
 		return $out;
 	}
 
+	/** Refuse un corps JSON démesuré AVANT de le lire (sinon un gros corps épuise la mémoire du serveur : réponse 500 vide). */
+	public static function exigerTailleCorps()
+	{
+		$type = isset($_SERVER['CONTENT_TYPE']) ? (string) $_SERVER['CONTENT_TYPE'] : '';
+		$len = isset($_SERVER['CONTENT_LENGTH']) ? (int) $_SERVER['CONTENT_LENGTH'] : 0;
+		if ($len > self::MAX_JSON_OCTETS && stripos($type, 'multipart/form-data') === false) {
+			throw new InventaireException('Les données envoyées sont trop volumineuses. Analysez de nouveau le fichier.', 'lignes');
+		}
+	}
+
 	/** Options de l'import (la page les envoie en JSON ou en champs de formulaire). */
 	public static function options(array $d)
 	{
@@ -438,32 +461,43 @@ final class ImportCatalogue
 	// ======================================================================
 
 	/**
-	 * Texte -> entier mis à l'échelle (Dec). Accepte « 1 234,56 », « 1234.56 », « 1.234,56 », « 12,50 $ ».
+	 * Texte -> entier mis à l'échelle (Dec). Accepte « 1 234,56 », « 1234.56 », « 1.234,56 », « 1,234.56 », « 12,50 $ ».
+	 * Les séparateurs de milliers (espace, espace insécable ordinaire, fine ou fine insécable, point ou virgule) doivent
+	 * séparer des groupes de EXACTEMENT 3 chiffres : « 1.5.2 », « 1,5, » ou « 1 2 3 » sont refusés (jamais lus de travers).
 	 * @param bool $arrondi mis à true si des décimales ont été perdues
 	 */
 	private static function nombre($brut, $echelle, &$arrondi)
 	{
-		$s = str_replace(array("\xc2\xa0", ' ', '$'), '', $brut);
-		if ($s === '' || !preg_match('/^[+-]?[\d.,]+$/', $s)) {
-			throw new InventaireException('Valeur numérique invalide.');
+		$s = trim(str_replace('$', '', (string) $brut));
+		$s = preg_replace('/^[\s\x{00A0}\x{202F}\x{2009}\x{2007}]+|[\s\x{00A0}\x{202F}\x{2009}\x{2007}]+$/u', '', $s);
+		$invalide = new InventaireException('Valeur numérique invalide.');
+		if ($s === null || !preg_match('/^([+-]?)(.+)$/su', $s, $m)) {
+			throw $invalide;
 		}
-		$nd = substr_count($s, '.');
-		$nc = substr_count($s, ',');
-		if ($nd && $nc) {   // le dernier séparateur est la décimale, l'autre sépare les milliers
-			if (strrpos($s, '.') > strrpos($s, ',')) {
-				$s = str_replace(',', '', $s);
-			} else {
-				$s = str_replace(',', '.', str_replace('.', '', $s));
-			}
-		} elseif ($nc) {
-			$s = ($nc > 1) ? str_replace(',', '', $s) : str_replace(',', '.', $s);
-		} elseif ($nd > 1) {
-			$s = str_replace('.', '', $s);
+		$signe = $m[1];
+		$corps = $m[2];
+		$esp = '[ \x{00A0}\x{202F}\x{2009}\x{2007}]';
+		$n = null;   // forme normalisée « 1234.56 »
+		if (preg_match('/^\d+$/', $corps)) {
+			$n = $corps;
+		} elseif (preg_match('/^(\d{1,3}(?:' . $esp . '\d{3})+)(?:[.,](\d+))?$/u', $corps, $g)) {         // 1 234 567,5
+			$n = preg_replace('/\D/u', '', $g[1]) . (isset($g[2]) ? '.' . $g[2] : '');
+		} elseif (preg_match('/^(\d{1,3}(?:\.\d{3})+),(\d+)$/', $corps, $g)) {                          // 1.234.567,5
+			$n = str_replace('.', '', $g[1]) . '.' . $g[2];
+		} elseif (preg_match('/^(\d{1,3}(?:,\d{3})+)\.(\d+)$/', $corps, $g)) {                          // 1,234,567.5
+			$n = str_replace(',', '', $g[1]) . '.' . $g[2];
+		} elseif (preg_match('/^\d{1,3}(?:\.\d{3}){2,}$/', $corps) || preg_match('/^\d{1,3}(?:,\d{3}){2,}$/', $corps)) {   // 1.234.567 ou 1,234,567
+			$n = preg_replace('/\D/', '', $corps);
+		} elseif (preg_match('/^(\d*)[.,](\d+)$/', $corps, $g)) {                                          // 12,5 ou 12.5 ou ,5
+			$n = ($g[1] === '' ? '0' : $g[1]) . '.' . $g[2];
 		}
-		if (preg_match('/\.(\d+)$/', $s, $m) && strlen($m[1]) > $echelle) {
+		if ($n === null) {
+			throw $invalide;
+		}
+		if (preg_match('/\.(\d+)$/', $n, $d) && strlen($d[1]) > $echelle) {
 			$arrondi = true;
 		}
-		return Dec::parse($s, $echelle);
+		return Dec::parse($signe . $n, $echelle);
 	}
 
 	/** Code interne (même règle que la fiche de pièce) : lettres majuscules, chiffres et . - _ /, 1 à 40 caractères. null si permis. */
@@ -494,20 +528,70 @@ final class ImportCatalogue
 	//  Contexte (état de la base)
 	// ======================================================================
 
-	private function contexte()
+	/**
+	 * Alias (code_barres) d'une ligne : séparés par |, rognés, sans doublon (même logique que l'analyse).
+	 * @return string[]
+	 */
+	private static function aliasDeLigne($txt)
+	{
+		$liste = array();
+		foreach (explode('|', self::uneLigne($txt)) as $x) {
+			$x = trim($x);
+			if ($x !== '') {
+				$liste[] = $x;
+			}
+		}
+		return $liste;
+	}
+
+	/** Exécute une requête « WHERE col IN (…) » par paquets (pas de chargement de tout le catalogue en mémoire). */
+	private function parPaquets($sql, array $valeurs)
+	{
+		$valeurs = array_values(array_unique($valeurs));
+		foreach (array_chunk($valeurs, 500) as $paquet) {
+			$st = $this->pdo->prepare(str_replace('(?)', '(' . implode(',', array_fill(0, count($paquet), '?')) . ')', $sql));
+			$st->execute($paquet);
+			foreach ($st as $r) {
+				yield $r;
+			}
+		}
+	}
+
+	/**
+	 * Charge l'état de la base utile à l'analyse de CES lignes : les pièces et alias dont le code figure dans le fichier
+	 * (par paquets), puis leurs prix et minimums. Les emplacements, catégories et fournisseurs sont peu nombreux : chargés en entier.
+	 */
+	private function contexte(array $lignes)
 	{
 		$this->u = $this->inv->utilisateur($this->uid);
 		$c = array(
-			'pieces' => array(), 'codes' => array(), 'aliasPiece' => array(), 'emp_code' => array(), 'emp_nom' => array(), 'emp_tous' => array(),
-			'categories' => array(), 'fournisseurs' => array(), 'prix' => array(), 'seuils' => array(),
+			'pieces' => array(), 'codes' => array(), 'emp_code' => array(), 'emp_nom' => array(),
+			'categories' => array(), 'fournisseurs' => array(), 'prix' => array(), 'seuils' => array(), 'entreprises' => array(),
 		);
-		foreach ($this->pdo->query('SELECT id, code, nom, description, categorie_id, unite, actif FROM pieces') as $r) {
+		foreach ($this->inv->listeEntreprises($this->uid) as $en) {   // noms affichés à la place des numéros d'entreprise
+			$c['entreprises'][(int) $en['id']] = (string) $en['nom'];
+		}
+		$codes = array();
+		foreach ($lignes as $L) {
+			$v = isset($L['v']) ? $L['v'] : array();
+			$code = isset($v['code']) ? strtoupper($v['code']) : '';
+			if ($code !== '' && $code[0] !== '#') {
+				$codes[] = $code;
+			}
+			if (!empty($v['code_barres'])) {
+				foreach (self::aliasDeLigne($v['code_barres']) as $al) {
+					$codes[] = $al;
+				}
+			}
+		}
+		$ids = array();
+		foreach ($this->parPaquets('SELECT id, code, nom, description, categorie_id, unite, actif FROM pieces WHERE code IN (?)', $codes) as $r) {
 			$c['pieces'][self::cleCode($r['code'])] = $r;
 			$c['codes'][self::cleCode($r['code'])] = array('type' => 'piece', 'piece_id' => (int) $r['id'], 'libelle' => 'la pièce « ' . $r['code'] . ' »');
+			$ids[] = (int) $r['id'];
 		}
-		foreach ($this->pdo->query('SELECT pc.code, pc.piece_id, p.code AS piece_code FROM pieces_codes pc JOIN pieces p ON p.id = pc.piece_id') as $r) {
+		foreach ($this->parPaquets('SELECT pc.code, pc.piece_id, p.code AS piece_code FROM pieces_codes pc JOIN pieces p ON p.id = pc.piece_id WHERE pc.code IN (?)', $codes) as $r) {
 			$c['codes'][self::cleCode($r['code'])] = array('type' => 'alias', 'piece_id' => (int) $r['piece_id'], 'libelle' => 'la pièce « ' . $r['piece_code'] . ' »');
-			$c['aliasPiece'][(int) $r['piece_id']][self::cleCode($r['code'])] = true;
 		}
 		foreach ($this->pdo->query('SELECT e.id, e.nom, e.code_barres, e.actif, e.entreprise_id, en.nom AS entreprise_nom, en.actif AS entreprise_actif FROM emplacements e JOIN entreprises en ON en.id = e.entreprise_id') as $r) {
 			if ($r['code_barres'] !== null && $r['code_barres'] !== '') {
@@ -529,10 +613,10 @@ final class ImportCatalogue
 		foreach ($this->pdo->query('SELECT id, nom, actif FROM fournisseurs') as $r) {
 			$c['fournisseurs'][self::cle($r['nom'])] = array('id' => (int) $r['id'], 'nom' => $r['nom'], 'actif' => (int) $r['actif']);
 		}
-		foreach ($this->pdo->query('SELECT piece_id, fournisseur_id, prix, no_fournisseur FROM prix_fournisseurs') as $r) {
+		foreach ($this->parPaquets('SELECT piece_id, fournisseur_id, prix, no_fournisseur FROM prix_fournisseurs WHERE piece_id IN (?)', $ids) as $r) {
 			$c['prix'][(int) $r['piece_id'] . ':' . (int) $r['fournisseur_id']] = $r;
 		}
-		foreach ($this->pdo->query('SELECT entreprise_id, piece_id, minimum FROM seuils') as $r) {
+		foreach ($this->parPaquets('SELECT entreprise_id, piece_id, minimum FROM seuils WHERE piece_id IN (?)', $ids) as $r) {
 			$c['seuils'][(int) $r['piece_id'] . ':' . (int) $r['entreprise_id']] = $r['minimum'];
 		}
 		$this->ctx = $c;
@@ -549,7 +633,7 @@ final class ImportCatalogue
 	 */
 	public function analyser(array $lignes, array $options)
 	{
-		$this->contexte();
+		$this->contexte($lignes);
 		$this->vus = array();
 		$this->utilises = array();
 		$ctx = &$this->ctx;
@@ -598,7 +682,7 @@ final class ImportCatalogue
 			if ($code !== '' && $code[0] === '#') {
 				$res['action'] = 'ignorer';
 				$res['statut'] = 'ignoree';
-				$res['msgs'] = array(array('info', 'Ligne en commentaire (code commençant par #) : ignorée.'));
+				$res['msgs'] = array(array('info', self::typo('Ligne en commentaire (code commençant par #) : ignorée.')));
 				$tot['ignorer']++;
 				$resultats[] = $res;
 				continue;
@@ -638,7 +722,7 @@ final class ImportCatalogue
 			// ---- ligne de stock supplémentaire : seulement emplacement / quantité / coût
 			if ($extra) {
 				$res['action'] = 'stock';
-				$res['nom'] = $this->vus[$ck]['v']['nom'] !== '' ? $this->vus[$ck]['v']['nom'] : $res['nom'];
+				$res['nom'] = isset($this->vus[$ck]['v']['nom']) && $this->vus[$ck]['v']['nom'] !== '' ? $this->vus[$ck]['v']['nom'] : $res['nom'];
 				$stock = $this->analyserStock($v, $ck, $no, $err, $avert);
 				if ($stock) {
 					$plan['stock'][] = $stock;
@@ -880,12 +964,12 @@ final class ImportCatalogue
 					}
 					$minimums[$eid] = Dec::fmt($q, Dec::QTE);
 					if ($arrondi) {
-						$avert('Minimum de l\'entreprise ' . $eid . ' arrondi à 3 décimales.');
+						$avert('Minimum pour « ' . $this->nomEntreprise($eid) . ' » arrondi à 3 décimales.');
 					}
 					if (!$creation) {
 						$cur = isset($ctx['seuils'][$pieceId . ':' . $eid]) ? Dec::parse($ctx['seuils'][$pieceId . ':' . $eid], Dec::QTE) : null;
 						if ($cur === null ? true : $cur !== $q) {
-							$changements[] = 'minimum entreprise ' . $eid;
+							$changements[] = 'minimum ' . $this->nomEntreprise($eid);
 						}
 					}
 				} catch (InventaireException $ex) {
@@ -952,6 +1036,12 @@ final class ImportCatalogue
 		return array('resultats' => $resultats, 'totaux' => $tot, 'plan' => $plan);
 	}
 
+	/** Nom de l'entreprise (jamais son numéro à l'écran). */
+	private function nomEntreprise($id)
+	{
+		return isset($this->ctx['entreprises'][(int) $id]) ? $this->ctx['entreprises'][(int) $id] : 'entreprise ' . (int) $id;
+	}
+
 	private function aErreur(array $msgs)
 	{
 		foreach ($msgs as $m) {
@@ -989,6 +1079,9 @@ final class ImportCatalogue
 			$tot['erreurs']++;
 		} elseif ($statut === 'avertissement') {
 			$tot['avertissements']++;
+		}
+		foreach ($msgs as $i => $m) {
+			$msgs[$i][1] = self::typo($m[1]);
 		}
 		$res['statut'] = $statut;
 		$res['msgs'] = $msgs;
@@ -1280,8 +1373,9 @@ final class ImportCatalogue
 			);
 			Journal::ecrire($pdo, $uid, 'import.catalogue', 'pieces', null, array(
 				'fichier' => $fichier, 'mode' => $options['mode'], 'creees' => $creees, 'mises_a_jour' => $majs, 'ignorees' => $ignorees,
-				'lignes_stock' => count($plan['stock']), 'documents' => array_column($documents, 'numero'),
-				'categories_creees' => array_values($plan['categories']), 'fournisseurs_crees' => array_values($plan['fournisseurs']),
+				'lignes_stock' => count($plan['stock']), 'documents' => array_slice(array_column($documents, 'numero'), 0, 100),
+				'categories_creees' => array_slice(array_values($plan['categories']), 0, 50), 'categories_creees_total' => count($plan['categories']),
+				'fournisseurs_crees' => array_slice(array_values($plan['fournisseurs']), 0, 50), 'fournisseurs_crees_total' => count($plan['fournisseurs']),
 				'codes_crees' => array_slice($codesCrees, 0, 50), 'codes_maj' => array_slice($codesMaj, 0, 50),
 			));
 			return $resume;
@@ -1352,6 +1446,25 @@ final class ImportCatalogue
 			$s = $e . ($f !== '' ? '.' . $f : '');
 		}
 		return str_replace('.', ',', $s);
+	}
+
+	/**
+	 * Refus d'un téléchargement (modèle, export). Ces deux adresses s'ouvrent par un lien : le navigateur (Accept: text/html)
+	 * reçoit une petite page lisible en français plutôt que du JSON brut ; le JavaScript de la page reçoit du JSON.
+	 */
+	public static function refuserTelechargement($message, $statut = 403)
+	{
+		$accept = isset($_SERVER['HTTP_ACCEPT']) ? (string) $_SERVER['HTTP_ACCEPT'] : '';
+		if (stripos($accept, 'text/html') === false) {
+			json_fail($message, $statut);
+		}
+		http_response_code($statut);
+		header('Content-Type: text/html; charset=utf-8');
+		header('Cache-Control: no-store');
+		echo '<!doctype html><html lang="fr-CA"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Téléchargement impossible</title>'
+			. '<style>body{font-family:Arial,Helvetica,sans-serif;max-width:36rem;margin:15vh auto;padding:0 1rem;color:#212529}a{color:#0056b3}</style></head><body>'
+			. '<h1 style="font-size:1.4rem">Téléchargement impossible</h1><p>' . e(self::typo($message)) . '</p><p><a href="index.php?page=pieces_import">Retour à l\'importation</a></p></body></html>';
+		exit;
 	}
 
 	/** En-têtes HTTP d'un téléchargement CSV + BOM UTF-8. */

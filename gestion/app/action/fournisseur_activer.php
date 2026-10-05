@@ -1,5 +1,5 @@
 <?php
-// Désactive ou réactive un fournisseur (gestionnaire+). Ses prix et son historique sont conservés. POST JSON : id, actif (booléen).
+// Désactive ou réactive un fournisseur (gestionnaire+). Ses prix et son historique sont conservés. POST JSON : id, actif (booléen explicite : true/false).
 require_once __DIR__ . '/piece_lib.php';
 exiger_post();
 endpoint(function () {
@@ -8,7 +8,7 @@ endpoint(function () {
 	$inv->exiger($uid, 'catalogue');
 	$d = entree();
 	$id = Catalogue::entier(isset($d['id']) ? $d['id'] : 0);
-	$actif = !empty($d['actif']) && Catalogue::booleen($d['actif']);
+	$actif = Catalogue::booleenExplicite($d, 'actif', 'actif');
 	return $inv->transaction(function () use ($uid, $id, $actif) {
 		global $pdo;
 		$st = $pdo->prepare('SELECT id, nom, actif FROM fournisseurs WHERE id = ? FOR UPDATE');

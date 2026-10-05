@@ -3,13 +3,13 @@
 // POST JSON : emplacement_id (source), entreprise_dest_id, emplacement_dest_id, date (AAAA-MM-JJ, pas dans le futur), note,
 //             permettre_cout_zero (bool : facturer à 0 $ les pièces sans coût connu), jeton (anti double envoi), lignes[{piece_id, quantite}].
 // Réponse : {ok:true, id, numero, total, lien, doublon?}. 403 : rôle ou entreprise (de la source) refusés ; 400 : entrée invalide
-// (message en français : stock insuffisant, pièce sans coût, même entreprise, etc.).
+// (message en français : corps illisible, ligne mal formée, emplacement désactivé, stock insuffisant, pièce sans coût, même entreprise, etc.).
 require_once __DIR__ . '/facture_lib.php';
 exiger_post();
 endpoint(function () {
 	global $pdo;
-	$d = entree();
 	Interentreprise::exigerRole('facture_interne');
+	$d = Interentreprise::donnees();
 
 	$idSrc = Interentreprise::identifiant($d, 'emplacement_id');
 	$idDst = Interentreprise::identifiant($d, 'emplacement_dest_id');
@@ -47,6 +47,9 @@ endpoint(function () {
 	if ((int) $dst['entreprise_id'] !== $entDst) {
 		throw new InventaireException('L\'emplacement de destination n\'appartient pas à l\'entreprise choisie.', 'emplacement_dest_id');
 	}
+	// Emplacements actifs : contrôlés ici pour surligner le BON champ (le service signale toujours « emplacement_id »)
+	Interentreprise::exigerActif($src, 'emplacement_id');
+	Interentreprise::exigerActif($dst, 'emplacement_dest_id');
 
 	$in = array(
 		'emplacement_id' => (int) $src['id'],
@@ -55,7 +58,7 @@ endpoint(function () {
 		'date' => (isset($d['date']) && $d['date'] !== '') ? $d['date'] : null,
 		'note' => Interentreprise::texte($d, 'note', 'La note', Interentreprise::MAX_NOTE, true),
 		'permettre_cout_zero' => Interentreprise::booleen($d, 'permettre_cout_zero'),    // booléen strict : le service teste empty()
-		'lignes' => isset($d['lignes']) ? $d['lignes'] : null,
+		'lignes' => Interentreprise::lignesFacture(isset($d['lignes']) ? $d['lignes'] : null),
 	);
 	$r = inventaire()->factureInterne(utilisateur_id(), $in);
 

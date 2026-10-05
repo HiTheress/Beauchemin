@@ -50,7 +50,7 @@ final class Etiquettes
 				'page_largeur' => 100.0, 'page_hauteur' => 50.0,
 				'colonnes' => 1, 'rangees' => 1,
 				'marge_gauche' => 0, 'marge_haut' => 0, 'ecart_x' => 0, 'ecart_y' => 0,
-				'marge_interne' => 3.0, 'barre_hauteur' => 19.0,
+				'marge_interne' => 2.5, 'barre_hauteur' => 19.0,
 				'police_code' => 16, 'police_nom' => 11, 'nom_max' => 90, 'zoom' => 1.5,
 			),
 		);
@@ -63,6 +63,15 @@ final class Etiquettes
 			throw new InventaireException('Format d\'étiquette inconnu.', 'format');
 		}
 		return $f[$cle] + array('cle' => $cle);
+	}
+
+	/** Typographie française : espace insécable dans « … » et avant : ; ? ! (jamais de « » ou de « : » seul en début de ligne). */
+	public static function typo($t)
+	{
+		$nb = "\u{00A0}";
+		$t = preg_replace('/« +/u', '«' . $nb, (string) $t);
+		$t = preg_replace('/ +»/u', $nb . '»', $t);
+		return preg_replace('/ +([:;?!])/u', $nb . '$1', $t);
 	}
 
 	/** Coupe un nom proprement (à la limite d'un mot, avec « … »). */
@@ -81,6 +90,47 @@ final class Etiquettes
 	}
 
 	/**
+	 * Largeur de module (mm) retenue pour ce code sur ce format, ou null si le code est trop long pour être lu de façon fiable.
+	 * @return array{0:?float,1:int,2:float} [module en mm ou null, nombre de modules (zones de silence comprises), largeur utile en mm]
+	 */
+	private static function moduleMm($code, array $fmt)
+	{
+		$modules = strlen(Code128::modules($code)) + 20;   // + zones de silence (10 modules de chaque côté)
+		$utile = $fmt['largeur'] - 2 * $fmt['marge_interne'];
+		foreach (self::MODULES_MM as $m) {
+			if ($modules * $m <= $utile + 0.0001) {
+				return array($m, $modules, $utile);
+			}
+		}
+		$mm = $utile / $modules;
+		return array($mm >= self::MODULE_MIN_MM ? $mm : null, $modules, $utile);
+	}
+
+	/** Nombre maximal de caractères (jeu B : 11 modules par caractère + 55 de départ, somme, arrêt et silences) lisibles sur ce format. */
+	public static function longueurMax(array $fmt)
+	{
+		$utile = $fmt['largeur'] - 2 * $fmt['marge_interne'];
+		return (int) floor(($utile / self::MODULE_MIN_MM - 55) / 11 + 0.0001);
+	}
+
+	/** Message de refus d'un code trop long : propose un format où il passe, ou dit de raccourcir le code (aucun format plus grand n'existe). */
+	private static function messageTropLong($code, array $fmt)
+	{
+		$autres = array();
+		$max = 0;
+		foreach (self::formats() as $cle => $f) {
+			$max = max($max, self::longueurMax($f));
+			if ($cle !== $fmt['cle'] && self::moduleMm($code, $f)[0] !== null) {
+				$autres[] = '« ' . $f['nom'] . ' »';
+			}
+		}
+		if ($autres) {
+			return 'Le code « ' . $code . ' » est trop long pour ce format : le code-barres serait illisible. Choisissez le format ' . implode(' ou ', $autres) . '.';
+		}
+		return 'Le code « ' . $code . ' » est trop long pour un code-barres lisible, même sur le plus grand format (' . $max . ' caractères au plus). Raccourcissez-le dans la fiche.';
+	}
+
+	/**
 	 * Code-barres Code 128 prêt à imprimer : SVG de la classe Code128, dimensionné en millimètres.
 	 * Lève InventaireException (message français) si le texte ne peut pas être imprimé en Code 128
 	 * ou s'il est trop long pour être lu de façon fiable sur ce format.
@@ -92,26 +142,16 @@ final class Etiquettes
 		if ($code === '') {
 			throw new InventaireException('Le code est vide : impossible d\'imprimer un code-barres.');
 		}
-		if (!preg_match('/^[\x20-\x7E]+$/', $code)) {
-			throw new InventaireException('Le code « ' . $code . ' » contient des caractères qui ne peuvent pas être imprimés en code-barres (accents ou symboles spéciaux). Corrigez le code de la fiche.');
+		if (!preg_match('/^[\x20-\x7E]+$/D', $code)) {   // D : un « \n » final ne passe pas pour la fin de texte
+			$aff = trim(preg_replace('/[\x00-\x1F\x7F]+/', ' ', $code));   // un saut de ligne ne s'affiche pas dans un message
+			throw new InventaireException('Le code « ' . $aff . ' » contient des caractères qui ne peuvent pas être imprimés en code-barres (accents, espaces spéciaux ou symboles). Corrigez le code de la fiche.');
 		}
 		if (strlen($code) > 40) {
 			throw new InventaireException('Le code « ' . self::tronquer($code, 20) . ' » dépasse 40 caractères : impossible de l\'imprimer en code-barres.');
 		}
-		$modules = strlen(Code128::modules($code)) + 20;   // + zones de silence (10 modules de chaque côté)
-		$utile = $fmt['largeur'] - 2 * $fmt['marge_interne'];
-		$mm = null;
-		foreach (self::MODULES_MM as $m) {
-			if ($modules * $m <= $utile + 0.0001) {
-				$mm = $m;
-				break;
-			}
-		}
+		list($mm, $modules, $utile) = self::moduleMm($code, $fmt);
 		if ($mm === null) {
-			$mm = $utile / $modules;
-			if ($mm < self::MODULE_MIN_MM) {
-				throw new InventaireException('Le code « ' . $code . ' » est trop long pour ce format : le code-barres serait illisible. Choisissez un format plus grand.');
-			}
+			throw new InventaireException(self::messageTropLong($code, $fmt));
 		}
 		$svg = Code128::svg($code, array('module' => 1, 'hauteur' => 60, 'texte' => false));
 		$largeur = rtrim(rtrim(number_format($modules * $mm, 3, '.', ''), '0'), '.');

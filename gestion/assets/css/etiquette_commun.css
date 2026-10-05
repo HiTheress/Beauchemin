@@ -1,0 +1,49 @@
+/* Règles communes aux deux pages du module A2 (étiquettes et import) : contrastes, zones tactiles, focus visible.
+ * Tout est limité à .a2-page (le conteneur de la page) pour ne rien changer ailleurs. */
+
+/* ---- Contrastes (WCAG AA : 4,5 pour 1 au minimum) ---- */
+.a2-page .badge-primary, .a2-page .btn-outline-primary:hover { background-color: #0056b3; color: #fff; }
+.a2-page .badge-success { background-color: #1e7e34; color: #fff; }
+.a2-page .badge-info { background-color: #0f6674; color: #fff; }
+.a2-page .badge-secondary { background-color: #565e64; color: #fff; }
+.a2-page .badge-danger { background-color: #b02a37; color: #fff; }
+.a2-page .btn-outline-primary { color: #0056b3; border-color: #0056b3; }
+.a2-page .btn-outline-primary:hover { border-color: #0056b3; }
+.a2-page .btn-outline-secondary { color: #495057; border-color: #6c757d; }
+.a2-page .btn-outline-secondary:hover { color: #fff; background-color: #495057; border-color: #495057; }
+.a2-page .btn-outline-danger { color: #a71d2a; border-color: #a71d2a; }
+.a2-page .btn-outline-danger:hover { color: #fff; background-color: #a71d2a; }
+.a2-page .text-muted { color: #565e64 !important; }
+.a2-page .text-danger { color: #a71d2a !important; }
+.a2-page .table-danger .text-danger, .a2-page .table-danger .text-muted, .a2-page tr.table-danger small { color: #842029 !important; }
+.a2-page .alert-success { background-color: #d4edda; border-color: #b7dfc0; color: #0f3d1b; }
+.a2-page .alert-warning { background-color: #fff3cd; border-color: #f0dc8f; color: #5c4400; }
+.a2-page .alert-danger { background-color: #f8d7da; border-color: #efb4ba; color: #6b1520; }
+.a2-page .alert-light { background-color: #fefefe; color: #343a40; }
+.a2-page code { color: #a61e4d; }
+
+/* ---- Zones tactiles d'au moins 44 px (tablette) ---- */
+.a2-page .custom-control { min-height: 44px; }
+.a2-page .custom-control-label { padding: .6rem 0; min-height: 44px; box-sizing: border-box; cursor: pointer; }
+.a2-page .custom-control-label::before, .a2-page .custom-control-label::after { top: .85rem; }
+.a2-page .select2-container--default .select2-selection--multiple,
+.a2-page .select2-container--default .select2-selection--single,
+.a2-page select.form-control { min-height: 44px; }
+.a2-page .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 42px; }
+.a2-page .select2-container--default .select2-selection--single .select2-selection__arrow { height: 42px; }
+.a2-page .select2-search--inline .select2-search__field { min-height: 32px; }
+.a2-page .btn-tool { min-width: 44px; min-height: 44px; }
+.a2-page .form-control { min-height: 44px; }
+
+/* ---- Focus bien visible (clavier) ---- */
+.a2-page .btn:focus, .a2-page .btn:focus-visible, .a2-page a:focus-visible, .a2-page .btn-tool:focus {
+  outline: 3px solid #0056b3 !important; outline-offset: 2px; box-shadow: none !important;
+}
+.a2-page .custom-control-input:focus ~ .custom-control-label::before,
+.a2-page .custom-file-input:focus ~ .custom-file-label {
+  box-shadow: 0 0 0 .2rem #0056b3 !important; border-color: #0056b3 !important;
+}
+.a2-page .form-control:focus, .a2-page .select2-container--focus .select2-selection, .a2-page .select2-container--open .select2-selection {
+  border-color: #0056b3 !important; box-shadow: 0 0 0 .2rem rgba(0, 86, 179, .45) !important;
+}
+.a2-page [tabindex="-1"]:focus { outline: none; }

@@ -24,7 +24,7 @@ page_script('assets/js/catalogue.js');
         <table id="table-fournisseurs" class="table table-striped cat-table w-100">
           <thead><tr>
             <th scope="col">Nom</th><th scope="col">Contact</th><th scope="col">Téléphone</th><th scope="col">Courriel</th>
-            <th scope="col" class="nombre">Pièces avec prix</th><th scope="col">Statut</th><th scope="col" class="no-print"><span class="sr-only">Actions</span></th>
+            <th scope="col" class="nombre cat-th-souple">Pièces avec prix</th><th scope="col">Statut</th><th scope="col" class="no-print"><span class="sr-only">Actions</span></th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -32,7 +32,7 @@ page_script('assets/js/catalogue.js');
     </div></div>
   </div></section>
 
-  <div class="modal fade" id="modal-fournisseur" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-fournisseur-titre">
+  <div class="modal fade" id="modal-fournisseur" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-fournisseur-titre" data-backdrop="static">
     <div class="modal-dialog modal-dialog-centered" role="document"><div class="modal-content">
       <form id="form-fournisseur" novalidate>
         <div class="modal-header"><h5 class="modal-title" id="modal-fournisseur-titre">Fournisseur</h5>

@@ -6,14 +6,16 @@
 .cat-table tbody tr td { padding-top: .7rem; padding-bottom: .7rem; }          /* lignes ≥ 44 px (tablette) */
 .cat-table tbody tr.cliquable { cursor: pointer; }
 .cat-table tbody tr.cliquable:hover { background: #eef4ff; }
-.cat-table .btn-sm { min-height: 36px; min-width: 40px; }
+.cat-table .btn-sm { min-height: 44px; min-width: 44px; }          /* zones tactiles de 44 px (tablette) */
+.cat-table .btn-sm + .btn-sm { margin-left: .5rem; }                 /* de l'espace entre Modifier et l'action destructrice */
+.cat-lien-cible { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 44px; min-height: 44px; }
 .cat-table a.code { font-weight: 600; }
 .cat-entete-entreprise td { background: #e9ecef; font-weight: 600; }
 .cat-barcode img { max-width: 100%; height: 64px; background: #fff; border: 1px solid #dee2e6; border-radius: .25rem; padding: 4px 8px; }
 .cat-alias-liste { list-style: none; padding: 0; margin: .5rem 0 0; }
 .cat-alias-liste li { display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem; border: 1px solid #dee2e6; border-radius: .25rem; margin-bottom: .35rem; background: #fff; }
 .cat-alias-liste li .code { flex: 1 1 auto; word-break: break-all; }
-.cat-alias-liste .btn { min-height: 36px; min-width: 36px; }
+.cat-alias-liste .btn { min-height: 44px; min-width: 44px; }
 .cat-desc { white-space: pre-wrap; }
 .cat-ecart-bon { color: #1e7e34; }
 .cat-ecart-mauvais { color: #c82333; }
@@ -21,8 +23,20 @@
 .modal .btn, .cat-form .btn { min-height: 44px; }
 .cat-form .form-control, .modal .form-control { min-height: 44px; }
 .cat-form textarea.form-control, .modal textarea.form-control { min-height: 88px; }
-.cat-form .custom-control-label { min-height: 44px; padding-top: .4rem; }
+.cat-form .custom-control-label, .cat-filtres .custom-control-label { min-height: 44px; padding-top: .4rem; }
+.cat-filtres .custom-control-label::before, .cat-filtres .custom-control-label::after { top: .65rem; }
+.card-tools .btn { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.dataTables_wrapper .dataTables_length select, .dataTables_wrapper .dataTables_filter input { min-height: 44px; }
 @media print { .cat-actions, .cat-filtres { display: none !important; } }
+/* Impression : le titre de la page (.content-header) est masqué par la feuille du noyau ; on imprime un titre à la place */
+.cat-titre-impression { display: none; }
+@media print {
+  .cat-titre-impression { display: block !important; margin-bottom: .75rem; }
+  .cat-titre-impression .titre { font-size: 1.5rem; font-weight: 600; }
+  table.dataTable thead .sorting:before, table.dataTable thead .sorting:after,
+  table.dataTable thead .sorting_asc:before, table.dataTable thead .sorting_asc:after,
+  table.dataTable thead .sorting_desc:before, table.dataTable thead .sorting_desc:after { display: none !important; }
+}
 .cat-actions .btn, .cat-form .btn, .cat-filtres .btn, .modal .btn { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; }
 .cat-actions .btn { margin-bottom: .25rem; }
 .table-responsive { position: relative; }      /* les textes .sr-only (position absolue) restent dans le conteneur défilant */
@@ -30,5 +44,43 @@
 /* Le thème du projet redéfinit .btn-danger (texte rouge seulement) : bouton d'action destructrice explicite */
 .cat-btn-danger { background: #dc3545; border-color: #dc3545; color: #fff; font-size: 1rem; }
 .cat-btn-danger:hover, .cat-btn-danger:focus { background: #bd2130; border-color: #b21f2d; color: #fff; }
-/* Noms très longs sans espace : on coupe plutôt que de déborder (tablette) */
-.content-wrapper h1, .cat-table td, .cat-desc, .cat-alias-liste .code, dd, .alert { overflow-wrap: anywhere; }
+/* Noms très longs sans espace : on coupe seulement quand il n'y a vraiment pas de place (break-word) ; « anywhere » réduisait la largeur
+   minimale des colonnes à un caractère et coupait les mots et les codes-barres au milieu. Les codes ne se coupent jamais. */
+.content-wrapper h1, .alert { overflow-wrap: anywhere; }
+.cat-table td, .cat-desc, dd { overflow-wrap: break-word; }
+.cat-alias-liste .code { word-break: break-all; }
+.cat-table th, .cat-table td.code, .cat-table a.code, .cat-table .text-nowrap { white-space: nowrap; }
+.cat-table td.col-actions { white-space: nowrap; }
+
+/* Focus clavier visible sur les champs (la bordure bleue du thème seule a un contraste d'environ 2:1) */
+.cat-form .form-control:focus, .cat-filtres .form-control:focus, #recherche:focus, .modal .form-control:focus,
+.cat-form .custom-select:focus, .dataTables_wrapper select:focus, .dataTables_wrapper input:focus {
+  outline: 2px solid #0056b3; outline-offset: 1px; border-color: #0056b3; box-shadow: 0 0 0 .2rem rgba(0, 86, 179, .35);
+}
+.cat-form .custom-control-input:focus ~ .custom-control-label::before, .cat-filtres .custom-control-input:focus ~ .custom-control-label::before {
+  box-shadow: 0 0 0 .2rem rgba(0, 86, 179, .6);
+}
+
+/* Contrastes (WCAG AA, 4,5:1) : verts et rouges du thème trop clairs, surtout en plein soleil sur tablette */
+.content-wrapper[data-catalogue] .btn-outline-success { color: #19692c; border-color: #19692c; }
+.content-wrapper[data-catalogue] .btn-outline-success:hover, .content-wrapper[data-catalogue] .btn-outline-success:focus { background: #1e7e34; border-color: #1e7e34; color: #fff; }
+.content-wrapper[data-catalogue] .btn-outline-danger { color: #bd2130; border-color: #bd2130; }
+.content-wrapper[data-catalogue] .btn-outline-danger:hover, .content-wrapper[data-catalogue] .btn-outline-danger:focus { background: #bd2130; border-color: #bd2130; color: #fff; }
+.content-wrapper[data-catalogue] .badge-success { background: #1e7e34; color: #fff; }
+.content-wrapper[data-catalogue] .text-success { color: #19692c !important; }
+.content-wrapper[data-catalogue] .text-danger { color: #bd2130 !important; }
+.content-wrapper[data-catalogue] .alert-success { background: #1e7e34; border-color: #1c7430; color: #fff; }
+.content-wrapper[data-catalogue] .alert-success .alert-link { color: #fff; text-decoration: underline; }
+.content-wrapper[data-catalogue] .badge-secondary { background: #545b62; color: #fff; }
+
+/* Champs de scan intégrés aux formulaires et aux filtres : cadre discret (le cadre du noyau est fait pour les écrans de saisie) */
+.scan-box.cat-scan-box, .cat-form .scan-box { padding: .25rem; border-width: 2px; }
+.scan-box.cat-scan-box input.scan-input, .cat-form .scan-box input.form-control { font-size: 1.05rem; letter-spacing: normal; padding: .35rem .6rem; min-height: 44px; }
+.scan-box.cat-scan-box .input-group-text { background: transparent; border: 0; }
+
+/* En-têtes qui peuvent passer à la ligne (libellés longs) */
+.cat-table th.cat-th-souple { white-space: normal; }
+
+/* Écarts au coût moyen : une ligne par entreprise, le texte peut passer à la ligne entre le nom et le montant */
+.cat-table td.cat-ecarts, .cat-table th.cat-ecarts { text-align: right; white-space: normal; }
+.cat-table td.cat-ecarts { min-width: 11rem; }

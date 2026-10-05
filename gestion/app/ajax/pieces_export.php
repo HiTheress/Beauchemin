@@ -12,7 +12,7 @@ try {
 	$couts = inventaire()->peutVoirCouts($uid);
 	$entIds = array_values(array_intersect(array_map('intval', entreprises_filtre()), $u['entreprises']));
 } catch (InventaireException $ex) {
-	json_fail($ex->getMessage(), 403);
+	ImportCatalogue::refuserTelechargement($ex->getMessage(), 403);
 }
 sort($entIds);
 $inactives = !empty($_GET['inactives']);

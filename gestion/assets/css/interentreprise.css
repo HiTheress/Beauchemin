@@ -3,7 +3,10 @@
 /* Zones cliquables ≥ 44 px (tablette) */
 .ie-carte .form-control, .ie-carte .btn { min-height: 44px; }
 .ie-carte textarea.form-control { min-height: 70px; }
-.ie-carte .btn-sm { min-height: 38px; }
+.ie-carte .btn-sm { min-height: 44px; }
+.ie-valeur-entete .btn { min-height: 44px; }
+.ie-lien-tactile { display: inline-flex; align-items: center; min-height: 44px; }       /* liens de tableau : zone tactile d'au moins 44 px de haut */
+.ie-bilan-factures td, .ie-bilan-pieces td { vertical-align: middle; }
 .ie-carte label { margin-bottom: .2rem; font-size: .9rem; color: #343a40; }
 .ie-carte .custom-control-label { min-height: 28px; padding-top: .1rem; font-size: 1rem; }
 .ie-carte .select2-container--default .select2-selection--single { min-height: 44px; display: flex; align-items: center; }
@@ -17,10 +20,13 @@
 .ie-scan { margin-top: .25rem; }
 .ie-scan-label { display: block; font-weight: 600; color: #0b5ed7; margin-bottom: .3rem; }
 .ie-aide-scan { margin: -.25rem 0 .75rem; }
+.ie-entete-form label { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ie-recap { margin: .75rem 0 .5rem; padding: .5rem .75rem; background: #eef4ff; border: 1px solid #c8d9f7; border-radius: .25rem; font-size: 1.05rem; }
+.ie-scan .scan-input::placeholder { color: #6c757d; opacity: 1; }          /* contraste 4,6:1 (le thème donne 2,8:1) */
 .ie-lignes table { background: #fff; }
 .ie-lignes td, .ie-lignes th { vertical-align: middle; }
-.ie-lignes input.form-control { min-width: 84px; min-height: 40px; }
-.ie-lignes .btn { min-width: 44px; min-height: 40px; }
+.ie-lignes input.form-control { min-width: 84px; min-height: 44px; }
+.ie-lignes .btn { min-width: 44px; min-height: 44px; }
 .ie-lignes input.is-invalid { border-color: #dc3545; }
 .ie-lignes th { white-space: nowrap; }
 .ie-lignes td.code { white-space: nowrap; }
@@ -33,7 +39,9 @@
 .ie-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
 .ie-actions .btn-lg { min-height: 52px; padding-left: 1.75rem; padding-right: 1.75rem; }
 .ie-erreur, .ie-succes { font-size: 1.05rem; }
-.ie-succes a { font-weight: 700; text-decoration: underline; }
+.ie-succes { background: #1e7e34; border-color: #1e7e34; color: #fff; }      /* blanc sur #1e7e34 : 5,1:1 (le vert du thème donne 3,1:1) */
+.ie-succes a { font-weight: 700; text-decoration: underline; color: #fff; }
+.ie-facture .badge-success, .ie-table .badge-success { background: #1e7e34; color: #fff; }
 .ie-actions { position: sticky; bottom: 0; z-index: 5; background: #fff; margin: .75rem -1.25rem -1.25rem; padding: .75rem 1.25rem; border-top: 1px solid #dee2e6; border-radius: 0 0 .25rem .25rem; }
 .ie-erreur { scroll-margin-bottom: 110px; }
 .ie-succes { scroll-margin-top: 80px; }
@@ -52,6 +60,8 @@
 #table-factures tbody tr.ie-ligne-annulee td { color: #6c757d; }
 #table-factures tbody tr.ie-ligne-annulee td:first-child a { text-decoration: line-through; }
 #table-factures td:first-child, #table-factures td:nth-child(2) { white-space: nowrap; }
+#table-factures th, #table-factures td { padding-left: .4rem; padding-right: .4rem; }
+#table-factures thead th, #table-detail thead th { padding-right: 1.7rem; }   /* place pour l'icône de tri de DataTables (à droite, en position absolue) */
 .dataTables_wrapper .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
 .dataTables_wrapper .dataTables_length select { min-height: 38px; }
 .ie-totaux { margin-top: .75rem; padding: .75rem 1rem; background: #eef4ff; border: 1px solid #c8d9f7; border-radius: .25rem; font-size: 1.05rem; }
@@ -113,6 +123,11 @@
 .ie-table td, .ie-table th { vertical-align: middle; }
 .ie-detail-total { font-size: 1.15rem; }
 #table-detail .badge-sans-cout { background: #ffc107; color: #343a40; }
+#table-detail td.code, #table-detail td.nombre { white-space: nowrap; }
+.ie-sans-cout summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.ie-sans-cout-liste { margin: 0 0 .5rem; padding-left: 1.2rem; max-height: 12rem; overflow: auto; }
+.ie-ligne-arrondi th, .ie-ligne-arrondi td { font-weight: normal; color: #495057; }
+.ie-table-emplacements tfoot .ie-ligne-total th, .ie-table-emplacements tfoot .ie-ligne-total td { border-top: 2px solid #26323f; font-size: 1.05rem; }
 
 @media (max-width: 767.98px) {
   .ie-actions .btn-lg { width: 100%; }
@@ -135,6 +150,10 @@
   .badge { border: 1px solid #000; color: #000 !important; background: #fff !important; }
   .table { font-size: 10.5pt; }
   .ie-table-facture tr, .ie-sens tr { break-inside: avoid; }
+  /* Bootstrap peint les cellules en blanc à l'impression : le filigrane ANNULÉE (derrière le contenu) serait presque entièrement masqué */
+  .ie-facture .table td, .ie-facture .table th, .ie-facture .table tfoot th { background-color: transparent !important; }
+  /* Chromium répète le <tfoot> au bas de CHAQUE page : le « Total » semblerait terminer chaque page. Il n'apparaît qu'une fois, à la fin. */
+  .ie-table-facture tfoot { display: table-row-group; }
   .ie-sens, .ie-solde { break-inside: avoid; }
   .ie-solde { border: 2px solid #000; }
   .ie-montant { color: #000; }

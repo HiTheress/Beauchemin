@@ -42,6 +42,10 @@ if (!$piece && isset($_GET['cree']) && is_string($_GET['cree']) && ctype_digit($
 }
 $v = function ($k, $defaut = '') use ($piece) { return $piece ? (string) ($piece[$k] === null ? '' : $piece[$k]) : $defaut; };
 $donnees = array('alias' => $alias);
+if ($piece) {
+	// version de la pièce au moment de l'ouverture du formulaire : renvoyée à l'enregistrement (refus si quelqu'un l'a modifiée entre-temps)
+	$donnees['empreinte'] = Catalogue::empreinte($id, array_map(function ($en) { return (int) $en['id']; }, $ents));
+}
 $flags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
 ?>
 <link rel="stylesheet" href="assets/css/catalogue.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/catalogue.css'); ?>">
@@ -69,22 +73,22 @@ $flags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNES
                     <div class="input-group-append"><button type="button" class="btn btn-outline-secondary" id="btn-proposer"><i class="fas fa-magic mr-1" aria-hidden="true"></i> Proposer un code</button></div>
                   <?php } ?>
                 </div>
-                <div class="text-danger small mt-1" data-erreur-pour="code" role="alert" hidden></div>
+                <div class="text-danger small mt-1" data-erreur-pour="code" hidden></div>
                 <?php if ($a_mouvements) { ?>
                   <small id="aide-code-fige" class="form-text text-muted"><i class="fas fa-lock mr-1" aria-hidden="true"></i> Ce code ne peut plus être modifié : la pièce a déjà des mouvements et ses étiquettes imprimées deviendraient invalides. Ajoutez plutôt un code-barres alias.</small>
                 <?php } else { ?>
-                  <small id="aide-code" class="form-text text-muted">C'est le code imprimé sur les étiquettes (Code 128). Majuscules, chiffres et . - _ / seulement (40 caractères au plus). Il ne pourra plus être changé après le premier mouvement.</small>
+                  <small id="aide-code" class="form-text text-muted">C'est le code imprimé sur les étiquettes (Code 128). Permis : lettres majuscules (A-Z), chiffres et les symboles . - _ / (40 caractères au plus, sans espace ni accent). Il ne pourra plus être changé après le premier mouvement.</small>
                 <?php } ?>
               </div>
               <div class="form-group">
                 <label for="f-nom">Nom <span class="text-danger" aria-hidden="true">*</span></label>
                 <input id="f-nom" name="nom" class="form-control" maxlength="150" autocomplete="off" value="<?php echo e($v('nom')); ?>">
-                <div class="text-danger small mt-1" data-erreur-pour="nom" role="alert" hidden></div>
+                <div class="text-danger small mt-1" data-erreur-pour="nom" hidden></div>
               </div>
               <div class="form-group">
                 <label for="f-description">Description</label>
                 <textarea id="f-description" name="description" class="form-control" rows="3" maxlength="5000"><?php echo e($v('description')); ?></textarea>
-                <div class="text-danger small mt-1" data-erreur-pour="description" role="alert" hidden></div>
+                <div class="text-danger small mt-1" data-erreur-pour="description" hidden></div>
               </div>
               <div class="form-group">
                 <label for="f-categorie">Catégorie</label>
@@ -97,7 +101,7 @@ $flags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNES
                   </select>
                   <div class="input-group-append"><button type="button" class="btn btn-outline-secondary" id="btn-nouvelle-categorie"><i class="fas fa-plus mr-1" aria-hidden="true"></i> Nouvelle catégorie</button></div>
                 </div>
-                <div class="text-danger small mt-1" data-erreur-pour="categorie_id" role="alert" hidden></div>
+                <div class="text-danger small mt-1" data-erreur-pour="categorie_id" hidden></div>
                 <div id="bloc-nouvelle-categorie" class="mt-2 p-2 border rounded bg-light" hidden>
                   <label for="nc-nom">Nom de la nouvelle catégorie</label>
                   <div class="input-group">
@@ -117,7 +121,7 @@ $flags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNES
                   <?php foreach (array('unité', 'paire', 'm', 'pi', 'kg', 'L', 'boîte', 'rouleau', 'lot') as $u) { ?><option value="<?php echo e($u); ?>"></option><?php } ?>
                 </datalist>
                 <small class="form-text text-muted">Choisissez une suggestion ou tapez la vôtre (20 caractères au plus).</small>
-                <div class="text-danger small mt-1" data-erreur-pour="unite" role="alert" hidden></div>
+                <div class="text-danger small mt-1" data-erreur-pour="unite" hidden></div>
               </div>
               <?php if ($piece) { ?>
               <div class="custom-control custom-switch mb-2">
@@ -132,33 +136,33 @@ $flags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNES
         <div class="col-lg-5">
           <div class="card"><div class="card-header"><h3 class="card-title">Codes-barres alias</h3></div>
             <div class="card-body">
-              <p class="text-muted small">Autres codes qui retrouvent cette pièce au scan (code du fabricant, du fournisseur…). Scannez le code dans le champ, puis Entrée.</p>
-              <label for="f-alias" class="sr-only">Code-barres alias à ajouter</label>
-              <div class="mb-2"><input id="f-alias" class="form-control code" maxlength="64" autocomplete="off" spellcheck="false" placeholder="Scannez ou tapez un code"></div>
-              <div class="form-row">
-                <div class="col-7 mb-2"><label for="f-alias-type" class="sr-only">Type du code</label>
-                  <select id="f-alias-type" class="form-control"><option value="fabricant">Fabricant</option><option value="fournisseur">Fournisseur</option><option value="autre">Autre</option></select></div>
-                <div class="col-5 mb-2"><button type="button" class="btn btn-outline-primary btn-block" id="btn-alias"><i class="fas fa-plus mr-1" aria-hidden="true"></i> Ajouter</button></div>
-              </div>
-              <div class="text-danger small" data-erreur-pour="codes" role="alert" hidden></div>
+              <p class="text-muted small">Autres codes qui retrouvent cette pièce au scan (code du fabricant, du fournisseur…). Choisissez d'abord le type, puis scannez le code dans le champ (Entrée ou Tab pour l'ajouter).</p>
+              <div class="form-group mb-2"><label for="f-alias-type" class="mb-1">Type du code</label>
+                <select id="f-alias-type" class="form-control"><option value="fabricant">Fabricant</option><option value="fournisseur">Fournisseur</option><option value="autre">Autre</option></select></div>
+              <label for="f-alias" class="mb-1">Code-barres à ajouter</label>
+              <div class="scan-box mb-2"><div class="input-group">
+                <input id="f-alias" class="form-control code" maxlength="64" autocomplete="off" spellcheck="false" placeholder="Scannez ou tapez un code">
+                <div class="input-group-append"><button type="button" class="btn btn-outline-primary" id="btn-alias"><i class="fas fa-plus mr-1" aria-hidden="true"></i> Ajouter</button></div>
+              </div></div>
+              <div class="text-danger small" data-erreur-pour="codes" hidden></div>
               <ul class="cat-alias-liste" id="liste-alias" aria-live="polite"></ul>
             </div>
           </div>
 
-          <div class="card"><div class="card-header"><h3 class="card-title">Minimum souhaité</h3></div>
+          <div class="card"><div class="card-header"><h3 class="card-title">Minimum fixé</h3></div>
             <div class="card-body">
-              <p class="text-muted small">Sous ce total, la pièce apparaît dans « Sous le minimum ». <strong>0 = pas d'alerte.</strong></p>
+              <p class="text-muted small">Sous ce total, la pièce apparaît dans « Sous le minimum » (un minimum par entreprise). <strong>0 ou vide = pas d'alerte.</strong></p>
               <?php if (!$ents) { ?><p class="text-muted mb-0">Aucune entreprise accessible.</p><?php } else { ?>
               <table class="table table-sm mb-0"><tbody>
                 <?php foreach ($ents as $en) { $eid = (int) $en['id']; ?>
                 <tr>
                   <td class="align-middle"><label for="seuil-<?php echo $eid; ?>" class="mb-0"><?php echo e($en['nom']); ?></label></td>
-                  <td style="width:9rem"><input id="seuil-<?php echo $eid; ?>" class="form-control nombre champ-seuil" data-entreprise="<?php echo $eid; ?>" inputmode="decimal" autocomplete="off" placeholder="0"
+                  <td style="width:9rem"><input id="seuil-<?php echo $eid; ?>" name="seuil_<?php echo $eid; ?>" class="form-control nombre champ-seuil" data-entreprise="<?php echo $eid; ?>" inputmode="decimal" autocomplete="off" placeholder="0"
                       value="<?php echo e(isset($seuils[$eid]) ? Catalogue::nombreSaisie($seuils[$eid]) : ''); ?>"></td>
                 </tr>
                 <?php } ?>
               </tbody></table>
-              <div class="text-danger small mt-1" data-erreur-pour="seuils" role="alert" hidden></div>
+              <div class="text-danger small mt-1" data-erreur-pour="seuils" hidden></div>
               <?php } ?>
             </div>
           </div>

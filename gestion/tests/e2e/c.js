@@ -384,9 +384,15 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await Promise.all([p.waitForNavigation(), p.click('#b-suiv')]);
   await p.waitForLoadState('networkidle');
   L.verifier((await tx(p, '.ie-bilan-titre')).includes(MOIS[M_NOW - 1] + ' ' + A_NOW), 'navigation « mois suivant »');
-  await Promise.all([p.waitForNavigation(), p.selectOption('#b-mois', String(M_PREC))]);
+  // Correction #38 : changer une liste n'envoie plus le formulaire tout seul (au clavier, une flèche rechargeait la page et le focus était perdu)
+  const urlAvant = p.url();
+  await p.focus('#b-mois');
+  await p.selectOption('#b-mois', String(M_PREC));
+  await attendre(400);
+  L.verifier(p.url() === urlAvant && (await p.evaluate(() => document.activeElement.id)) === 'b-mois', 'changer le mois dans la liste ne recharge pas la page et le focus reste sur la liste');
+  await Promise.all([p.waitForNavigation(), p.click('#form-bilan button[type=submit]')]);
   await p.waitForLoadState('networkidle');
-  L.verifier((await tx(p, '.ie-bilan-titre')).includes(MOIS[M_PREC - 1]) && p.url().includes('mois=' + M_PREC), 'changer le mois dans la liste recharge le bilan');
+  L.verifier((await tx(p, '.ie-bilan-titre')).includes(MOIS[M_PREC - 1]) && p.url().includes('mois=' + M_PREC), 'le bouton « Afficher » charge le mois choisi');
   L.verifier((await p.$$('#b-a')).length === 0, 'deux entreprises seulement : paire fixe (aucun sélecteur)');
   // mois sans facture
   await L.aller(p, 'bilan_mensuel&annee=2020&mois=3');
@@ -413,11 +419,16 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   const banniere = await tx(p, '#bandeau-annule');
   L.verifier(banniere.includes('ANNULÉE') && banniere.includes('par') && banniere.includes('gestionnaire1') && /le \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(banniere) && banniere.includes('<img src=x onerror=alert(3)>'), 'bandeau ANNULÉE avec qui, quand et motif (en texte) : ' + banniere);
   L.verifier(!!(await p.$('.ie-filigrane')) && (await tx(p, '.ie-filigrane')) === 'ANNULÉE', 'filigrane ANNULÉE');
-  L.verifier((await p.$('#btn-annuler')) === null && (await tx(p, '.alert-success')).includes('annulée'), 'plus de bouton « Annuler » ; confirmation affichée');
+  const flash = await tx(p, '#flash-annule');
+  L.verifier((await p.$('#btn-annuler')) === null && flash.includes('annulée') && flash.includes(numA), 'plus de bouton « Annuler » ; confirmation affichée avec le numéro ' + numA + ' : ' + flash);
+  // correction #29 : le message n'apparaît qu'une fois (un rechargement ou un favori ne le répète pas)
+  await p.reload();
+  await p.waitForLoadState('networkidle');
+  L.verifier((await p.$('#flash-annule')) === null, 'le message d\'annulation ne réapparaît pas au rechargement');
   L.verifier(dialogues.length === 0 && (await p.$$('#facture img')).length === 0, 'motif piégé : aucun script exécuté');
   await L.aller(p, 'bilan_mensuel&annee=' + A_PREC + '&mois=' + M_PREC);
   L.verifier((await tx(p, '#sens-ab .ie-total-sens-montant')) === '0,00 $' && (await tx(p, '#solde')) === 'Beauchemin doit 53,40 $ à Boutique Chaleur pour ' + MOIS[M_PREC - 1] + ' ' + A_PREC, 'le bilan n\'inclut plus la facture annulée : ' + await tx(p, '#solde'));
-  L.verifier((await tx(p, '#lien-annulees')).startsWith('1 facture annulée ce mois-ci'), 'lien « factures annulées ce mois-ci » : ' + await tx(p, '#lien-annulees'));
+  L.verifier((await tx(p, '#lien-annulees')) === '1 facture annulée en ' + MOIS[M_PREC - 1] + ' ' + A_PREC, 'lien « factures annulées » du mois affiché (correction #26) : ' + await tx(p, '#lien-annulees'));
   await Promise.all([p.waitForNavigation(), p.click('#lien-annulees')]);
   await p.waitForLoadState('networkidle');
   await lignesListe(p, 1);
@@ -438,9 +449,13 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await p.click('#annuler-confirmer');
   await p.waitForFunction(() => !document.querySelector('#annuler-erreur').hidden);
   const eAnn = await tx(p, '#annuler-erreur');
-  L.verifier(eAnn === 'Stock insuffisant pour « P-0004 — Pompe à mazout Suntec A2VA » à « Boutique Centre-ville » : disponible 0, demandé 2.', 'refus d\'annulation : message du service tel quel : ' + eAnn);
-  L.verifier(sql('SELECT statut FROM documents WHERE id = ' + rr.json.id) === 'valide' && !(await p.$eval('#annuler-confirmer', e => e.disabled)), 'la facture reste valide, le bouton est de nouveau actif');
+  L.verifier(/^Annulation refusée : des pièces de cette facture ne sont plus à l'emplacement de destination de Boutique Chaleur\./.test(eAnn) && eAnn.includes('Stock insuffisant pour « P-0004 — Pompe à mazout Suntec A2VA » à « Boutique Centre-ville » : disponible 0, demandé 2.') && /Remettez les pièces/.test(eAnn), 'refus d\'annulation : phrase d\'explication + message du service (correction #28) : ' + eAnn);
+  L.verifier(await p.evaluate(() => document.activeElement.id) === 'annuler-motif', 'après un refus, le focus reste dans la fenêtre (correction #7)');
   await p.keyboard.press('Escape');
+  await p.waitForSelector('#modal-annuler', { state: 'hidden' });
+  await p.waitForFunction(() => document.activeElement && document.activeElement.id === 'btn-annuler', null, { timeout: 3000 }).catch(() => {});
+  L.verifier(await p.evaluate(() => document.activeElement.id) === 'btn-annuler', 'Échap ferme la fenêtre et le focus revient au bouton « Annuler cette facture » (corrections #7 et #30)');
+  L.verifier(sql('SELECT statut FROM documents WHERE id = ' + rr.json.id) === 'valide' && !(await p.$eval('#annuler-confirmer', e => e.disabled)), 'la facture reste valide, le bouton est de nouveau actif');
   r = await api(p, 'app/action/facture_annuler.php', { id: idA, motif: 'encore' });
   L.verifier(r.status === 400 && /déjà annulé/.test(r.json.erreur), 'annuler deux fois : refusé : ' + r.texte);
   r = await api(p, 'app/action/facture_annuler.php', { id: parseInt(idDoc('TRF-2026-00001'), 10), motif: 'test' });
@@ -664,7 +679,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
     r = await api(emp, u, body);
     L.verifier(r.status === 403 && !/FIN-\d|\d+\.\d\d/.test(r.texte.replace(/Jeton|jeton/g, '')), 'employé : ' + u + ' → 403 sans donnée : ' + r.status);
   }
-  for (const u of ['app/ajax/valeur_detail.php?emplacement_id=1', 'app/ajax/valeur_export.php', 'app/ajax/valeur_export.php?mode=pieces', 'app/ajax/bilan_export.php', 'app/ajax/factures_internes_totaux.php']) {
+  for (const u of ['app/ajax/valeur_detail.php?emplacement_id=1', 'app/ajax/valeur_export.php', 'app/ajax/valeur_export.php?mode=pieces', 'app/ajax/bilan_export.php', 'app/ajax/factures_internes_totaux.php', 'app/ajax/facture_emplacement_code.php?code=EMP-000002']) {
     r = await api(emp, u);
     L.verifier(r.status === 403 && !/\d,\d\d/.test(r.texte) && r.texte.length < 200, 'employé : ' + u + ' → 403, aucune donnée : ' + r.status);
   }
@@ -675,7 +690,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
     const rep = await anon.request.post(L.BASE + '/' + u, { data: body });
     L.verifier(rep.status() === 401, 'non connecté : ' + u + ' → 401 (' + rep.status() + ')');
   }
-  for (const u of ['app/ajax/valeur_export.php', 'app/ajax/bilan_export.php', 'app/ajax/valeur_detail.php?emplacement_id=1']) {
+  for (const u of ['app/ajax/valeur_export.php', 'app/ajax/bilan_export.php', 'app/ajax/valeur_detail.php?emplacement_id=1', 'app/ajax/facture_emplacement_code.php?code=EMP-000002']) {
     const rep = await anon.request.get(L.BASE + '/' + u);
     L.verifier(rep.status() === 401, 'non connecté : ' + u + ' → 401 (' + rep.status() + ')');
   }
@@ -701,9 +716,14 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await gb.selectOption('#emplacement', '1');
   await gb.waitForFunction(() => !document.querySelector('#destination').disabled && document.querySelectorAll('#destination option').length > 1);
   L.verifier(await gb.$eval('#entreprise-dest', e => e.value) === '2' && (await gb.$$eval('#destination option', o => o.map(x => x.value))).includes('5'), 'destinataire : l\'autre entreprise, auto-sélectionnée, avec ses emplacements');
+  // correction #14 : le code d'un emplacement de l'AUTRE entreprise (à laquelle gest_bea n'a pas accès) choisit la destination
   await L.scanner(gb, '#scan', 'EMP-000002');
-  await attendre(600);
-  L.verifier((await tx(gb, '#toasts')).includes('Emplacement inconnu, ou d\'une entreprise à laquelle vous n\'avez pas accès'), 'scan d\'un emplacement d\'une entreprise non autorisée : message clair : ' + await tx(gb, '#toasts'));
+  await gb.waitForFunction(() => document.querySelector('#destination').value === '2');
+  L.verifier((await tx(gb, '#toasts')).includes('Destination : Entrepôt principal (Boutique Chaleur)') && await gb.$eval('#entreprise-dest', e => e.value) === '2', 'scan d\'un emplacement de l\'autre entreprise (sans accès) : devient la destination : ' + await tx(gb, '#toasts'));
+  r = await api(gb, 'app/ajax/facture_emplacement_code.php?code=EMP-000002');
+  L.verifier(r.status === 200 && r.json.trouve && r.json.emplacement.id === 2 && !('code_barres' in r.json.emplacement) && !/EMP-/.test(r.texte.replace('EMP-000002', '')), 'facture_emplacement_code : ne livre que id, nom, type, entreprise');
+  r = await api(gb, 'app/ajax/facture_emplacement_code.php?code=EMP-999999');
+  L.verifier(r.status === 200 && r.json.trouve === false, 'facture_emplacement_code : code inconnu -> trouve=false');
   r = await api(gb, 'app/action/facture_save.php', { emplacement_id: 2, entreprise_dest_id: 1, emplacement_dest_id: 3, lignes: [{ piece_id: 9, quantite: '1' }] });
   L.verifier(r.status === 403 && /accès à cette entreprise/.test(r.json.erreur), 'source dans l\'entreprise 2 : refusée (403) : ' + r.texte);
   r = await api(gb, 'app/ajax/facture_apercu.php', { emplacement_id: 2, lignes: [{ piece_id: 9, quantite: '1' }] });
@@ -744,8 +764,8 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await L.aller(gt, 'factures_internes');
   await gt.selectOption('#f-annee', '');
   await gt.waitForSelector('#table-factures .dataTables_empty');
-  await gt.waitForFunction(() => /Aucune facture/.test(document.querySelector('#ie-totaux').textContent));
-  L.verifier((await tx(gt, '#ie-totaux')).includes('Aucune facture'), 'liste vide pour l\'entreprise étrangère : ' + await tx(gt, '#ie-totaux'));
+  await gt.waitForFunction(() => document.querySelector('#ie-totaux').hidden);
+  L.verifier(await gt.$eval('#ie-totaux', e => e.hidden) && (await tx(gt, '#table-factures .dataTables_empty')).includes('Aucune facture interne pour ces filtres'), 'liste vide pour l\'entreprise étrangère : un seul message (correction #39), pas de ligne de totaux');
   r = await api(gt, 'app/ajax/bilan_export.php?annee=' + A_PREC + '&mois=' + M_PREC + '&a=1&b=2');
   L.verifier(r.status === 403 && !r.texte.includes('FIN-'), 'export du bilan Beauchemin/Chaleur par l\'entreprise étrangère : refusé (403)');
   await L.aller(gt, 'bilan_mensuel&annee=' + A_PREC + '&mois=' + M_PREC + '&a=1&b=2');
@@ -762,7 +782,8 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier((await ad.$$('#b-a')).length === 1 && (await ad.$$('#b-b')).length === 1, '3 entreprises : choix de la paire');
   const paireDefaut = [await ad.$eval('#b-a', e => e.value), await ad.$eval('#b-b', e => e.value)];
   L.verifier(paireDefaut.join(',') === '1,2' && (await tx(ad, '#solde')).includes('Beauchemin doit 53,40 $'), 'paire par défaut A = 1, B = 2 : ' + paireDefaut);
-  await Promise.all([ad.waitForNavigation(), ad.selectOption('#b-b', '3')]);
+  await ad.selectOption('#b-b', '3');
+  await Promise.all([ad.waitForNavigation(), ad.click('#form-bilan button[type=submit]')]);
   await ad.waitForLoadState('networkidle');
   L.verifier((await tx(ad, '#solde')).startsWith('Aucun solde pour') && (await tx(ad, '.ie-bilan-paire')).includes('Entreprise Tierce') && ad.url().includes('b=3'), 'Beauchemin ↔ Entreprise Tierce : aucun solde : ' + await tx(ad, '#solde'));
   L.verifier((await ad.getAttribute('#b-prec', 'href')).includes('a=1&b=3') && (await ad.getAttribute('#btn-csv', 'href')).includes('a=1&b=3'), 'la paire est conservée dans la navigation et l\'export');
@@ -825,6 +846,398 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   sql("UPDATE emplacements SET nom = 'Boutique Centre-ville' WHERE id = 5");
   sql("UPDATE categories SET nom = 'Contrôles' WHERE id = 2");
   sql("UPDATE pieces SET unite = 'unité' WHERE id = 1");
+
+  // ==== 17. Corrections issues de la relecture indépendante (un bloc par constat) ============================================================
+  console.log('17. Corrections de la relecture');
+  const ratio = (c1, c2) => {
+    const lum = c => { const m = c.match(/[\d.]+/g).map(Number).slice(0, 3).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]; };
+    const a = lum(c1), b2 = lum(c2); return (Math.max(a, b2) + 0.05) / (Math.min(a, b2) + 0.05);
+  };
+  const NBSP = ' ';
+  const frCout = c => { let [e, f = ''] = String(c).split('.'); f = f.replace(/0+$/, ''); while (f.length < 2) f += '0'; return e.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP) + ',' + f + NBSP + '$'; };
+
+  // ---- #2 : fmt_argent du noyau produit de l'UTF-8 valide (espace insécable) ----------------------------------------------------------
+  L.verifier(php('require "' + RACINE + '/app/functions.php"; echo (mb_check_encoding(fmt_argent("14604.94"), "UTF-8") && mb_check_encoding(fmt_nombre("1234567.891"), "UTF-8")) ? "oui" : "non";') === 'oui', '#2 fmt_argent / fmt_nombre : UTF-8 valide au-delà de 1 000');
+
+  // ---- #3 : l'annulation d'une facture ne remet pas le coût moyen du destinataire à zéro ------------------------------------------------
+  const pz = outil('piece', 'Z-COUT', 'Pièce Z', '1', '10', '100');                          // +10 à 100 $ à l'entrepôt Beauchemin
+  r = await api(p, 'app/action/facture_save.php', { emplacement_id: 1, entreprise_dest_id: 2, emplacement_dest_id: 2, lignes: [{ piece_id: parseInt(pz, 10), quantite: '5' }] });
+  L.verifier(r.status === 200 && outil('cout', '2', pz) === '100.0000', '#3 facture de 5 Z : le coût de Chaleur est 100 : ' + r.texte);
+  const idZ = r.json.id;
+  outil('recevoir', '2', pz, '5', '10');                                                       // 10 en stock chez Chaleur, coût moyen 55
+  outil('sortir', '2', pz, '3');                                                               // 7 en stock
+  L.verifier(outil('cout', '2', pz) === '55.0000', '#3 coût de Chaleur avant l\'annulation : 55 : ' + outil('cout', '2', pz));
+  r = await api(p, 'app/action/facture_annuler.php', { id: idZ, motif: 'essai du coût moyen' });
+  L.verifier(r.status === 200 && outil('cout', '2', pz) === '55.0000', '#3 après l\'annulation, le coût de Chaleur n\'est PAS remis à zéro (55,0000 conservé) : ' + outil('cout', '2', pz));
+
+  // ---- #10 : le coût moyen pondéré du bilan est exact (une facture : même coût que sa ligne) --------------------------------------------
+  const pf = outil('piece', 'F-FRAC', 'Pièce au mètre', '1', '20', '4.8507');
+  r = await api(p, 'app/action/facture_save.php', { emplacement_id: 1, entreprise_dest_id: 2, emplacement_dest_id: 2, lignes: [{ piece_id: parseInt(pf, 10), quantite: '0,3' }] });
+  L.verifier(r.status === 200, '#10 facture de 0,3 de F-FRAC : ' + r.texte);
+  await L.aller(p, 'bilan_mensuel&annee=' + A_NOW + '&mois=' + M_NOW);
+  const ligneFrac = await p.$$eval('#sens-ab .ie-bilan-pieces tbody tr', rows => rows.map(x => [...x.cells].map(c => c.textContent.trim())).filter(c => c[0] === 'F-FRAC')[0] || null);
+  L.verifier(ligneFrac && ligneFrac[3] === frCout('4.8507'), '#10 coût moyen pondéré du bilan = coût de la facture (4,8507 $, pas 4,8667 $) : ' + JSON.stringify(ligneFrac));
+
+  // ---- #1, #4 : le focus revient au champ de scan (liste choisie, date, refus d'enregistrement) -----------------------------------------
+  await ouvrirFacture(p);
+  await choisirTrajet(p, 1, 2, 5);
+  await p.focus('#destination');
+  await p.keyboard.type('P-0013');                       // lecteur : le code « tombe » sur la liste de destination
+  await p.keyboard.press('Enter');
+  await p.waitForSelector('#lignes tbody tr:has(td.code:text-is("P-0013"))', { timeout: 5000 }).catch(() => {});
+  L.verifier(!!(await ligne(p, 'P-0013')) && await p.$eval('#destination', e => e.value) === '5', '#1 un code scanné pendant que le focus est sur une liste : ligne ajoutée, destination inchangée');
+  await p.focus('#date');
+  await p.keyboard.type('P-0002');
+  await p.keyboard.press('Enter');
+  await p.waitForSelector('#lignes tbody tr:has(td.code:text-is("P-0002"))', { timeout: 5000 }).catch(() => {});
+  L.verifier(!!(await ligne(p, 'P-0002')) && await p.$eval('#date', e => e.value) === AUJ, '#1 code alphanumérique scanné avec le focus sur la date : ligne ajoutée, date inchangée');
+  await p.focus('#date');
+  await p.keyboard.type('012345678905', { delay: 0 });   // code numérique (alias de P-0001) : rafale de chiffres
+  await p.keyboard.press('Enter');
+  await p.waitForSelector('#lignes tbody tr:has(td.code:text-is("P-0001"))', { timeout: 5000 }).catch(() => {});
+  L.verifier(!!(await ligne(p, 'P-0001')) && await p.$eval('#date', e => e.value) === AUJ, '#1 code NUMÉRIQUE scanné avec le focus sur la date : ligne ajoutée, date inchangée (' + await p.$eval('#date', e => e.value) + ')');
+  await p.dispatchEvent('#destination', 'pointerdown');
+  await p.selectOption('#destination', '2');
+  await p.waitForFunction(() => document.activeElement && document.activeElement.id === 'scan', null, { timeout: 2000 }).catch(() => {});
+  L.verifier(await p.evaluate(() => document.activeElement.id) === 'scan', '#1 après un choix À LA SOURIS dans une liste, le focus revient au champ de scan');
+  await p.selectOption('#destination', '5');
+  // refus de validation : le focus ne tombe pas sur BODY
+  await p.selectOption('#destination', '');
+  await p.click('#btn-enregistrer');
+  await p.waitForFunction(() => !document.querySelector('#ie-erreur').hidden);
+  L.verifier((await tx(p, '#ie-erreur')).includes('destination') && await p.evaluate(() => document.activeElement.id) === 'scan', '#4 refus « destination manquante » : focus dans le champ de scan : ' + await p.evaluate(() => document.activeElement.id));
+  await L.scanner(p, '#scan', 'P-0003');
+  await p.waitForSelector('#lignes tbody tr:has(td.code:text-is("P-0003"))', { timeout: 5000 }).catch(() => {});
+  L.verifier(!!(await ligne(p, 'P-0003')), '#4 le code scanné après le refus n\'est pas perdu');
+  await p.selectOption('#destination', '5');
+  await p.fill('#lignes tbody tr:has(td.code:text-is("P-0013")) input', '5000');
+  await attendreApercu(p);
+  await p.click('#btn-enregistrer');
+  await p.waitForFunction(() => !document.querySelector('#ie-erreur').hidden && /Stock insuffisant/.test(document.querySelector('#ie-erreur').textContent), null, { timeout: 8000 });
+  L.verifier(await p.evaluate(() => document.activeElement.id) === 'scan', '#4 refus du service (stock insuffisant) : focus dans le champ de scan');
+  await p.fill('#date', '1999-12-31');
+  await p.click('#btn-enregistrer');
+  await p.waitForFunction(() => /1er janvier 2000/.test(document.querySelector('#ie-erreur').textContent));
+  L.verifier(await p.getAttribute('#date', 'min') === '2000-01-01' && await p.evaluate(() => document.activeElement.id) === 'scan', '#43 le champ date a min=2000-01-01 et la date ancienne est refusée avec la limite : ' + await tx(p, '#ie-erreur'));
+  await p.fill('#date', AUJ);
+
+  // ---- #12 : quantités mal formées refusées côté écran avec le nom de la pièce ----------------------------------------------------------
+  const nbAvant12 = nbFactures();
+  await p.fill('#lignes tbody tr:has(td.code:text-is("P-0013")) input', '1');
+  for (const mauvais of ['12abc', '1e1', '1,5,2']) {
+    await p.fill('#lignes tbody tr:has(td.code:text-is("P-0001")) input', mauvais);
+    await p.click('#btn-enregistrer');
+    await p.waitForFunction(() => !document.querySelector('#ie-erreur').hidden);
+    L.verifier((await p.textContent('#ie-erreur')) === 'Quantité invalide pour «' + NBSP + 'P-0001' + NBSP + '».', '#12 #40 quantité « ' + mauvais + ' » : message avec la pièce (guillemets à espaces insécables) : ' + await tx(p, '#ie-erreur'));
+  }
+  L.verifier(nbFactures() === nbAvant12, '#12 aucune facture créée avec une quantité mal formée');
+  await p.fill('#lignes tbody tr:has(td.code:text-is("P-0001")) input', '1');
+
+  // ---- #36, #39 : résumé émetteur → destinataire, listes lisibles, libellés ----------------------------------------------------------------
+  const recap = await tx(p, '#ie-recap');
+  L.verifier(/^Émetteur : Beauchemin\s*Destinataire : Boutique Chaleur — coûts au coût moyen de Beauchemin$/.test(recap), '#36 résumé « Émetteur → Destinataire » au-dessus des lignes : ' + recap);
+  L.verifier((await p.$eval('#emplacement', e => e.options[e.selectedIndex].textContent)).startsWith('Beauchemin — Entrepôt principal'), '#36 la source affichée porte le nom de l\'entreprise émettrice');
+  L.verifier((await tx(p, '.ie-carte')).includes('calculés automatiquement au coût moyen de l\'entreprise émettrice (non modifiables)') && !(await tx(p, '.ie-carte')).includes('par le serveur'), '#39 texte d\'aide sans jargon technique');
+  L.verifier((await p.$$eval('#emplacement, #entreprise-dest, #destination, #date', e => e.map(x => x.getAttribute('aria-required')))).join() === 'true,true,true,true' && (await tx(p, '.ie-carte')).includes('Les champs marqués d\'un'), '#30 champs obligatoires déclarés (aria-required) et légende des astérisques');
+  L.verifier((await p.$eval('#lignes table caption', e => e.textContent)).includes('Pièces de la facture interne'), '#30 le tableau des lignes a un titre pour les lecteurs d\'écran');
+
+  // ---- #13 : la colonne « Disponible » suit le stock réel de la source ---------------------------------------------------------------------
+  await p.reload(); await p.waitForFunction(() => { const s = document.querySelector('#emplacement'); return s && !s.disabled && s.options.length > 1; });
+  await p.selectOption('#emplacement', '1');
+  outil('ajuster', '1', '13', '10');                                                          // du stock en quantité connue
+  const dispo13b = parseFloat(stockQte(13, 1));
+  await ajouterAuScan(p, 'P-0013', 1);
+  await attendreApercu(p);
+  outil('sortir', '1', '13', String(dispo13b - 2));
+  await p.fill('#lignes tbody tr:has(td.code:text-is("P-0013")) input', '4');
+  await p.waitForFunction(() => /disponible 2, demandé 4/.test(document.querySelector('#ie-avert').textContent), null, { timeout: 8000 });
+  const celDispo = await p.$eval('#lignes tbody tr:has(td.code:text-is("P-0013")) td:nth-child(3)', e => ({ t: e.textContent.trim(), c: e.className }));
+  L.verifier(celDispo.t === '2' && /text-danger/.test(celDispo.c), '#13 la colonne « Disponible » affiche le disponible à jour (2) en rouge : ' + JSON.stringify(celDispo));
+  outil('ajuster', '1', '13', String(dispo13b - 2));                                           // remet le stock
+
+  // ---- #16 : une rafale de scans ne perd aucun code (file d'attente) ------------------------------------------------------------------------
+  await p.reload(); await p.waitForFunction(() => { const s = document.querySelector('#emplacement'); return s && !s.disabled && s.options.length > 1; });
+  await p.selectOption('#emplacement', '1');
+  await p.evaluate(() => {
+    const el = document.querySelector('#scan');
+    ['P-0001', 'P-0002', 'P-0003', 'P-0004', 'P-0005', 'P-0006'].forEach(c => { el.value = c; el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+  });
+  await p.waitForFunction(() => document.querySelectorAll('#lignes tbody tr').length === 6, null, { timeout: 10000 }).catch(() => {});
+  L.verifier((await p.$$('#lignes tbody tr')).length === 6, '#16 six codes envoyés en rafale : six lignes (aucun scan perdu) : ' + (await p.$$('#lignes tbody tr')).length);
+
+  // ---- #41 : la case « à 0 $ » ne se décoche pas quand on retape une quantité ----------------------------------------------------------------
+  const pSans = outil('piece', 'P-SANS1', 'Sans coût un', '1', '5');
+  const pSans2 = outil('piece', 'P-SANS2', 'Sans coût deux', '1', '5');
+  await p.reload(); await p.waitForFunction(() => { const s = document.querySelector('#emplacement'); return s && !s.disabled && s.options.length > 1; });
+  await choisirTrajet(p, 1, 2, 5);
+  await ajouterAuScan(p, 'P-SANS1', 2);
+  await p.waitForFunction(() => !document.querySelector('#ie-zero-bloc').hidden, null, { timeout: 8000 });
+  await attendreApercu(p);
+  await p.click('label[for="cout-zero"]');
+  await p.fill('#lignes tbody tr:has(td.code:text-is("P-SANS1")) input', '');
+  await attendreApercu(p).catch(() => {});
+  await p.fill('#lignes tbody tr:has(td.code:text-is("P-SANS1")) input', '3');
+  await p.waitForFunction(() => !document.querySelector('#ie-zero-bloc').hidden && document.querySelectorAll('#lignes td.ie-attente').length === 0, null, { timeout: 8000 });
+  L.verifier(await p.isChecked('#cout-zero'), '#41 la case « Facturer les pièces sans coût à 0 $ » reste cochée après qu\'on a vidé puis retapé la quantité');
+  await ajouterAuScan(p, 'P-SANS2', 1);
+  await p.waitForFunction(() => /P-SANS2/.test(document.querySelector('#ie-avert').textContent), null, { timeout: 8000 });
+  L.verifier(!(await p.isChecked('#cout-zero')), '#41 une AUTRE pièce sans coût, non acceptée, décoche la case (pas de facturation à 0 $ par surprise)');
+  const avertZero = await p.textContent('#ie-avert');
+  L.verifier(avertZero.includes('«' + NBSP + 'Facturer les pièces sans coût à 0' + NBSP + '$' + NBSP + '»'), '#40 guillemets et $ avec espaces insécables : ' + avertZero);
+  L.verifier((await p.textContent('.custom-control-label')).includes('à 0' + NBSP + '$'), '#40 libellé de la case : « à 0 $ » avec espace insécable');
+
+  // ---- #44 : la valeur d'inventaire liste les pièces sans coût (liens vers les fiches) ----------------------------------------------------------
+  await L.aller(p, 'valeur_inventaire');
+  const detailsSans = await p.$$('.ie-sans-cout');
+  L.verifier(detailsSans.length >= 1, '#44 pièces sans coût : zone dépliable affichée');
+  await p.click('.ie-sans-cout summary');
+  L.verifier((await tx(p, '.ie-sans-cout-liste')).includes('P-SANS1') && !!(await p.$('.ie-sans-cout-liste a[href*="page=piece_voir"]')), '#44 la liste donne les codes et des liens vers les fiches : ' + await tx(p, '.ie-sans-cout-liste'));
+  L.verifier((await p.textContent('.ie-sans-cout summary')).includes('à 0' + NBSP + '$'), '#40 « à 0 $ » avec espace insécable dans l\'avertissement');
+
+  // ---- #9 : l'écart d'arrondi est affiché et les chiffres s'additionnent ----------------------------------------------------------------------
+  const pArr = outil('piece', 'P-ARRONDI', 'Pièce à 0,005 $', '3', '1', '0.0050');
+  outil('ajuster', '4', pArr, '1', '0.0050');
+  await L.aller(p, 'valeur_inventaire');
+  await p.waitForSelector('.ie-table-emplacements');
+  const carteBea = await p.evaluate(() => {
+    const tables = [...document.querySelectorAll('.ie-table-emplacements')];
+    const num = t => parseFloat(t.replace(/[\s  $]/g, '').replace(',', '.'));
+    return tables.map(t => {
+      const lignes = [...t.querySelectorAll('tbody tr')].map(tr => num(tr.cells[3].textContent));
+      const arr = t.querySelector('.ie-ligne-arrondi td.nombre');
+      const tot = t.querySelector('.ie-ligne-total td.nombre');
+      return { somme: Math.round(lignes.reduce((a, v) => a + v, 0) * 100) / 100, arrondi: arr ? num(arr.textContent) : 0, total: tot ? num(tot.textContent) : null };
+    });
+  });
+  const tbArr = carteBea.filter(c => c.total !== null);
+  L.verifier(tbArr.length >= 1 && tbArr.every(c => Math.abs(c.somme + c.arrondi - c.total) < 0.0051), '#9 somme des emplacements + écart d\'arrondi = total : ' + JSON.stringify(carteBea));
+  L.verifier(tbArr.length >= 1 && tbArr.some(c => c.arrondi !== 0), '#9 la ligne « Écart d\'arrondi » apparaît quand il y a un écart : ' + JSON.stringify(carteBea));
+  r = await api(p, 'app/ajax/valeur_export.php');
+  L.verifier(r.status === 200 && /;"Écart d'arrondi";;;-?\d+,\d\d\r\n/.test(r.texte), '#9 le CSV par emplacement contient la ligne « Écart d\'arrondi »');
+
+  // ---- #21, #24 : emplacement désactivé : bon champ surligné, aperçu refusé ------------------------------------------------------------------
+  await ouvrirFacture(p);
+  await choisirTrajet(p, 1, 2, 5);
+  await ajouterAuScan(p, 'P-0001', 1);
+  await attendreApercu(p);
+  sql('UPDATE emplacements SET actif = 0 WHERE id = 5');
+  await p.click('#btn-enregistrer');
+  await p.waitForFunction(() => !document.querySelector('#ie-erreur').hidden);
+  L.verifier((await tx(p, '#ie-erreur')).includes('désactivé') && await p.$eval('#destination', e => e.classList.contains('is-invalid')) && !(await p.$eval('#emplacement', e => e.classList.contains('is-invalid'))), '#21 destination désactivée : la liste de DESTINATION est surlignée (pas la source) : ' + await tx(p, '#ie-erreur'));
+  r = await api(p, 'app/action/facture_save.php', { emplacement_id: 1, entreprise_dest_id: 2, emplacement_dest_id: 5, lignes: [{ piece_id: 1, quantite: '1' }] });
+  L.verifier(r.status === 400 && r.json.champ === 'emplacement_dest_id', '#21 API : champ = emplacement_dest_id : ' + r.texte);
+  sql('UPDATE emplacements SET actif = 1 WHERE id = 5');
+  sql('UPDATE emplacements SET actif = 0 WHERE id = 3');
+  r = await api(p, 'app/ajax/facture_apercu.php', { emplacement_id: 3, lignes: [{ piece_id: 1, quantite: '1' }] });
+  L.verifier(r.status === 400 && r.json.champ === 'emplacement_id' && /désactivé/.test(r.json.erreur), '#24 aperçu avec une source désactivée : refusé (400) : ' + r.texte);
+  sql('UPDATE emplacements SET actif = 1 WHERE id = 3');
+
+  // ---- #19, #23 : lignes mal typées et corps illisible refusés ---------------------------------------------------------------------------------
+  const nbAvant19 = nbFactures();
+  for (const pid of ['1 OR 1=1', [1], { a: 1 }, 1.9, '13abc', null, true]) {
+    r = await api(p, 'app/action/facture_save.php', { emplacement_id: 1, entreprise_dest_id: 2, emplacement_dest_id: 2, lignes: [{ piece_id: pid, quantite: '1' }] });
+    L.verifier(r.status === 400 && /pièce (invalide|manquante)|invalide/.test(r.json.erreur), '#19 piece_id ' + JSON.stringify(pid) + ' : refusé (400) : ' + r.texte);
+  }
+  r = await api(p, 'app/action/facture_save.php', { emplacement_id: 1, entreprise_dest_id: 2, emplacement_dest_id: 2, lignes: [{ piece_id: 1, quantite: [1] }] });
+  L.verifier(r.status === 400 && /quantité invalide/.test(r.json.erreur), '#19 quantité tableau : refusée : ' + r.texte);
+  L.verifier(nbFactures() === nbAvant19, '#19 aucune facture créée par ces entrées abusives');
+  const brut = await p.evaluate(async () => {
+    const t = document.querySelector('meta[name="csrf-token"]').content, sorties = [];
+    for (const [type, corps] of [['application/json', '{"emplacement_id":1,'], ['text/plain', '{"emplacement_id":1}'], ['application/json', '']]) {
+      const x = await fetch('app/action/facture_save.php', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': type, 'X-CSRF-Token': t }, body: corps });
+      sorties.push([x.status, await x.text()]);
+    }
+    return sorties;
+  });
+  L.verifier(brut.every(x => x[0] === 400 && /illisibles/.test(x[1])), '#23 corps illisible (JSON invalide, type inattendu, vide) : 400 « données illisibles » : ' + JSON.stringify(brut));
+  const rh = await p.context().request.get(L.BASE + '/index.php?page=facture_interne_voir&id=' + idDoc('TRF-2026-00001'), { headers: { Host: 'evil.example.com' }, maxRedirects: 0 });
+  const loc = rh.headers()['location'] || '';
+  L.verifier(rh.status() === 302 && /^index\.php\?page=document_voir&id=\d+$/.test(loc) && !/evil/.test(loc), '#23 redirection vers document_voir RELATIVE (aucun nom d\'hôte réfléchi) : ' + rh.status() + ' ' + loc);
+
+  // ---- #25, #26, #39, #42 : bilan (élisions, mois consulté, titres d'onglet) --------------------------------------------------------------------
+  for (const [m, attendu, de] of [[4, 'avril', 'd\''], [8, 'août', 'd\''], [10, 'octobre', 'd\''], [3, 'mars', 'de ']]) {
+    await L.aller(p, 'bilan_mensuel&annee=2020&mois=' + m);
+    const titre = await tx(p, '.ie-bilan-titre');
+    L.verifier(titre === 'Bilan ' + de + attendu + ' 2020', '#25 titre du bilan : « ' + titre + ' »');
+    L.verifier((await tx(p, '.ie-bilan-pied')).includes('datées ' + de + attendu + ' 2020'), '#25 pied du bilan : datées ' + de + attendu + ' 2020');
+    L.verifier((await p.title()).startsWith('Bilan ' + de + attendu + ' 2020'), '#42 titre d\'onglet : ' + await p.title());
+  }
+  L.verifier((await tx(p, '#lien-annulees-aucune')) === 'Aucune facture annulée pour mars 2020.' && (await tx(p, '#solde')).includes('Aucune facture interne valide entre ces deux entreprises pour mars 2020.'), '#26 textes du mois consulté (plus de « ce mois-ci ») : ' + await tx(p, '#lien-annulees-aucune'));
+  for (const [route, attendu] of [['factures_internes', 'Factures internes'], ['facture_interne', 'Facture interne'], ['valeur_inventaire', 'Valeur de l\'inventaire'], ['facture_interne_voir&id=' + idA, 'Facture interne ' + numA]]) {
+    await L.aller(p, route);
+    L.verifier((await p.title()).startsWith(attendu) && (await p.title()) !== 'Beauchemin — Gestion d\'inventaire', '#42 titre d\'onglet propre à ' + route + ' : ' + await p.title());
+  }
+
+  // ---- #27 : messages réseau sans jargon ; #5 : liste en erreur -----------------------------------------------------------------------------------
+  await ouvrirFacture(p);
+  await choisirTrajet(p, 1, 2, 5);
+  await ajouterAuScan(p, 'P-0001', 1);
+  await attendreApercu(p);
+  await p.context().setOffline(true);
+  await p.fill('#lignes tbody tr:has(td.code:text-is("P-0001")) input', '2');
+  await p.waitForFunction(() => /Aperçu indisponible/.test(document.querySelector('#ie-avert').textContent), null, { timeout: 8000 });
+  const avertRes = await tx(p, '#ie-avert');
+  L.verifier(avertRes === 'Aperçu indisponible : Connexion impossible. Vérifiez le réseau, puis réessayez. Les coûts seront vérifiés à l\'enregistrement.', '#27 aperçu hors ligne : message clair : ' + avertRes);
+  await p.click('#btn-enregistrer');
+  await p.waitForFunction(() => !document.querySelector('#ie-erreur').hidden, null, { timeout: 8000 });
+  const errRes = await tx(p, '#ie-erreur');
+  L.verifier(errRes.startsWith('Connexion perdue : la facture n\'a peut-être pas été enregistrée.') && !/serveur|revérifiera|en double/i.test(errRes), '#27 enregistrement hors ligne : message honnête, sans jargon : ' + errRes);
+  await p.context().setOffline(false);
+  await L.aller(p, 'factures_internes');
+  await p.selectOption('#f-annee', '');
+  await p.waitForFunction(() => document.querySelectorAll('#table-factures tbody tr:not(.dataTables_empty)').length >= 1);
+  await p.context().setOffline(true);
+  await p.selectOption('#f-statut', 'valide');
+  await p.waitForFunction(() => /Impossible de charger la liste/.test(document.querySelector('#table-factures tbody').textContent), null, { timeout: 8000 });
+  L.verifier(!/Valide|ANNUL/.test(await tx(p, '#table-factures tbody')) && (await tx(p, '#ie-totaux')).includes('Impossible de charger la liste des factures internes'), '#5 hors ligne : plus aucune ligne périmée, message en français dans le tableau et sous le tableau');
+  await p.context().setOffline(false);
+  await p.route('**/factures_internes_data.php', route => route.fulfill({ status: 500, contentType: 'application/json', body: '{"ok":false,"erreur":"Erreur interne."}' }));
+  await p.selectOption('#f-statut', 'annule');
+  await p.waitForFunction(() => /Impossible de charger la liste/.test(document.querySelector('#table-factures tbody').textContent), null, { timeout: 8000 });
+  await attendre(300);
+  const toastsErr = await tx(p, '#toasts');
+  L.verifier(!/DataTables|datatables\.net|Ajax error/i.test(toastsErr + await tx(p, '.content-wrapper')), '#5 erreur 500 : aucun texte technique anglais à l\'écran : ' + toastsErr);
+  await p.unroute('**/factures_internes_data.php');
+  await p.selectOption('#f-statut', '');
+  await p.waitForFunction(() => document.querySelectorAll('#table-factures tbody tr:not(.dataTables_empty)').length >= 1, null, { timeout: 8000 });
+  L.verifier(true, '#5 la liste se recharge normalement après l\'incident');
+  p.erreurs.length = 0;      // les erreurs réseau provoquées ci-dessus sont voulues
+
+  // ---- #15 : français de DataTables (milliers, aria) ----------------------------------------------------------------------------------------------
+  const lang15 = await p.evaluate(() => { const l = $('#table-factures').DataTable().settings()[0].oLanguage; return { m: l.sThousands, a: l.oAria.sSortAscending }; });
+  const aria15 = await p.$eval('#table-factures thead th', e => e.getAttribute('aria-label'));
+  L.verifier(lang15.m === NBSP && /activer pour trier en ordre croissant/.test(lang15.a) && /activer pour trier/.test(aria15 || ''), '#15 DataTables : milliers en espace insécable et libellés d\'accessibilité en français : ' + JSON.stringify(lang15) + ' / ' + aria15);
+
+  // ---- #29, #30(2)(3), #33, #34 : valeur de l'inventaire : accessibilité, focus, cibles tactiles, détail -------------------------------------------------
+  const tabl7 = suivre(await L.nouvellePage(b, { width: 768, height: 1024 }));
+  await connecterCompte(tabl7, 'gestionnaire1');
+  await L.aller(tabl7, 'valeur_inventaire');
+  const labels = await tabl7.$$eval('.ie-voir-detail', bs => bs.map(x => x.getAttribute('aria-label')));
+  L.verifier(labels.length >= 2 && new Set(labels).size === labels.length && labels.every(x => /^Voir le détail de l'emplacement «.+» \(.+\)$/.test(x)), '#30 chaque bouton « Voir le détail » a un nom unique (emplacement + entreprise) : ' + labels.slice(0, 2).join(' | '));
+  await tabl7.focus('.ie-voir-detail');
+  await tabl7.keyboard.press('Enter');
+  await tabl7.waitForFunction(() => document.activeElement && document.activeElement.id === 'detail-titre', null, { timeout: 8000 }).catch(() => {});
+  L.verifier(await tabl7.evaluate(() => document.activeElement.id) === 'detail-titre' && (await tabl7.getAttribute('#detail-etat', 'aria-live')) === 'polite', '#30 « Voir le détail » au clavier : le focus passe au titre du détail (région annoncée)');
+  await tabl7.click('#detail-fermer');
+  L.verifier(await tabl7.evaluate(() => document.activeElement.classList.contains('ie-voir-detail')), '#30 « Fermer » ramène le focus au bouton « Voir le détail »');
+  await tabl7.click('.ie-voir-detail');
+  await tabl7.waitForSelector('#table-detail tbody tr');
+  const mesures = await tabl7.evaluate(() => {
+    const h = s => { const e = document.querySelector(s); return e ? Math.round(e.getBoundingClientRect().height) : null; };
+    const code = document.querySelector('#table-detail tbody td.code');
+    return { csv: h('#detail-csv'), fermer: h('#detail-fermer'), voir: h('.ie-voir-detail'), expE: h('#btn-csv'), expP: h('#btn-csv-pieces'), impr17: h('#btn-imprimer'),
+      codeWrap: code ? getComputedStyle(code).whiteSpace : null, codeH: code ? Math.round(code.getBoundingClientRect().height) : null,
+      thPad: parseFloat(getComputedStyle(document.querySelector('#table-detail thead th.nombre')).paddingRight) };
+  });
+  L.verifier(['csv', 'fermer', 'voir', 'expE', 'expP', 'impr17'].every(k => mesures[k] >= 44), '#33 boutons de la valeur d\'inventaire ≥ 44 px à 768 px : ' + JSON.stringify(mesures));
+  L.verifier(mesures.codeWrap === 'nowrap' && mesures.thPad >= 24, '#34 codes sur une ligne, place pour l\'icône de tri : ' + JSON.stringify(mesures));
+  // #33 facture : champs de quantité et boutons Retirer à 768 px
+  await ouvrirFacture(tabl7);
+  await choisirTrajet(tabl7, 1, 2, 5);
+  await ajouterAuScan(tabl7, 'P-0001', 1);
+  const mFact = await tabl7.evaluate(() => ({ q: Math.round(document.querySelector('#lignes tbody input').getBoundingClientRect().height), x: Math.round(document.querySelector('#lignes tbody .btn').getBoundingClientRect().height), xl: Math.round(document.querySelector('#lignes tbody .btn').getBoundingClientRect().width) }));
+  L.verifier(mFact.q >= 44 && mFact.x >= 44 && mFact.xl >= 44, '#33 quantité et « Retirer » ≥ 44 px : ' + JSON.stringify(mFact));
+  // #6 / #17 : menu replié à 768 px : rien ne déborde sur le contenu
+  const menu = await tabl7.evaluate(() => ({ droite: Math.round(document.querySelector('.main-sidebar').getBoundingClientRect().right), h1: Math.round(document.querySelector('.content-wrapper h1').getBoundingClientRect().left) }));
+  L.verifier(menu.droite <= 0 && menu.h1 >= 0, '#6 #17 à 768 px, le menu replié ne recouvre pas le contenu : ' + JSON.stringify(menu));
+  // #33 bilan : zones tactiles des liens
+  await L.aller(tabl7, 'bilan_mensuel&annee=' + A_PREC + '&mois=' + M_PREC);
+  const liens = await tabl7.$$eval('.ie-bilan-factures a, .ie-bilan-pieces a', a => a.map(x => Math.round(x.getBoundingClientRect().height)));
+  L.verifier(liens.length > 0 && liens.every(h => h >= 44), '#33 liens des tableaux du bilan ≥ 44 px : ' + liens.join(','));
+  const hAnn = await tabl7.$eval('#lien-annulees', a => Math.round(a.getBoundingClientRect().height));
+  L.verifier(hAnn >= 44, '#33 le lien « factures annulées » du bilan fait au moins 44 px de haut : ' + hAnn);
+
+  // ---- #18, #32 : en-tête de la facture à 1280 px (alignement) et 1024 px (lisibilité), liste sans débordement -------------------------------------------
+  const large = suivre(await L.nouvellePage(b, { width: 1280, height: 900 }));
+  await connecterCompte(large, 'gestionnaire1');
+  await ouvrirFacture(large);
+  const tops = await large.$$eval('#emplacement, #entreprise-dest, #destination, #date', e => e.map(x => Math.round(x.getBoundingClientRect().top)));
+  L.verifier(tops[0] === tops[1] && tops[2] === tops[3] && tops[2] > tops[0], '#18 les champs de l\'en-tête sont alignés deux par deux (source/entreprise, destination/date) à 1280 px : ' + tops);
+  const larg1280 = await large.$$eval('#emplacement, #entreprise-dest, #destination, #date', e => e.map(x => Math.round(x.getBoundingClientRect().width)));
+  L.verifier(larg1280.every(w => w >= 150) && (await large.$$eval('.ie-entete-form label', l => l.every(x => x.scrollWidth <= x.clientWidth + 1))), '#18 #36 aucun libellé ni liste tronqué à 1280 px : ' + larg1280);
+  await large.setViewportSize({ width: 1024, height: 800 });
+  const larg = await large.evaluate(() => ({ date: Math.round(document.querySelector('#date').getBoundingClientRect().width), src: Math.round(document.querySelector('#emplacement').getBoundingClientRect().width) }));
+  L.verifier(larg.date >= 140 && larg.src >= 280, '#32 à 1024 px : date et source assez larges pour être lues : ' + JSON.stringify(larg));
+  await L.aller(large, 'factures_internes');
+  await large.selectOption('#f-annee', '');
+  await large.waitForSelector('#table-factures tbody tr');
+  const deborde = await large.evaluate(() => { const c = document.querySelector('.table-responsive'); return c.scrollWidth - c.clientWidth; });
+  L.verifier(deborde <= 1, '#32 à 1024 px : le tableau des factures ne déborde pas de son cadre (' + deborde + ' px)');
+  const phTxt = await large.getAttribute('#f-recherche', 'placeholder');
+  L.verifier(phTxt === 'Numéro, note ou emplacement' && (await large.$eval('#f-recherche', e => e.scrollWidth <= e.clientWidth + 1)), '#39 placeholder de recherche complet : ' + phTxt);
+  L.verifier((await large.$$eval('#f-sens option', o => o.map(x => x.textContent))).join('|') === 'Émises et reçues|Émises par l\'entreprise affichée|Reçues par l\'entreprise affichée', '#39 libellés du filtre « Sens »');
+
+  // ---- #8, #35 : impression de la facture annulée et d'une longue facture ------------------------------------------------------------------------------
+  await L.aller(p, 'facture_interne_voir&id=' + idA);
+  await p.emulateMedia({ media: 'print' });
+  const impr17 = await p.evaluate(() => ({ td: getComputedStyle(document.querySelector('#table-lignes tbody td')).backgroundColor, thf: getComputedStyle(document.querySelector('#table-lignes tfoot th')).backgroundColor, tf: getComputedStyle(document.querySelector('#table-lignes tfoot')).display, fil: !!document.querySelector('.ie-filigrane') }));
+  L.verifier(impr17.td === 'rgba(0, 0, 0, 0)' && impr17.thf === 'rgba(0, 0, 0, 0)' && impr17.fil, '#35 impression : cellules transparentes, le filigrane ANNULÉE reste visible : ' + JSON.stringify(impr17));
+  L.verifier(impr17.tf === 'table-row-group', '#8 impression : le « Total » n\'est pas répété au bas de chaque page (tfoot en table-row-group) : ' + impr17.tf);
+  await p.emulateMedia({ media: 'screen' });
+
+  // ---- #31 : contraste des couleurs de la saisie et de la facture -------------------------------------------------------------------------------------
+  await ouvrirFacture(p);
+  await choisirTrajet(p, 1, 2, 5);
+  await ajouterAuScan(p, 'P-0002', 1);
+  await enregistrer(p);
+  const numSucces = numeroDe(await succes(p));
+  const cs = await p.evaluate(() => { const s = getComputedStyle(document.querySelector('#ie-succes')); const pl = getComputedStyle(document.querySelector('#scan'), '::placeholder'); return { fg: s.color, bg: s.backgroundColor, plc: pl.color }; });
+  L.verifier(ratio(cs.fg, cs.bg) >= 4.5 && ratio(cs.plc, 'rgb(255, 255, 255)') >= 4.5, '#31 message de succès et placeholder : contraste ≥ 4,5:1 (' + ratio(cs.fg, cs.bg).toFixed(2) + ' / ' + ratio(cs.plc, 'rgb(255,255,255)').toFixed(2) + ')');
+  await L.aller(p, 'facture_interne_voir&id=' + idDoc(numSucces));
+  const bd = await p.evaluate(() => { const e = document.querySelector('.ie-meta .badge-success'); if (!e) return null; const s = getComputedStyle(e); return { fg: s.color, bg: s.backgroundColor }; });
+  L.verifier(bd && ratio(bd.fg, bd.bg) >= 4.5, '#31 badge « Valide » : contraste ≥ 4,5:1 : ' + JSON.stringify(bd));
+
+  // ---- #40 : motif d'annulation et montants avec espaces insécables ------------------------------------------------------------------------------------
+  await L.aller(p, 'facture_interne_voir&id=' + idA);
+  L.verifier((await p.textContent('#bandeau-annule')).includes('Motif : «' + NBSP) && (await p.textContent('#bandeau-annule')).includes(NBSP + '».'), '#40 motif entre guillemets avec espaces insécables');
+
+  // ---- #22, #11, #37, #39, #45 : utilisateur d'une seule entreprise, 3 entreprises --------------------------------------------------------------------------
+  outil('utilisateur', 'gest_chal', 'gestionnaire', '2');
+  const gbea = await nouvelleSession(b, 'gest_bea');
+  const gchal = await nouvelleSession(b, 'gest_chal');
+  r = await api(gbea, 'app/action/facture_save.php', { emplacement_id: 1, entreprise_dest_id: 2, emplacement_dest_id: 2, lignes: [{ piece_id: 13, quantite: '2' }] });
+  L.verifier(r.status === 200, '#22 facture de gest_bea (P-0013 ×2 vers l\'entrepôt de Chaleur) : ' + r.texte);
+  const idF22 = r.json.id;
+  const dispoCh = parseFloat(stockQte(13, 2));
+  outil('sortir', '2', '13', String(dispoCh - 1));
+  r = await api(gbea, 'app/action/facture_annuler.php', { id: idF22, motif: 'essai' });
+  L.verifier(r.status === 400 && /Annulation impossible/.test(r.json.erreur) && !/\d/.test(r.json.erreur) && !/Entrepôt|demandé|Stock insuffisant/.test(r.json.erreur), '#22 gest_bea (sans accès à Chaleur) : refus sans nom d\'emplacement ni quantité de l\'autre entreprise : ' + r.texte);
+  r = await api(gchal, 'app/action/facture_annuler.php', { id: idF22, motif: 'essai' });
+  L.verifier(r.status === 400 && /Annulation refusée : des pièces de cette facture ne sont plus à l'emplacement de destination de Boutique Chaleur/.test(r.json.erreur) && /Stock insuffisant/.test(r.json.erreur), '#22 #28 gest_chal (destinataire) : voit le détail de SON stock avec l\'explication : ' + r.texte);
+  outil('ajuster', '2', '13', '1');                                                            // remet 1 pour que l'annulation passe
+  r = await api(gchal, 'app/action/facture_annuler.php', { id: idF22, motif: 'rétabli' });
+  L.verifier(r.status === 200, '#22 annulation acceptée une fois le stock rétabli : ' + r.texte);
+  await L.aller(gbea, 'facture_interne_voir&id=' + idF22);
+  const partieDest = await tx(gbea, '.ie-partie:nth-child(2)');
+  L.verifier(partieDest.includes('Boutique Chaleur') && partieDest.includes('Emplacement de destination : non communiqué') && !partieDest.includes('Entrepôt'), 'facture vue par gest_bea (sans accès à Chaleur) : le nom de l\'emplacement de destination n\'est pas communiqué, et l\'écran le dit : ' + partieDest);
+
+  await L.aller(gbea, 'bilan_mensuel&annee=' + A_NOW + '&mois=' + M_NOW + '&a=2&b=3');
+  L.verifier(!!(await gbea.$('#form-bilan')) && (await tx(gbea, '.alert-warning')).includes('Vous n\'avez pas accès') && (await gbea.$$eval('#b-a option', o => o.map(x => x.value))).join(',') === '1', '#11 #37 paire refusée : le formulaire reste affiché (A = mes entreprises seulement) avec le message : ' + await tx(gbea, '.alert-warning'));
+  await gbea.selectOption('#b-b', '3');
+  await Promise.all([gbea.waitForNavigation(), gbea.click('#form-bilan button[type=submit]')]);
+  L.verifier(!!(await gbea.$('#solde')) && (await tx(gbea, '.ie-bilan-paire')).includes('Entreprise Tierce'), '#37 on corrige la paire depuis le formulaire : Beauchemin et Entreprise Tierce');
+  await gbea.waitForLoadState('networkidle');
+  const labA = await tx(gbea, 'label[for=b-a]'), labB = await tx(gbea, 'label[for=b-b]');
+  L.verifier(labA === 'Entre l\'entreprise' && labB === 'et l\'entreprise', '#37 libellés « Entre l\'entreprise » / « et l\'entreprise »');
+  await gbea.selectOption('#b-a', '1');
+  L.verifier(await gbea.$eval('#b-b option[value="1"]', o => o.disabled), '#37 l\'entreprise choisie comme A n\'est pas proposée comme B');
+  await L.aller(gbea, 'valeur_inventaire');
+  const txtVal = await tx(gbea, '.ie-valeur-entete');
+  L.verifier(txtVal.includes('Entreprise affichée : Beauchemin.') && !txtVal.includes('changez') && !txtVal.includes('Pour en changer'), '#39 valeur d\'inventaire (une seule entreprise) : « Entreprise affichée : Beauchemin. » sans invitation à changer : ' + txtVal);
+  await L.aller(p, 'valeur_inventaire');
+  L.verifier((await tx(p, '.ie-valeur-entete')).includes('Pour en changer, utilisez la liste en haut de l\'écran.'), '#39 valeur d\'inventaire (plusieurs entreprises) : indication de la liste du haut');
+  await ouvrirFacture(gbea);
+  L.verifier((await tx(gbea, '.ie-aide-scan')).includes('un code d\'emplacement (EMP-…) choisit la source, puis un code d\'emplacement de l\'entreprise destinataire choisit la destination'), '#45 aide au scan exacte (elle est vraie pour une seule entreprise depuis la correction #14)');
+  await gbea.selectOption('#emplacement', '');
+  await gbea.waitForFunction(() => document.querySelector('#entreprise-dest').disabled);
+  await L.scanner(gbea, '#scan', 'EMP-000002');
+  await gbea.waitForFunction(() => /source de votre entreprise/.test((document.querySelector('#toasts') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
+  L.verifier((await tx(gbea, '#toasts')).includes('Choisissez d\'abord l\'emplacement source de votre entreprise'), '#14 scan d\'un emplacement de l\'autre entreprise SANS source : message clair : ' + await tx(gbea, '#toasts'));
+  L.verifier(reelles(tabl7).length === 0 && reelles(large).length === 0 && reelles(gbea).length === 0 && reelles(gchal).length === 0, 'aucune erreur de console (tablette, grand écran, gest_bea, gest_chal) : ' + JSON.stringify(reelles(tabl7).concat(reelles(large), reelles(gbea), reelles(gchal))));
+  L.verifier(dialogues.length === 0, 'aucun script exécuté pendant la section 17');
+
+  // remise en état pour le contrôle d'intégrité : les pièces de démonstration créées en SQL ci-dessus n'ont pas de document
+  // (l'invariant stock = Σ mouvements est vérifié plus bas)
 
   // ==== 16. Intégrité et console =====================================================================================================
   console.log('16. Intégrité du stock et console');

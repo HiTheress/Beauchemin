@@ -125,17 +125,96 @@ final class Interentreprise
 		}
 	}
 
-	/** Emplacement (id, nom, type, entreprise_id, actif, entreprise_nom) ou null. */
+	/** Emplacement (id, nom, type, entreprise_id, actif, entreprise_nom, entreprise_actif) ou null. */
 	public static function emplacement($id)
 	{
 		global $pdo;
 		if ((int) $id <= 0) {
 			return null;
 		}
-		$st = $pdo->prepare('SELECT e.id, e.nom, e.type, e.entreprise_id, e.actif, en.nom AS entreprise_nom FROM emplacements e JOIN entreprises en ON en.id = e.entreprise_id WHERE e.id = ?');
+		$st = $pdo->prepare('SELECT e.id, e.nom, e.type, e.entreprise_id, e.actif, en.nom AS entreprise_nom, en.actif AS entreprise_actif FROM emplacements e JOIN entreprises en ON en.id = e.entreprise_id WHERE e.id = ?');
 		$st->execute(array((int) $id));
 		$r = $st->fetch();
 		return $r ? $r : null;
+	}
+
+	/**
+	 * Données envoyées par le navigateur, comme entree(), mais un corps illisible (JSON invalide, type de contenu inattendu)
+	 * est refusé avec un message clair au lieu d'être pris pour une saisie vide.
+	 */
+	public static function donnees()
+	{
+		$d = entree();
+		$type = isset($_SERVER['CONTENT_TYPE']) ? (string) $_SERVER['CONTENT_TYPE'] : '';
+		if (stripos($type, 'application/json') !== false) {
+			$j = json_decode((string) file_get_contents('php://input'), true);
+			if (json_last_error() !== JSON_ERROR_NONE || !is_array($j)) {
+				throw new InventaireException('Requête invalide : les données envoyées sont illisibles. Rechargez la page, puis réessayez.');
+			}
+		} elseif (!$d && isset($_SERVER['CONTENT_LENGTH']) && (int) $_SERVER['CONTENT_LENGTH'] > 0) {
+			throw new InventaireException('Requête invalide : les données envoyées sont illisibles. Rechargez la page, puis réessayez.');
+		}
+		return $d;
+	}
+
+	/**
+	 * L'emplacement (et son entreprise) doit être actif : même message que le service, mais avec le BON champ
+	 * (« emplacement_id » pour la source, « emplacement_dest_id » pour la destination) pour que l'écran surligne la bonne liste.
+	 */
+	public static function exigerActif(array $emp, $champ)
+	{
+		if (!$emp['actif']) {
+			throw new InventaireException('L\'emplacement ' . self::guill($emp['nom']) . ' est désactivé.', $champ);
+		}
+		if (isset($emp['entreprise_actif']) && !$emp['entreprise_actif']) {
+			throw new InventaireException('L\'entreprise ' . self::guill($emp['entreprise_nom']) . ' est désactivée : l\'emplacement ' . self::guill($emp['nom']) . ' n\'est plus utilisable.', $champ);
+		}
+	}
+
+	/**
+	 * Lignes d'une facture avant le service : chacune doit être un objet avec une pièce (entier strict) et une quantité
+	 * scalaire ; seuls piece_id et quantite sont transmis (le service convertirait « 1 OR 1=1 », [1] ou 1.9 en pièce 1).
+	 * @return array|null  null si le navigateur n'a rien envoyé de tableau (le service répond « Ajoutez au moins une pièce. »)
+	 */
+	public static function lignesFacture($brut)
+	{
+		if (!is_array($brut)) {
+			return null;
+		}
+		$out = array();
+		foreach (array_values($brut) as $i => $l) {
+			$n = $i + 1;
+			if (!is_array($l)) {
+				throw new InventaireException("Ligne $n invalide.", 'lignes');
+			}
+			if (self::identifiant($l, 'piece_id') <= 0) {
+				throw new InventaireException("Ligne $n : pièce invalide.", 'lignes');
+			}
+			$q = isset($l['quantite']) ? $l['quantite'] : '';
+			if (!is_scalar($q) || is_bool($q)) {
+				throw new InventaireException("Ligne $n : quantité invalide.", 'lignes');
+			}
+			$out[] = array('piece_id' => self::identifiant($l, 'piece_id'), 'quantite' => (string) $q);
+		}
+		return $out;
+	}
+
+	/** « texte » avec les espaces insécables de la typographie française (le guillemet fermant ne reste pas seul en début de ligne). */
+	public static function guill($texte)
+	{
+		return "«\xc2\xa0" . $texte . "\xc2\xa0»";
+	}
+
+	/** « de » ou « d' » devant un mois (avril, août, octobre) : « Bilan d'avril 2026 », « Bilan de mars 2026 ». */
+	public static function deMois($mois)
+	{
+		return in_array((int) $mois, array(4, 8, 10), true) ? 'd\'' : 'de ';
+	}
+
+	/** Mois en toutes lettres avec « de » ou « d' » : « de mars 2026 », « d'octobre 2026 ». */
+	public static function periodeAvecDe($annee, $mois)
+	{
+		return self::deMois($mois) . self::libellePeriode($annee, $mois);
 	}
 
 	// ------------------------------------------------------------------
@@ -233,7 +312,7 @@ final class Interentreprise
 				$erreur = 'Pièce introuvable.';
 			}
 			if ($erreur === null && !$p['actif']) {
-				$erreur = 'La pièce « ' . $p['code'] . ' » est désactivée.';
+				$erreur = 'La pièce ' . self::guill($p['code']) . ' est désactivée.';
 			}
 			$dispo = isset($dispos[$pid]) ? $dispos[$pid] : 0;
 			$cout = isset($couts[$pid]) ? $couts[$pid] : 0;
@@ -288,7 +367,7 @@ final class Interentreprise
 			if (!$row) {
 				$r['piece_avert'] = 'La pièce demandée n\'existe pas.';
 			} elseif (!$row['actif']) {
-				$r['piece_avert'] = 'La pièce « ' . $row['code'] . ' » est désactivée : elle ne peut pas être ajoutée.';
+				$r['piece_avert'] = 'La pièce ' . self::guill($row['code']) . ' est désactivée : elle ne peut pas être ajoutée.';
 			} else {
 				$r['piece_code'] = $row['code'];
 			}
@@ -392,7 +471,9 @@ final class Interentreprise
 
 	/**
 	 * Paire d'entreprises du bilan. Avec deux entreprises actives, la paire est fixe. Avec plus de deux, elle vient de
-	 * l'URL (a, b) ; par défaut : l'entreprise courante (ou la première accessible) et la suivante.
+	 * l'URL (a, b) ; par défaut : l'entreprise courante (ou la première accessible) et la suivante. L'entreprise A est toujours
+	 * l'une des entreprises de l'utilisateur quand la paire en contient une (les deux sont permutées au besoin) ; une paire sans
+	 * aucune entreprise de l'utilisateur est renvoyée telle quelle : le service la refusera.
 	 * @return array{0:int,1:int,2:array}  [A, B, toutes les entreprises actives]
 	 */
 	public static function paire(array $src)
@@ -409,10 +490,10 @@ final class Interentreprise
 		if (count($ids) === 2) {
 			return array($ids[0], $ids[1], $toutes);
 		}
-		$acc = array_values(array_intersect($ids, array_map('intval', $Ouser->entreprisesAutorisees())));
+		$miennes = array_values(array_intersect($ids, array_map('intval', $Ouser->entreprisesAutorisees())));
 		$defautA = entreprise_courante();
-		if (!in_array($defautA, $ids, true)) {
-			$defautA = $acc ? $acc[0] : $ids[0];
+		if (!in_array($defautA, $miennes, true)) {
+			$defautA = $miennes ? $miennes[0] : $ids[0];
 		}
 		$a = self::entier($src, 'a', 1, 9999, $defautA);
 		if (!in_array($a, $ids, true)) {
@@ -428,6 +509,9 @@ final class Interentreprise
 				}
 			}
 		}
+		if (!in_array($a, $miennes, true) && in_array($b, $miennes, true)) {
+			list($a, $b) = array($b, $a);
+		}
 		return array($a, $b, $toutes);
 	}
 
@@ -436,10 +520,11 @@ final class Interentreprise
 	// ------------------------------------------------------------------
 
 	/**
-	 * Valeur du stock par entreprise et par emplacement : les montants viennent du service (valeurInventaire), qui ne liste que les
-	 * emplacements actifs ; on y ajoute les emplacements DÉSACTIVÉS qui contiennent encore du stock (sinon la somme des emplacements
-	 * ne correspondrait pas au total de l'entreprise) et le nombre de pièces en stock sans coût connu (valeur comptée à 0 $).
-	 * @return array{entreprises:array,emplacements:array,sans_cout:array,total:string}
+	 * Valeur du stock par entreprise et par emplacement : les montants viennent du service (valeurInventaire), qui liste les
+	 * emplacements actifs ET les emplacements désactivés encore garnis (champ « actif »). On y ajoute le nombre de pièces en stock
+	 * sans coût connu (valeur comptée à 0 $) et l'écart d'arrondi : le total d'une entreprise est arrondi une seule fois, alors que
+	 * chaque emplacement l'est au cent ; l'écart (quelques cents) est affiché pour que les chiffres s'additionnent.
+	 * @return array{entreprises:array,emplacements:array,sans_cout:array,sans_cout_liste:array,arrondi:array,total:string}
 	 */
 	public static function valeurComplete(array $entrepriseIds)
 	{
@@ -451,52 +536,39 @@ final class Interentreprise
 			$ids[] = (int) $en['id'];
 			$total += Dec::parse($en['valeur'], Dec::TOTAL);
 		}
-		$out = array('entreprises' => $v['entreprises'], 'emplacements' => array(), 'sans_cout' => array(), 'total' => Dec::fmt($total, Dec::TOTAL));
+		$out = array('entreprises' => $v['entreprises'], 'emplacements' => array(), 'sans_cout' => array(), 'sans_cout_liste' => array(), 'arrondi' => array(), 'total' => Dec::fmt($total, Dec::TOTAL));
 		if (!$ids) {
 			return $out;
 		}
-		$in = implode(',', array_fill(0, count($ids), '?'));
-
-		$st = $pdo->prepare(
-			"SELECT e.id, e.nom, e.type, e.entreprise_id, COALESCE(ROUND(SUM(s.quantite * COALESCE(sc.cout_moyen, 0)), 2), 0) AS valeur,
-			        COUNT(CASE WHEN s.quantite > 0 THEN 1 END) AS nb_pieces
-			   FROM emplacements e
-			   JOIN stock s ON s.emplacement_id = e.id AND s.quantite > 0
-			   LEFT JOIN stock_couts sc ON sc.entreprise_id = e.entreprise_id AND sc.piece_id = s.piece_id
-			  WHERE e.entreprise_id IN ($in) AND e.actif = 0
-			  GROUP BY e.id, e.nom, e.type, e.entreprise_id ORDER BY e.entreprise_id, e.type, e.nom"
-		);
-		$st->execute($ids);
-		$inactifs = array();
-		foreach ($st->fetchAll() as $r) {
-			$r['actif'] = 0;
-			$inactifs[(int) $r['entreprise_id']][] = $r;
-		}
-		$actifs = array();
+		$somme = array();
 		foreach ($v['emplacements'] as $r) {
-			$r['actif'] = 1;
-			$actifs[(int) $r['entreprise_id']][] = $r;
+			$r['actif'] = isset($r['actif']) ? (int) $r['actif'] : 1;
+			$out['emplacements'][] = $r;
+			$eid = (int) $r['entreprise_id'];
+			$somme[$eid] = (isset($somme[$eid]) ? $somme[$eid] : 0) + Dec::parse($r['valeur'], Dec::TOTAL);
 		}
-		foreach ($ids as $eid) {
-			foreach (isset($actifs[$eid]) ? $actifs[$eid] : array() as $r) {
-				$out['emplacements'][] = $r;
-			}
-			foreach (isset($inactifs[$eid]) ? $inactifs[$eid] : array() as $r) {
-				$out['emplacements'][] = $r;
-			}
+		foreach ($v['entreprises'] as $en) {
+			$eid = (int) $en['id'];
+			$ecart = Dec::parse($en['valeur'], Dec::TOTAL) - (isset($somme[$eid]) ? $somme[$eid] : 0);
+			$out['arrondi'][$eid] = Dec::fmt($ecart, Dec::TOTAL);
 		}
 
+		// Pièces en stock sans coût connu (valeur comptée à 0 $) : la liste (code, nom), pour pouvoir corriger les prix
+		$in = implode(',', array_fill(0, count($ids), '?'));
 		$st = $pdo->prepare(
-			"SELECT e.entreprise_id, COUNT(DISTINCT s.piece_id) AS n
+			"SELECT DISTINCT e.entreprise_id, p.id AS piece_id, p.code, p.nom
 			   FROM stock s
 			   JOIN emplacements e ON e.id = s.emplacement_id
+			   JOIN pieces p ON p.id = s.piece_id
 			   LEFT JOIN stock_couts sc ON sc.entreprise_id = e.entreprise_id AND sc.piece_id = s.piece_id
 			  WHERE s.quantite > 0 AND e.entreprise_id IN ($in) AND COALESCE(sc.cout_moyen, 0) = 0
-			  GROUP BY e.entreprise_id"
+			  ORDER BY e.entreprise_id, p.code"
 		);
 		$st->execute($ids);
 		foreach ($st->fetchAll() as $r) {
-			$out['sans_cout'][(int) $r['entreprise_id']] = (int) $r['n'];
+			$eid = (int) $r['entreprise_id'];
+			$out['sans_cout'][$eid] = (isset($out['sans_cout'][$eid]) ? $out['sans_cout'][$eid] : 0) + 1;
+			$out['sans_cout_liste'][$eid][] = array('piece_id' => (int) $r['piece_id'], 'code' => $r['code'], 'nom' => $r['nom']);
 		}
 		return $out;
 	}
@@ -537,7 +609,7 @@ final class Interentreprise
 	/**
 	 * Nombre décimal exact (chaîne "1234.5000") -> format fr-CA : espace insécable entre les milliers, virgule décimale.
 	 * $decimales null : zéros inutiles retirés ; sinon arrondi (demi vers le haut) à $decimales.
-	 * (Remplace fmt_nombre() du noyau, dont le séparateur de milliers est corrompu : voir « Demandes au noyau » du rapport.)
+	 * (Même rendu que fmt_nombre() du noyau ; conservé ici car il est couvert par les tests de ce module, y compris les signes et les arrondis.)
 	 */
 	public static function nombre($s, $decimales = null)
 	{

@@ -31,10 +31,10 @@ final class Catalogue
 		if ($v === null) {
 			$v = '';
 		}
-		if (is_array($v) || is_object($v)) {
+		if (!is_string($v)) {
+			// booléens, nombres, tableaux : refusés (un client mal écrit ne doit pas créer la pièce « 1 » ou « true »)
 			throw new InventaireException('Valeur invalide : ' . self::minuscule1($etiquette) . '.', $cle);
 		}
-		$v = (string) $v;
 		if (!mb_check_encoding($v, 'UTF-8')) {
 			throw new InventaireException($etiquette . ' contient des caractères invalides.', $cle);
 		}
@@ -49,7 +49,8 @@ final class Catalogue
 			throw new InventaireException($etiquette . ' est obligatoire.', $cle);
 		}
 		if (mb_strlen($v) > $max) {
-			throw new InventaireException($etiquette . ' ne peut pas dépasser ' . $max . ' caractères.', $cle);
+			$verbe = preg_match('/^(Les|Des) /u', $etiquette) ? 'ne peuvent pas' : 'ne peut pas';
+			throw new InventaireException($etiquette . ' ' . $verbe . ' dépasser ' . $max . ' caractères.', $cle);
 		}
 		return $v;
 	}
@@ -121,12 +122,31 @@ final class Catalogue
 		return $v === true || $v === 1 || $v === '1' || $v === 'true' || $v === 'on';
 	}
 
+	/**
+	 * Booléen EXPLICITE (true/false, 1/0, « 1 »/« 0 », « true »/« false ») : une valeur absente ou autre est une erreur,
+	 * jamais « faux » par défaut (un appel {id:N} ne doit pas désactiver quoi que ce soit).
+	 */
+	public static function booleenExplicite(array $d, $cle, $libelle)
+	{
+		$v = array_key_exists($cle, $d) ? $d[$cle] : null;
+		if ($v === true || $v === 1 || $v === '1' || $v === 'true') {
+			return true;
+		}
+		if ($v === false || $v === 0 || $v === '0' || $v === 'false') {
+			return false;
+		}
+		throw new InventaireException('La valeur « ' . $libelle . ' » est manquante ou invalide (attendu : vrai ou faux).', $cle);
+	}
+
 	/** Code interne : majuscules, A-Z 0-9 . - _ / seulement, 1 à 40 caractères. */
 	public static function codeInterne(array $d)
 	{
-		$c = strtoupper(self::texte($d, 'code', 'Le code interne', 80, true));
+		$c = strtoupper(self::texte($d, 'code', 'Le code interne', 400, true));
+		if (mb_strlen($c) > 40) {
+			throw new InventaireException('Le code interne ne peut pas dépasser 40 caractères.', 'code');
+		}
 		if (!preg_match('/^[A-Z0-9.\/_-]{1,40}$/', $c)) {
-			throw new InventaireException('Le code interne ne peut contenir que des lettres majuscules (A-Z), des chiffres et les symboles . - _ / (1 à 40 caractères, sans espace ni accent).', 'code');
+			throw new InventaireException('Le code interne ne peut contenir que des lettres majuscules (A-Z), des chiffres et les symboles . - _ / (sans espace ni accent).', 'code');
 		}
 		return $c;
 	}
@@ -142,7 +162,7 @@ final class Catalogue
 			throw new InventaireException('Le code-barres alias est vide.', 'codes');
 		}
 		if (!preg_match('/^[\x21-\x7E]{1,64}$/', $c)) {
-			throw new InventaireException('Le code-barres « ' . self::tronque($c) . ' » est invalide : 64 caractères au maximum, sans espace ni accent.', 'codes');
+			throw new InventaireException('Le code-barres « ' . self::tronque($c) . ' » est invalide : 64 caractères au plus, uniquement des lettres sans accent, des chiffres et des symboles courants, sans espace.', 'codes');
 		}
 		return $c;
 	}
@@ -254,7 +274,7 @@ final class Catalogue
 			$parts[] = 'une autre entreprise (à laquelle vous n\'avez pas accès) : du stock';
 		}
 		return 'La pièce « ' . $piece['code'] . ' » a encore du stock (' . implode(' ; ', $parts) . '). '
-			. 'Tant qu\'elle est désactivée, ce stock ne peut plus être transféré ni sorti, et la pièce n\'apparaît plus dans les listes de saisie. Son historique est conservé.';
+			. 'Désactivée, elle n\'apparaît plus dans les listes de saisie et ne peut plus être reçue ; son stock restant pourra toujours être transféré, sorti ou compté. Son historique est conservé.';
 	}
 
 	/**
@@ -284,7 +304,8 @@ final class Catalogue
 
 	/**
 	 * Active/désactive une pièce (endpoint piece_activer).
-	 * $simuler : ne change rien ; lève la même exception de confirmation si la pièce a du stock (sert à choisir le bon message de confirmation).
+	 * $simuler : ne change rien ; répond normalement (200) avec confirmation_requise (et le message à montrer, avec le stock restant)
+	 * quand la désactivation exigerait une confirmation. Ce n'est pas une erreur : la console du navigateur reste propre.
 	 */
 	public static function changerActif($pieceId, $actif, $confirmer, $simuler = false)
 	{
@@ -302,10 +323,13 @@ final class Catalogue
 				return array('id' => (int) $p['id'], 'actif' => (bool) $actif, 'inchange' => true);
 			}
 			if ($simuler) {
-				if (!$actif && !$confirmer && self::stockParEntreprise((int) $p['id'])) {
-					throw new InventaireException(self::messageStockRestant($p, self::stockParEntreprise((int) $p['id'])), 'confirmation');
-				}
-				return array('id' => (int) $p['id'], 'actif' => (bool) $actif, 'inchange' => false, 'simulation' => true);
+				$stock = $actif ? array() : self::stockParEntreprise((int) $p['id']);
+				$exige = (!$actif && !$confirmer && $stock);
+				return array(
+					'id' => (int) $p['id'], 'actif' => (bool) $actif, 'inchange' => false, 'simulation' => true,
+					'confirmation_requise' => (bool) $exige,
+					'message' => $exige ? self::messageStockRestant($p, $stock) : null,
+				);
 			}
 			self::appliquerActif($p, $actif, $confirmer);
 			return array('id' => (int) $p['id'], 'actif' => (bool) $actif, 'inchange' => false);
@@ -313,12 +337,80 @@ final class Catalogue
 	}
 
 	// ------------------------------------------------------------------
+	//  Verrou des codes et version d'une pièce
+	// ------------------------------------------------------------------
+
+	/**
+	 * Exécute $fn en tenant le verrou global des codes (code interne, alias, code d'emplacement : un même espace de noms).
+	 * Sans lui, deux enregistrements simultanés pourraient donner le même code à une pièce et à un alias (la vérification
+	 * « libre ? » puis l'insertion ne sont pas atomiques, et les trois espaces n'ont que des index UNIQUE séparés).
+	 * Le verrou est pris AVANT la transaction et rendu APRÈS le commit : la vérification voit donc tout ce qui est validé.
+	 * Le nom du verrou est propre à la base (plusieurs bases de développement peuvent partager un serveur).
+	 */
+	public static function avecVerrouCodes($fn)
+	{
+		global $pdo;
+		$nom = 'bea_codes_' . substr(md5((string) $pdo->query('SELECT DATABASE()')->fetchColumn()), 0, 20);
+		$st = $pdo->prepare('SELECT GET_LOCK(?, 10)');
+		$st->execute(array($nom));
+		if ((int) $st->fetchColumn() !== 1) {
+			throw new InventaireException('Le catalogue est occupé par un autre enregistrement. Réessayez dans un instant.');
+		}
+		try {
+			return $fn();
+		} finally {
+			try {
+				$pdo->prepare('SELECT RELEASE_LOCK(?)')->execute(array($nom));
+			} catch (Throwable $e) {
+				// connexion perdue : le verrou disparaît avec elle
+			}
+		}
+	}
+
+	/**
+	 * Empreinte de ce que le formulaire de modification permet de changer (champs de la pièce, alias, minimums des entreprises
+	 * accessibles). Envoyée avec le formulaire et comparée à l'enregistrement : si quelqu'un a modifié la pièce entre-temps,
+	 * l'enregistrement est refusé au lieu d'écraser son travail en silence.
+	 */
+	public static function empreinte($pieceId, array $entreprises)
+	{
+		global $pdo;
+		$st = $pdo->prepare('SELECT code, nom, description, categorie_id, unite, actif FROM pieces WHERE id = ?');
+		$st->execute(array((int) $pieceId));
+		$p = $st->fetch();
+		if (!$p) {
+			return '';
+		}
+		$st = $pdo->prepare('SELECT code, type FROM pieces_codes WHERE piece_id = ? ORDER BY code');
+		$st->execute(array((int) $pieceId));
+		$alias = array();
+		foreach ($st->fetchAll() as $r) {
+			$alias[] = array((string) $r['code'], (string) $r['type']);
+		}
+		$seuils = array();
+		$ids = array_values(array_unique(array_map('intval', $entreprises)));
+		sort($ids);
+		if ($ids) {
+			$in = implode(',', array_fill(0, count($ids), '?'));
+			$st = $pdo->prepare("SELECT entreprise_id, minimum FROM seuils WHERE piece_id = ? AND entreprise_id IN ($in) AND minimum > 0 ORDER BY entreprise_id");
+			$st->execute(array_merge(array((int) $pieceId), $ids));
+			foreach ($st->fetchAll() as $r) {
+				$seuils[] = array((int) $r['entreprise_id'], Dec::fmt(Dec::parse($r['minimum'], Dec::QTE), Dec::QTE));
+			}
+		}
+		return sha1(json_encode(array(
+			(string) $p['code'], (string) $p['nom'], (string) ($p['description'] === null ? '' : $p['description']),
+			$p['categorie_id'] === null ? null : (int) $p['categorie_id'], (string) $p['unite'], (int) $p['actif'], $alias, $seuils,
+		), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+	}
+
+	// ------------------------------------------------------------------
 	//  Enregistrement d'une pièce (création ou modification)
 	// ------------------------------------------------------------------
 
 	/**
-	 * $d : id? code nom description categorie_id unite actif? codes[{code,type}] seuils[{entreprise_id,minimum}] confirmer_desactivation?
-	 * Tout ou rien (transaction). Retourne [id, code, cree].
+	 * $d : id? code nom description categorie_id unite actif? codes[{code,type}] seuils[{entreprise_id,minimum}] confirmer_desactivation? empreinte
+	 * (empreinte : exigée pour une modification ; voir empreinte()). Tout ou rien (transaction). Retourne [id, code, cree].
 	 */
 	public static function enregistrerPiece(array $d)
 	{
@@ -366,6 +458,10 @@ final class Catalogue
 		if (!is_array($seuils) || count($seuils) > 20) {
 			throw new InventaireException('Liste de minimums invalide.', 'seuils');
 		}
+		$nomsEntreprises = array();
+		foreach ($inv->listeEntreprises($uid) as $en) {
+			$nomsEntreprises[(int) $en['id']] = $en['nom'];
+		}
 		foreach (array_values($seuils) as $s) {
 			if (!is_array($s)) {
 				throw new InventaireException('Minimum invalide.', 'seuils');
@@ -375,28 +471,39 @@ final class Catalogue
 				throw new InventaireException('Entreprise invalide pour un minimum.', 'seuils');
 			}
 			$inv->exiger($uid, 'catalogue', array($eid));          // entreprise accessible (sinon refus)
+			// le champ fautif (seuil_<id>) et l'entreprise sont nommés : l'écran marque le bon champ
+			$de = 'Le minimum de « ' . (isset($nomsEntreprises[$eid]) ? $nomsEntreprises[$eid] : 'cette entreprise') . ' »';
 			$brut = isset($s['minimum']) ? $s['minimum'] : '';
 			if ($brut === null || (is_string($brut) && trim($brut) === '')) {
 				$brut = '0';
 			}
 			if (!is_string($brut) && !is_int($brut) && !is_float($brut)) {
-				throw new InventaireException('Le minimum doit être un nombre.', 'seuils');
+				throw new InventaireException($de . ' doit être un nombre.', 'seuil_' . $eid);
 			}
 			try {
 				$m = Dec::parse($brut, Dec::QTE, 'seuils');
 			} catch (InventaireException $ex) {
-				throw new InventaireException('Le minimum doit être un nombre (par exemple 10 ou 2,5).', 'seuils');
+				throw new InventaireException($de . ' doit être un nombre (par exemple 10 ou 2,5).', 'seuil_' . $eid);
 			}
 			if ($m < 0 || $m > Inventaire::MAX_QTE_TOTALE * 1000) {
-				throw new InventaireException('Le minimum doit être compris entre 0 et ' . number_format(Inventaire::MAX_QTE_TOTALE, 0, ',', ' ') . '.', 'seuils');
+				throw new InventaireException($de . ' doit être compris entre 0 et ' . number_format(Inventaire::MAX_QTE_TOTALE, 0, ',', ' ') . '.', 'seuil_' . $eid);
 			}
 			$seuilsVoulus[$eid] = $m;
 		}
 
 		$actifVoulu = array_key_exists('actif', $d) ? self::booleen($d['actif']) : null;
 		$confirmer = !empty($d['confirmer_desactivation']) && self::booleen($d['confirmer_desactivation']);
+		$empreinte = null;
+		if ($id) {
+			if (!isset($d['empreinte']) || !is_string($d['empreinte']) || $d['empreinte'] === '') {
+				throw new InventaireException('La version de la pièce est manquante : rechargez la page, puis refaites votre modification.', 'empreinte');
+			}
+			$empreinte = $d['empreinte'];
+		}
+		$entreprisesAcces = $u['entreprises'];
 
-		return $inv->transaction(function () use ($uid, $id, $code, $nom, $description, $unite, $cat, $aliasVoulus, $seuilsVoulus, $actifVoulu, $confirmer) {
+		return self::avecVerrouCodes(function () use ($inv, $uid, $id, $code, $nom, $description, $unite, $cat, $aliasVoulus, $seuilsVoulus, $actifVoulu, $confirmer, $empreinte, $entreprisesAcces) {
+		return $inv->transaction(function () use ($uid, $id, $code, $nom, $description, $unite, $cat, $aliasVoulus, $seuilsVoulus, $actifVoulu, $confirmer, $empreinte, $entreprisesAcces) {
 			global $pdo;
 			$piece = null;
 			if ($id) {
@@ -405,6 +512,9 @@ final class Catalogue
 				$piece = $st->fetch();
 				if (!$piece) {
 					throw new InventaireException('Pièce introuvable.');
+				}
+				if (!hash_equals(self::empreinte($id, $entreprisesAcces), $empreinte)) {
+					throw new InventaireException('Cette pièce a été modifiée par quelqu\'un d\'autre depuis l\'ouverture de ce formulaire. Rechargez la page pour voir ses changements, puis refaites votre modification.', 'empreinte');
 				}
 			}
 			if ($cat !== null) {
@@ -552,6 +662,7 @@ final class Catalogue
 				self::appliquerActif($piece, $actifVoulu, $confirmer);
 			}
 			return array('id' => $id, 'code' => $codeFinal, 'cree' => $cree);
+		});
 		});
 	}
 }

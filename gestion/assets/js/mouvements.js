@@ -4,7 +4,9 @@
  * Règles : tout texte du serveur est inséré avec textContent (jamais en HTML brut) ; les quantités et montants restent
  * des chaînes décimales (les nombres ne servent qu'à l'affichage) ; le bouton « Enregistrer » est désactivé pendant
  * l'envoi et un jeton à usage unique empêche qu'un double envoi crée deux documents.
- * Les lignes (scan, recherche, quantités, coûts) sont gérées par le composant partagé saisie-lignes.js.
+ * Les lignes (scan, recherche, quantités, coûts) sont gérées par le composant partagé saisie-lignes.js ; ce fichier
+ * ajoute par-dessus : vérification stricte des nombres (même grammaire que le serveur), totaux exacts en cents,
+ * protection contre un scan tombé dans une quantité, avertissement avant de quitter une saisie, bouton +/− de l'ajustement.
  */
 (function (w, $) {
   'use strict';
@@ -12,21 +14,32 @@
   var racine = document.querySelector('[data-mouvement]');
   if (!racine) { return; }
   var page = racine.getAttribute('data-mouvement');
+  var gest = racine.getAttribute('data-gestionnaire') === '1';
 
   // ===================================================================================
   //  Utilitaires
   // ===================================================================================
+  var NB = ' ';      // espace insécable
   function q(sel, ctx) { return (ctx || document).querySelector(sel); }
   function qa(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
   function montrer(el, oui) { if (el) { el.hidden = !oui; } }
 
-  /** Message d'erreur affichable : jamais de texte technique anglais (réseau coupé : « Failed to fetch »). */
-  function msg(err) {
+  /** Typographie française : espace insécable à l'intérieur des « guillemets » et avant : ; ? ! (les messages du serveur n'en ont pas). */
+  function typo(t) {
+    return String(t).replace(/«[ \u00a0]?/g, '«' + NB).replace(/[ \u00a0]?»/g, NB + '»').replace(/[ \u00a0]([:;?!])/g, NB + '$1');   // idempotent
+  }
+  /** « P-0001 » avec espaces insécables. */
+  function guill(texte) { return '«' + NB + texte + NB + '»'; }
+
+  /** Message d'erreur affichable : jamais de texte technique anglais ; $enregistrement : le renvoi ne crée pas de doublon. */
+  function msg(err, enregistrement) {
     var m = (err && err.message) ? String(err.message) : '';
-    if (err instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed/i.test(m)) {
-      return 'Connexion au serveur impossible. Vérifiez le réseau, puis cliquez de nouveau sur Enregistrer : le document ne sera pas créé en double.';
+    if (err instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed|connexion (au serveur )?impossible/i.test(m)) {
+      return typo(enregistrement
+        ? 'Connexion au serveur impossible. Vérifiez le réseau, puis cliquez de nouveau sur Enregistrer : le document ne sera pas créé en double.'
+        : 'Connexion au serveur impossible. Vérifiez le réseau, puis réessayez.');
     }
-    return m || 'Erreur inattendue. Réessayez.';
+    return typo(m || 'Erreur inattendue. Réessayez.');
   }
 
   function aujourdhui() {
@@ -60,17 +73,20 @@
     return p[0] + ',' + frac;
   }
 
-  /** Texte saisi ("1 234,5", "-2") -> entier mis à l'échelle (3 pour une quantité, 4 pour un coût) ; null si invalide. */
-  function parseDec(s, echelle) {
-    var t = String(s === null || s === undefined ? '' : s).replace(/[\s ]/g, '').replace(',', '.');
-    var m = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(t);
+  /**
+   * Analyse d'une saisie décimale avec la MÊME grammaire que le serveur (Dec::parse) : espaces ignorés, une seule virgule
+   * ou un seul point, signe facultatif. Retourne null si illisible (« 12abc », « 1e3 », « 1.000.5 »), sinon
+   * {n: entier mis à l'échelle (3 pour une quantité, 4 pour un coût), neg, trop: plus de décimales que l'échelle}.
+   */
+  function lireDec(s, echelle) {
+    var t = String(s === null || s === undefined ? '' : s).replace(/[\s ]/g, '');
+    var m = /^([+-]?)(\d*)(?:[.,](\d*))?$/.exec(t);
     if (!m || (m[2] === '' && (m[3] === undefined || m[3] === ''))) { return null; }
     var ent = m[2].replace(/^0+/, ''), frac = m[3] || '';
-    if (ent.length > 9) { return null; }
+    if (ent.length > 9) { return { n: Number.MAX_SAFE_INTEGER, neg: m[1] === '-', trop: false }; }     // bien au-delà des limites : refusé plus loin
     var arrondi = (frac.length > echelle && frac.charAt(echelle) >= '5') ? 1 : 0;
-    frac = (frac + '0000000000').substr(0, echelle);
-    var n = parseInt((ent || '0') + frac, 10) + arrondi;
-    return m[1] === '-' ? -n : n;
+    var n = parseInt((ent || '0') + (frac + '0000000000').substr(0, echelle), 10) + arrondi;
+    return { n: m[1] === '-' ? -n : n, neg: m[1] === '-', trop: frac.length > echelle };
   }
 
   /** Cents -> "1234.56" (chaîne décimale exacte pour fmtArgent). */
@@ -83,11 +99,17 @@
   /** Total d'une ligne en cents : quantité (éch. 3) x coût (éch. 4), arrondi demi vers le haut en valeur absolue (comme le serveur). */
   function totalLigneCents(q3, c4) {
     var p = q3 * c4, neg = p < 0;
-    var r = Math.round(Math.abs(p) / 100000);
+    var r = Math.floor((Math.abs(p) + 50000) / 100000);
     return neg ? -r : r;
   }
 
   function lienDocument(id) { return 'index.php?page=document_voir&id=' + encodeURIComponent(String(id)); }
+
+  // Titre d'onglet propre à chaque écran (le titre de la coquille est le même partout)
+  (function () {
+    var h1 = q('.content-header h1');
+    if (h1 && h1.textContent.trim()) { document.title = (page === 'document_voir' ? 'Document ' : '') + h1.textContent.trim() + ' — Beauchemin'; }
+  })();
 
   // ===================================================================================
   //  Écrans de saisie : réception, transfert, sortie, ajustement
@@ -96,10 +118,12 @@
     reception:  { url: 'app/action/reception_save.php',  doc: 'Réception',  fini: 'enregistrée', cout: true,  coutObligatoire: true,  signe: false, disponible: false },
     transfert:  { url: 'app/action/transfert_save.php',  doc: 'Transfert',  fini: 'enregistré', cout: false, coutObligatoire: false, signe: false, disponible: true },
     sortie:     { url: 'app/action/sortie_save.php',     doc: 'Sortie',     fini: 'enregistrée', cout: false, coutObligatoire: false, signe: false, disponible: true },
-    ajustement: { url: 'app/action/ajustement_save.php', doc: 'Ajustement', fini: 'enregistré', cout: true,  coutObligatoire: false, signe: true,  disponible: false }
+    ajustement: { url: 'app/action/ajustement_save.php', doc: 'Ajustement', fini: 'enregistré', cout: true,  coutObligatoire: false, signe: true,  disponible: true }
   };
   var TYPES_EMP = { entrepot: 'Entrepôt', boutique: 'Boutique', cube: 'Cube de service' };
   var MAX_LIGNES = 300;
+  var MAX_QTE = 100000;        // unités par ligne (comme le service)
+  var MAX_COUT = 100000;       // $ par unité (comme le service)
 
   function initSaisie(cfg) {
     var $emp = q('#emplacement'), $dest = q('#destination'), $date = q('#date'), $note = q('#note');
@@ -111,6 +135,7 @@
     var jeton = nouveauJeton();
     var propose = {};          // code de pièce -> coût proposé automatiquement (pour ne pas écraser une saisie manuelle)
     var piecesParCode = {};
+    var sourceChoisie = false; // transfert : la source a été choisie dans CETTE saisie (liste, URL ou premier code EMP scanné)
     var sl = null;
 
     // ---- emplacements ------------------------------------------------------------
@@ -118,6 +143,13 @@
       for (var i = 0; i < emplacements.length; i++) { if (String(emplacements[i].id) === String(id)) { return emplacements[i]; } }
       return null;
     }
+    function plusieursEntreprises() {
+      var vus = {}, n = 0;
+      emplacements.forEach(function (e) { if (!vus[e.entreprise_id]) { vus[e.entreprise_id] = true; n++; } });
+      return n > 1;
+    }
+    /** Nom d'un emplacement, avec son entreprise quand deux entreprises peuvent porter le même nom (« Entrepôt principal »). */
+    function nomComplet(e) { return plusieursEntreprises() ? e.nom + ' (' + e.entreprise_nom + ')' : e.nom; }
 
     /** Remplit une liste déroulante groupée par entreprise (textContent : aucun HTML issu du serveur). */
     function remplir(select, liste, vide, valeur) {
@@ -174,23 +206,33 @@
       effacerErreur();
     }
 
-    /** Un code EMP-… a été scanné : choisit l'emplacement (transfert : la source si elle est vide, sinon la destination). */
+    var aideFacture = function () {
+      return gest ? 'Pour passer d\'une entreprise à l\'autre, utilisez une facture interne.' : 'Pour passer d\'une entreprise à l\'autre, demandez à un gestionnaire de faire une facture interne.';
+    };
+
+    /**
+     * Un code EMP-… a été scanné : choisit l'emplacement.
+     * Transfert : le premier code scanné de la saisie choisit TOUJOURS la source (et vide la destination), le suivant la destination —
+     * même si une source avait été mémorisée d'une saisie précédente.
+     */
     function emplacementScanne(emp) {
       var e = parId(emp.id);
-      if (!e) { throw new Error('L\'emplacement « ' + emp.nom + ' » est désactivé ou n\'est pas disponible.'); }
-      if (page === 'transfert' && $emp.value) {
+      if (!e) { throw new Error('L\'emplacement ' + guill(emp.nom) + ' est désactivé ou n\'est pas disponible.'); }
+      if (page === 'transfert' && sourceChoisie && $emp.value) {
         var s = parId($emp.value);
-        if (String(e.id) === String($emp.value)) { throw new Error('« ' + e.nom + ' » est déjà la source. Scannez la destination.'); }
+        if (String(e.id) === String($emp.value)) { throw new Error(guill(nomComplet(e)) + ' est déjà la source. Scannez la destination.'); }
         if (s && e.entreprise_id !== s.entreprise_id) {
-          throw new Error('« ' + e.nom + ' » appartient à une autre entreprise. Pour passer d\'une entreprise à l\'autre, utilisez une facture interne.');
+          throw new Error(guill(e.nom) + ' (' + e.entreprise_nom + ') appartient à une autre entreprise que la source (' + s.entreprise_nom + '). ' + aideFacture());
         }
         $dest.value = String(e.id);
         effacerErreur();
-        w.toast('Destination : ' + e.nom, 'info', 2500);
+        w.toast(typo('Destination : ' + nomComplet(e)), 'info', 2500);
         return;
       }
+      if (page === 'transfert') { sourceChoisie = true; }
       fixerEmplacement(e.id);
-      w.toast((page === 'transfert' ? 'Source : ' : 'Emplacement : ') + e.nom, 'info', 2500);
+      if (page === 'transfert' && $dest) { $dest.value = ''; }
+      w.toast(typo((page === 'transfert' ? 'Source : ' : 'Emplacement : ') + nomComplet(e)), 'info', 2500);
     }
 
     // ---- coût proposé (réception) ----------------------------------------------------
@@ -227,21 +269,56 @@
     // ---- messages ------------------------------------------------------------------
     var champsFautifs = { emplacement_id: $emp, emplacement_dest_id: $dest, date: $date, motif: $motif, fournisseur_id: $fourn, reference: $ref, note: $note };
 
+    var erreurSurLignes = false;      // l'erreur affichée concerne les lignes (elle disparaît dès qu'on les modifie) et non un champ d'en-tête
+
+    /** Efface le bandeau d'erreur et les surlignages (champs d'en-tête, coûts et rangées fautives). */
     function effacerErreur() {
+      erreurSurLignes = false;
       montrer($err, false);
       if ($err) { $err.textContent = ''; }
       qa('.mv-carte .is-invalid').forEach(function (e) { if (!e.closest('#lignes')) { e.classList.remove('is-invalid'); } });
+      // dans les lignes, la quantité est surlignée par le composant lui-même ; on ne retire que nos surlignages (coût, rangée)
+      qa('#lignes input[aria-label^="Coût"].is-invalid').forEach(function (e) { e.classList.remove('is-invalid'); });
+      qa('#lignes tr.table-danger').forEach(function (e) { e.classList.remove('table-danger'); });
     }
 
-    function afficherErreur(texte, champ) {
+    function afficherErreur(texte, champ, elLigne) {
+      texte = typo(texte);
+      erreurSurLignes = (champ === 'lignes' || !!elLigne);
       $err.textContent = texte;
       montrer($err, true);
       var f = champ ? champsFautifs[champ] : null;
-      if (f) { f.classList.add('is-invalid'); f.focus(); }
+      if (elLigne) {
+        elLigne.classList.add('is-invalid');
+        try { elLigne.focus(); elLigne.scrollIntoView({ block: 'center' }); } catch (e) { /* ancien navigateur */ }
+      } else if (f) { f.classList.add('is-invalid'); f.focus(); }
       else if (champ === 'lignes' && sl) { sl.focus(); }
-      try { $err.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ancien navigateur */ }
+      if (!elLigne) { try { $err.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ancien navigateur */ } }
       w.toast(texte, 'danger', 5000);
       w.bip(false);
+    }
+
+    /**
+     * Erreur du serveur : « Ligne 3 : coût invalide. » devient « Pièce « P-0003 » : coût invalide. » (le tableau n'a pas de numéros
+     * de ligne) et la rangée fautive est surlignée ; un « Stock insuffisant pour « P-0003 — … » » surligne la quantité de P-0003.
+     */
+    function afficherErreurServeur(err) {
+      var texte = String(err && err.message ? err.message : ''), el = null;
+      var rangs = qa('#lignes tbody tr');
+      var m = /^Ligne (\d+)(?:\s*:)?\s*(.*)$/.exec(texte);
+      if (m && rangs[parseInt(m[1], 10) - 1]) {
+        var tr = rangs[parseInt(m[1], 10) - 1];
+        var reste = m[2].replace('la variation ne peut pas être zéro', 'la quantité ne peut pas être zéro');
+        texte = 'Pièce ' + guill(tr.cells[0].textContent) + (/^Ligne \d+\s*:/.test(texte) ? ' : ' : ' ') + reste;
+        el = tr.querySelector(/coût/i.test(reste) ? 'input[aria-label^="Coût"]' : 'input[aria-label^="Quantité"]');
+        if (!el) { tr.classList.add('table-danger'); }
+      } else {
+        var s = /^Stock insuffisant pour « ?(\S+) — /.exec(texte);
+        if (s) {
+          rangs.forEach(function (r) { if (!el && r.cells[0].textContent === s[1]) { el = r.querySelector('input[aria-label^="Quantité"]'); } });
+        }
+      }
+      afficherErreur(msg({ message: texte }, true), err && err.champ, el);
     }
 
     function afficherSucces(r) {
@@ -255,7 +332,7 @@
       a.href = lienDocument(r.id);
       a.textContent = r.numero;
       $succes.appendChild(a);
-      $succes.appendChild(document.createTextNode(r.doublon ? ' : ce document avait déjà été enregistré (aucun doublon créé)' : ' ' + cfg.fini));
+      $succes.appendChild(document.createTextNode(r.doublon ? NB + ': ce document avait déjà été enregistré (aucun doublon créé)' : ' ' + cfg.fini));
       if (r.total !== undefined && r.total !== null && page === 'reception') {
         $succes.appendChild(document.createTextNode(' — total ' + w.fmtArgent(r.total)));
       }
@@ -272,37 +349,122 @@
     // ---- résumé et totaux ----------------------------------------------------------------
     function majResume(lignes) {
       if ($resume) {
-        $resume.textContent = lignes.length ? (lignes.length + (lignes.length > 1 ? ' lignes' : ' ligne')) : '';
+        var trop = lignes.length > MAX_LIGNES;
+        $resume.textContent = !lignes.length ? '' : (trop
+          ? lignes.length + ' lignes' + NB + ': maximum ' + MAX_LIGNES + ' par document'
+          : lignes.length + (lignes.length > 1 ? ' lignes' : ' ligne'));
+        $resume.classList.toggle('text-danger', trop);
+        $resume.classList.toggle('font-weight-bold', trop);
+        $resume.classList.toggle('text-muted', !trop);
       }
       if ($total) {
         if (!lignes.length) { $total.textContent = ''; return; }
         var somme = 0, manque = 0;
         lignes.forEach(function (l) {
-          var qte = parseDec(l.quantite, 3), c = (l.cout_unitaire === undefined) ? null : parseDec(l.cout_unitaire, 4);
+          var qte = lireDec(l.quantite, 3), c = (l.cout_unitaire === undefined) ? null : lireDec(l.cout_unitaire, 4);
           if (qte === null || c === null) { manque++; return; }
-          somme += totalLigneCents(qte, c);
+          somme += totalLigneCents(qte.n, c.n);
         });
-        $total.textContent = 'Total estimé : ' + w.fmtArgent(centsEnChaine(somme)) + (manque ? ' (' + manque + (manque > 1 ? ' lignes sans coût' : ' ligne sans coût') + ')' : '');
+        $total.textContent = 'Total estimé' + NB + ': ' + w.fmtArgent(centsEnChaine(somme)) + (manque ? ' (' + manque + (manque > 1 ? ' lignes sans coût' : ' ligne sans coût') + ')' : '');
       }
     }
 
+    /** Le composant calcule le total d'une ligne en nombres à virgule : on le remplace par le calcul exact en cents (celui du serveur). */
+    function corrigerTotaux(lignes) {
+      if (!cfg.cout) { return; }
+      qa('#lignes tbody tr').forEach(function (tr, i) {
+        var l = lignes[i], cel = tr.cells[tr.cells.length - 2];      // « Total » : juste avant le bouton Retirer
+        if (!l || !cel) { return; }
+        var qte = lireDec(l.quantite, 3), c = (l.cout_unitaire === undefined) ? null : lireDec(l.cout_unitaire, 4);
+        cel.textContent = (qte === null || c === null) ? '' : w.fmtArgent(centsEnChaine(totalLigneCents(qte.n, c.n)));
+      });
+    }
+
+    /** Ajustement : un bouton +/− par ligne (le clavier numérique d'une tablette n'a pas toujours la touche « − »). */
+    function ajouterBoutonsSigne() {
+      qa('#lignes tbody tr').forEach(function (tr) {
+        var champ = tr.querySelector('input[aria-label^="Quantité"]');
+        if (!champ || tr.querySelector('.mv-signe')) { return; }
+        var code = tr.cells[0].textContent;
+        var enveloppe = document.createElement('div');
+        enveloppe.className = 'mv-qte-signee';
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn btn-outline-secondary mv-signe';
+        b.title = 'Changer le signe : ajouter (+) ou retirer (−)';
+        b.setAttribute('aria-label', 'Changer le signe de la quantité de ' + code);
+        b.textContent = '+/−';
+        b.addEventListener('click', function () {
+          var v = champ.value.trim();
+          champ.value = v.charAt(0) === '-' ? v.slice(1) : (v.charAt(0) === '+' ? '-' + v.slice(1) : '-' + v);
+          champ.dispatchEvent(new Event('input', { bubbles: true }));
+          champ.focus();
+        });
+        champ.parentNode.insertBefore(enveloppe, champ);
+        enveloppe.appendChild(b);
+        enveloppe.appendChild(champ);
+      });
+    }
+
+    /** Appelé par le composant après chaque changement de lignes (ajout, retrait, quantité, coût). */
+    function surChangementLignes(lignes) {
+      majResume(lignes);
+      corrigerTotaux(lignes);
+      if (cfg.signe) { ajouterBoutonsSigne(); }
+      if (lignes.length) { montrer($succes, false); }     // le message de réussite du document précédent n'a plus lieu d'être
+      if (erreurSurLignes) { effacerErreur(); }            // un message d'erreur périmé laisse croire que le problème persiste (un champ d'en-tête non corrigé garde son message)
+    }
+
     // ---- validation et envoi ----------------------------------------------------------------
+    /**
+     * Vérification de confort des lignes, avec la même grammaire que le serveur (le serveur reste l'autorité).
+     * Retourne null ou {m: message, champ: 'lignes', el: champ fautif}.
+     */
+    function validerLignes() {
+      var lignes = sl.lignes(), rangs = qa('#lignes tbody tr');
+      if (!lignes.length) { return { m: 'Ajoutez au moins une pièce.', champ: 'lignes' }; }
+      for (var i = 0; i < lignes.length; i++) {
+        var l = lignes[i], tr = rangs[i];
+        if (!tr) { continue; }
+        var code = guill(tr.cells[0].textContent);
+        var inQ = tr.querySelector('input[aria-label^="Quantité"]'), inC = tr.querySelector('input[aria-label^="Coût"]');
+        var qte = lireDec(l.quantite, 3);
+        if (qte === null) { return { m: 'Quantité invalide pour ' + code + ' (exemple : 1,5).', champ: 'lignes', el: inQ }; }
+        if (qte.trop) { return { m: 'La quantité de ' + code + ' ne peut pas avoir plus de 3 décimales.', champ: 'lignes', el: inQ }; }
+        if (cfg.signe ? qte.n === 0 : qte.n <= 0) {
+          return { m: cfg.signe
+            ? 'La quantité de ' + code + ' ne peut pas être zéro : entrez un nombre positif ou négatif.'
+            : 'La quantité de ' + code + ' doit être supérieure à zéro.', champ: 'lignes', el: inQ };
+        }
+        if (Math.abs(qte.n) > MAX_QTE * 1000) { return { m: 'La quantité de ' + code + ' est trop grande (maximum 100' + NB + '000).', champ: 'lignes', el: inQ }; }
+        if (cfg.cout && (!cfg.signe || qte.n > 0)) {            // ajustement : le coût ne sert qu'aux quantités positives
+          if (l.cout_unitaire === undefined) {
+            if (cfg.coutObligatoire) { return { m: 'Entrez le coût unitaire de ' + code + '.', champ: 'lignes', el: inC }; }
+          } else {
+            var c = lireDec(l.cout_unitaire, 4);
+            if (c === null || c.neg) { return { m: 'Coût unitaire invalide pour ' + code + ' (exemple : 12,50).', champ: 'lignes', el: inC }; }
+            if (c.trop) { return { m: 'Le coût unitaire de ' + code + ' ne peut pas avoir plus de 4 décimales.', champ: 'lignes', el: inC }; }
+            if (c.n > MAX_COUT * 10000) { return { m: 'Le coût unitaire de ' + code + ' est trop élevé (maximum 100' + NB + '000' + NB + '$).', champ: 'lignes', el: inC }; }
+          }
+        }
+      }
+      return null;
+    }
+
     function valider() {
       if (!$emp.value) { return { m: page === 'transfert' ? 'Choisissez l\'emplacement source.' : 'Choisissez l\'emplacement.', champ: 'emplacement_id' }; }
       if ($dest && !$dest.value) { return { m: 'Choisissez l\'emplacement de destination.', champ: 'emplacement_dest_id' }; }
       if (!$date.value) { return { m: 'Entrez une date valide.', champ: 'date' }; }
       if ($date.value > aujourdhui()) { return { m: 'La date ne peut pas être dans le futur.', champ: 'date' }; }
       if ($motif && !$motif.value) { return { m: page === 'sortie' ? 'Choisissez un motif de sortie.' : 'Choisissez un motif d\'ajustement.', champ: 'motif' }; }
-      var e = sl.valider();
-      if (e) { return { m: e, champ: 'lignes' }; }
-      if (sl.compter() > MAX_LIGNES) { return { m: 'Trop de lignes (maximum ' + MAX_LIGNES + '). Enregistrez-les en plusieurs documents.', champ: 'lignes' }; }
-      return null;
+      if (sl.compter() > MAX_LIGNES) { return { m: 'Trop de lignes (maximum ' + MAX_LIGNES + '). Retirez-en ou enregistrez-les en plusieurs documents.', champ: 'lignes' }; }
+      return validerLignes();
     }
 
     function charge() {
       var lignes = sl.lignes();
       if (cfg.signe) {      // le coût ne s'applique qu'aux quantités positives
-        lignes.forEach(function (l) { var n = parseDec(l.quantite, 3); if (n !== null && n < 0) { delete l.cout_unitaire; } });
+        lignes.forEach(function (l) { var n = lireDec(l.quantite, 3); if (n !== null && n.n < 0) { delete l.cout_unitaire; } });
       }
       var d = { jeton: jeton, emplacement_id: parseInt($emp.value, 10), date: $date.value, note: $note.value, lignes: lignes };
       if ($dest) { d.emplacement_dest_id = parseInt($dest.value, 10); }
@@ -319,6 +481,8 @@
       $note.value = '';
       if ($ref) { $ref.value = ''; }
       if ($fourn) { $fourn.value = ''; surChangementFournisseur(); }
+      if ($dest) { $dest.value = ''; }          // transfert : la destination est à choisir de nouveau
+      sourceChoisie = false;                    // le premier code EMP scanné de la prochaine saisie choisira la source
       $date.value = aujourdhui();
       jeton = nouveauJeton();
       effacerErreur();
@@ -351,14 +515,17 @@
       effacerErreur();
       montrer($succes, false);
       var e = valider();
-      if (e) { occupe(false); afficherErreur(e.m, e.champ); return; }
+      if (e) { occupe(false); afficherErreur(e.m, e.champ, e.el); return; }
       w.api.post(cfg.url, charge())
         .then(function (r) {
           w.bip(true);
           afficherSucces(r);
           remiseAZero();
         })
-        .catch(function (err) { afficherErreur(msg(err), err.champ); })
+        .catch(function (err) {
+          if (err && err.champ === 'jeton') { jeton = nouveauJeton(); }      // saisie modifiée après un envoi déjà enregistré : le prochain clic crée un nouveau document
+          afficherErreurServeur(err);
+        })
         .then(function () { occupe(false); });
     }
 
@@ -369,9 +536,12 @@
       emplacementSource: cfg.disponible ? function () { return $emp.value || null; } : undefined,
       coutParDefaut: page === 'reception' ? proposerCout : undefined,
       onEmplacement: emplacementScanne,
-      onChange: majResume,
+      onChange: surChangementLignes,
       vide: 'Scannez une pièce ou cherchez-la ci-dessus.'
     });
+    if (page === 'ajustement') {       // à l'ajustement, la colonne montre le solde actuel (avant la correction)
+      qa('#lignes thead th').forEach(function (th) { if (th.textContent === 'Disponible') { th.textContent = 'Stock actuel'; } });
+    }
 
     // Messages plus justes pour un code d'emplacement (EMP-…) inconnu ou d'une entreprise à laquelle on n'a pas accès.
     // Le composant appelle toujours api.ajouterParCode : on l'enveloppe ici, sans toucher au composant.
@@ -379,13 +549,18 @@
     sl.ajouterParCode = function (code) {
       return ajouterParCode(code).catch(function (err) {
         if (/^EMP-/i.test(String(code).trim()) && /^Code inconnu/.test(err.message || '')) {
-          throw new Error('Emplacement inconnu, ou d\'une entreprise à laquelle vous n\'avez pas accès : « ' + String(code).trim() + ' ».');
+          throw new Error(typo('Emplacement inconnu, ou d\'une entreprise à laquelle vous n\'avez pas accès : ' + guill(String(code).trim()) + '.'));
         }
-        throw err;
+        throw new Error(typo(err.message || 'Erreur inattendue.'));
       });
     };
 
-    $emp.addEventListener('change', surChangementEmplacement);
+    // (pas de retour de focus au champ de scan sur « change » : les flèches du clavier changent la valeur d'une liste fermée.
+    //  Une frappe qui tombe sur une liste est redirigée vers le champ de scan par app.js ; sur une case ou une date, par le gestionnaire plus bas.)
+    $emp.addEventListener('change', function () {
+      if (page === 'transfert') { sourceChoisie = !!$emp.value; }
+      surChangementEmplacement();
+    });
     if ($dest) { $dest.addEventListener('change', effacerErreur); }
     if ($fourn) { $fourn.addEventListener('change', function () { surChangementFournisseur(); rafraichirCouts(); effacerErreur(); }); }
     [$date, $motif, $ref, $note, $majPrix].forEach(function (c) { if (c) { c.addEventListener('input', effacerErreur); c.addEventListener('change', effacerErreur); } });
@@ -401,6 +576,40 @@
       if (ev.target.tagName === 'INPUT') { try { ev.target.select(); } catch (e) { /* sans effet */ } }
     });
 
+    // Un lecteur de codes-barres « tape » dans le champ qui a le focus : dans une quantité, un coût ou une date il écraserait la valeur
+    // (« 5P-0003 »), sur une case à cocher il serait perdu. Une lettre n'a rien à faire dans un nombre ni dans une date : c'est un code,
+    // on le redirige vers le champ de scan. Une rafale de chiffres (6 frappes à moins de 50 ms : aucune main ne tape ainsi) est un code
+    // UPC : la valeur d'origine est rétablie et le code passe dans le champ de scan. (Les champs de texte gardent leur saisie : on peut
+    // y scanner un numéro de bon de travail.)
+    var rafale = { n: 0, t: 0, avant: '', texte: '' };
+    racine.addEventListener('keydown', function (ev) {
+      var t = ev.target;
+      if (t.tagName !== 'INPUT' || ev.ctrlKey || ev.metaKey || ev.altKey || !ev.key || ev.key.length !== 1) { return; }
+      var nombre = !!t.closest('#lignes') || t.type === 'date', coche = (t.type === 'checkbox' || t.type === 'radio');
+      if (!nombre && !coche) { return; }
+      var scan = q('#scan');
+      if (!scan || scan.readOnly || scan.disabled) { return; }
+      if (coche) { if (ev.key !== ' ') { scan.focus(); } return; }
+      if (!/[0-9.,+\-\s\/]/.test(ev.key)) { scan.focus(); return; }          // la frappe est alors saisie dans le champ de scan
+      var maintenant = Date.now();
+      if (maintenant - rafale.t > 50) { rafale.n = 0; rafale.avant = t.value; rafale.texte = ''; }
+      rafale.t = maintenant; rafale.n++; rafale.texte += ev.key;
+      if (rafale.n >= 6) {
+        ev.preventDefault();
+        t.value = rafale.avant;
+        t.dispatchEvent(new Event('input', { bubbles: true }));                // le composant relit la valeur d'origine
+        scan.value = rafale.texte; scan.focus();
+        rafale.n = 0; rafale.texte = '';
+      }
+    }, true);
+
+    // Quitter la page (menu, retour du navigateur, rechargement) avec des lignes saisies les perdrait sans avertissement
+    w.addEventListener('beforeunload', function (ev) {
+      if (enCours || !sl || sl.compter() === 0) { return; }
+      ev.preventDefault();
+      ev.returnValue = '';
+    });
+
     w.api.get('app/ajax/emplacements_liste.php').then(function (r) {
       emplacements = (r.emplacements || []).map(function (e) { return { id: e.id, nom: e.nom, type: e.type, entreprise_id: e.entreprise_id, entreprise_nom: e.entreprise_nom }; });
       if (!emplacements.length) {
@@ -408,9 +617,11 @@
         afficherErreur('Aucun emplacement actif n\'est disponible pour vous. Demandez à un administrateur d\'en créer un.', null);
         return;
       }
-      var voulu = racine.getAttribute('data-emplacement-id') || memoLire(cleMemo) || '';
+      var depuisUrl = racine.getAttribute('data-emplacement-id') || '';
+      var voulu = depuisUrl || memoLire(cleMemo) || '';
       remplir($emp, emplacements, '— Choisissez —', voulu);
       surChangementEmplacement();
+      if (page === 'transfert' && depuisUrl && $emp.value === String(depuisUrl)) { sourceChoisie = true; }     // source imposée par l'adresse
       var code = racine.getAttribute('data-piece-code');
       if (code) {
         return sl.ajouterParCode(code).then(function () { w.bip(true); }).catch(function (err) { w.toast(msg(err), 'danger'); });
@@ -426,26 +637,47 @@
   // ===================================================================================
   function initDocuments() {
     var $type = q('#f-type'), $ent = q('#f-entreprise'), $statut = q('#f-statut'), $du = q('#f-du'), $au = q('#f-au'), $rech = q('#f-recherche');
+    var $avert = q('#f-avert'), $erreur = q('#documents-erreur');
     var entetes = qa('#table-documents thead th');
     var colonnes = entetes.map(function (th) {
-      return { data: th.getAttribute('data-col'), className: th.classList.contains('nombre') ? 'nombre' : '', orderSequence: ['desc', 'asc'] };
+      return { data: th.getAttribute('data-col'), className: th.className.replace(/\bsorting\w*\b/g, '').trim(), orderSequence: ['desc', 'asc'] };
     });
-    var langue = $.extend({}, w.DT_LANG, {
-      emptyTable: 'Aucun document pour le moment.', zeroRecords: 'Aucun document ne correspond à ces filtres.',
-      infoEmpty: 'Aucun document', info: '_START_ à _END_ de _TOTAL_ documents', infoFiltered: '(filtré sur _MAX_)'
+    var langue = $.extend(true, {}, w.DT_LANG, {
+      emptyTable: 'Aucun document pour le moment.', zeroRecords: 'Aucun document ne correspond à ces critères.',
+      infoEmpty: 'Aucun document', info: '_START_ à _END_ de _TOTAL_ documents', infoFiltered: '(filtré sur _MAX_)',
+      aria: {
+        sortAscending: NB + ': activer pour trier par ordre croissant',
+        sortDescending: NB + ': activer pour trier par ordre décroissant',
+        paginate: { first: 'Première page', previous: 'Page précédente', next: 'Page suivante', last: 'Dernière page' }
+      }
     });
+
+    function datesInversees() { return !!($du.value && $au.value && $du.value > $au.value); }
+    function filtresActifs() { return !!(($type && $type.value) || ($ent && $ent.value) || ($statut && $statut.value) || $du.value || $au.value || $rech.value.trim()); }
+
+    /** « Aucun document pour le moment » n'est vrai que sans filtre : avec un filtre, on le dit (le comptage total tient compte des filtres). */
+    function majMessageVide(settings) {
+      var inv = datesInversees(), lang = settings.oLanguage;
+      lang.sEmptyTable = inv ? 'Aucun document : la date de début est après la date de fin.'
+        : (filtresActifs() ? 'Aucun document ne correspond à ces critères. Utilisez «' + NB + 'Effacer les filtres' + NB + '».' : 'Aucun document pour le moment.');
+      lang.sZeroRecords = lang.sEmptyTable;
+      $avert.textContent = inv ? 'La date de début est après la date de fin.' : '';
+      montrer($avert, inv);
+    }
+
     var table = $('#table-documents').DataTable({
       serverSide: true, processing: true, searching: true, order: [], search: { search: $rech.value.trim() },
       dom: "<'row'<'col-12'tr>><'row mt-2'<'col-sm-12 col-md-3'l><'col-sm-12 col-md-4'i><'col-sm-12 col-md-5'p>>",
       language: langue,
       ajax: {
         url: 'app/ajax/documents_data.php', type: 'POST',
-        data: function (d) {
+        data: function (d, settings) {
           d.type = $type.value;
           d.entreprise_id = $ent ? $ent.value : '';
           d.statut = $statut.value;
           d.du = $du.value;
           d.au = $au.value;
+          if (settings) { majMessageVide(settings); }
         }
       },
       columns: colonnes,
@@ -454,8 +686,25 @@
       }
     });
 
+    /** Échec du chargement (serveur ou réseau) : message français durable avec « Réessayer », jamais de texte anglais ni de silence. */
+    function montrerErreurListe(xhr) {
+      var s = xhr ? xhr.status : 0, t;
+      if (s === 403) { t = 'Accès refusé. Rechargez la page.'; }
+      else if (s === 0) { t = 'Connexion au serveur impossible. Vérifiez le réseau, puis cliquez sur «' + NB + 'Réessayer' + NB + '».'; }
+      else { t = 'Impossible de charger la liste des documents. Cliquez sur «' + NB + 'Réessayer' + NB + '».'; }
+      $erreur.textContent = t + ' ';
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn btn-sm btn-outline-danger ml-2'; b.textContent = 'Réessayer';
+      b.addEventListener('click', function () { table.draw(false); });
+      $erreur.appendChild(b);
+      montrer($erreur, true);
+      if (s === 0) { w.toast(t, 'danger'); }       // les autres échecs ont déjà leur notification (app.js)
+    }
+
     $('#table-documents').on('xhr.dt', function (ev, settings, json, xhr) {
-      if (xhr && xhr.status === 401) { w.location.href = 'login.php'; }       // session expirée
+      if (xhr && xhr.status === 401) { w.location.href = 'login.php'; return; }      // session expirée
+      if (json === null || json === undefined || (json && json.ok === false)) { montrerErreurListe(xhr); }
+      else { montrer($erreur, false); }
     });
 
     function redessiner() { table.draw(); }
@@ -490,11 +739,12 @@
     if (!btn || !modal) { return; }
     var $motif = q('#annuler-motif'), $err = q('#annuler-erreur'), $ok = q('#annuler-confirmer'), $retour = q('#annuler-retour');
     var enCours = false;
+    var LIBELLE_OK = $ok.textContent;
 
     function erreur(t) { $err.textContent = t; montrer($err, !!t); }
     btn.addEventListener('click', function () { erreur(''); $(modal).modal('show'); });
     $(modal).on('shown.bs.modal', function () { $motif.focus(); });
-    $(modal).on('hidden.bs.modal', function () { erreur(''); });
+    $(modal).on('hidden.bs.modal', function () { erreur(''); btn.focus(); });      // le focus revient au bouton qui a ouvert la fenêtre
     $motif.addEventListener('input', function () { erreur(''); $motif.classList.remove('is-invalid'); });
 
     $ok.addEventListener('click', function () {
@@ -509,7 +759,7 @@
         .catch(function (err) {
           erreur(msg(err));
           enCours = false; $ok.disabled = false; $retour.disabled = false;
-          $ok.textContent = 'Annuler ce document';
+          $ok.textContent = LIBELLE_OK;
         });
     });
   }
