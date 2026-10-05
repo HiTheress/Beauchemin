@@ -126,6 +126,21 @@ et lève `InventaireException` (message en français, affichable) si refusé. Le
 | `definirPrixFournisseur($u,$pieceId,$fournisseurId,$prix,$noFournisseur?,$date?,$note?)`, `codeDisponible($code,$sauf)` | gestionnaire | historique de prix automatique |
 | `transaction(function () { … })` | | à utiliser pour toute écriture multi-étapes **hors** du service |
 
+Règles à connaître (elles ont changé après la première relecture) :
+
+* **Pièce désactivée** : on ne peut plus la recevoir, l'ajuster à la hausse ni la facturer, mais on peut toujours **vider son stock** (sortie, transfert,
+  ajustement négatif, comptage) — un stock ne reste jamais « bloqué ». `piecesRecherche` ne renvoie que les pièces actives.
+* **Résultat d'une opération** (`recevoir`, `transferer`, …) : `id`, `numero` et — **seulement pour gestionnaire+** — `total`. Un employé ne reçoit jamais de valeur.
+* **Emplacement d'une autre entreprise** : pour l'utilisateur sans accès, il est « introuvable » (on ne révèle ni son nom ni son état). `document()` met à `null`
+  `emplacement` / `emplacement_dest` s'ils appartiennent à une entreprise inaccessible. L'annulation d'une facture interne n'explique pas pourquoi le destinataire
+  ne peut plus rendre la marchandise si l'utilisateur n'a pas accès à cette entreprise.
+* `comptageAppliquer` : si les écarts dépassent `MAX_LIGNES` (300), il crée **plusieurs** ajustements dans la même transaction ; le résultat contient `documents` (liste)
+  en plus de `document_id` / `numero` (le premier).
+* `definirPrixFournisseur($u,$piece,$fournisseur,$prix,$no,$date,$note)` : `$no` et `$note` à `null` = **inchangés** ; chaîne vide = **effacés**.
+* `codeUtilisePar($code, $sauf)` dit **qui** détient un code (`piece` / `alias` / `emplacement`, `libelle`) ; `codeDisponible` en est la version booléenne.
+* `trouverParCode` : un emplacement trouvé porte `actif` ; `comptageDetail` : chaque ligne porte l'`actif` de la pièce.
+* Le coût moyen d'une entreprise **n'est jamais remis à zéro** par une annulation (si le calcul inverse est impossible, la moyenne actuelle est conservée).
+
 Si une opération dont vous avez besoin n'existe pas dans le service, **ne bricolez pas des UPDATE sur `stock`** :
 voir §11.
 
@@ -175,8 +190,9 @@ if ($nom === '') { throw new InventaireException('Le nom est obligatoire.', 'nom
 
 `api.get(url, params)` / `api.post(url, objet)` → Promise (rejette avec `Error(message)`, `e.champ`) ·
 `toast(msg, 'success'|'danger'|'warning'|'info')` · `esc(texte)` (**obligatoire** avant tout `innerHTML`) ·
-`fmtArgent`, `fmtQte` · `bip(true|false)` · `scanner(input, function (code) {…})` (Entrée/Tab du lecteur ; garde le focus ;
-retournez `false` ou lancez une erreur pour le bip d'échec) · DataTables et Select2 déjà en français.
+`fmtArgent`, `fmtQte` · `bip(true|false)` · `scanner(input, function (code) {…})` (Entrée/Tab du lecteur ; **file d'attente** : aucun scan n'est perdu même en rafale ; remet le focus au champ quand la file est vide,
+sauf si l'utilisateur saisit ailleurs ; retournez `false` ou lancez une erreur pour le bip d'échec ; `data-attente` du champ = scans en attente). Une frappe tombée sur une liste
+déroulante, un bouton ou la page est automatiquement redirigée vers le champ de scan (`.scan-input`) de la page · DataTables et Select2 déjà en français.
 Le champ de scan : `<div class="scan-box"><input class="form-control scan-input" autocomplete="off" inputmode="none"…></div>`.
 
 ### Composant partagé de saisie de lignes (`assets/js/saisie-lignes.js`)
@@ -187,6 +203,9 @@ Réception, transfert, sortie, ajustement et facture interne **doivent** l'utili
 — `sl.lignes()` (charge utile du service), `sl.valider()`, `sl.vider()`, `sl.focus()`, `sl.rafraichir()`. Lisez l'en-tête du fichier pour toutes les options.
 Exemple d'utilisation : `pages/_essai_lignes.php` + `assets/js/_essai_lignes.js` (page d'essai, à ne pas modifier) ; test : `tests/e2e/composant-lignes.js`.
 Si le composant a un défaut ou un manque, **ne le modifiez pas** : voir §11 (demande au noyau) et contournez dans votre fichier.
+
+**Thème** : `.btn-danger` est stylé globalement (fond rouge, texte blanc) dans `beauchemin.css` ; le menu latéral fait 285 px (corrigé en mode tablette) ; l'impression
+est en format lettre portrait avec marges de 12 mm (les notifications `#toasts` ne s'impriment jamais).
 
 ## 7. Règles de sécurité (non négociables — un relecteur les vérifiera une par une)
 
