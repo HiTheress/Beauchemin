@@ -8,6 +8,7 @@ endpoint(function () {
 	global $pdo;
 	$d = entree();
 	$id = ScanLib::entier(isset($d['id']) ? $d['id'] : null, 'Comptage invalide.', 'id');
+	ScanLib::comptageAccessible($id);   // introuvable = même message qu'un comptage d'une autre entreprise
 	inventaire()->comptageAnnuler(utilisateur_id(), $id);
 	Journal::ecrire($pdo, utilisateur_id(), 'comptage.annule', 'comptages', $id);
 	return array();

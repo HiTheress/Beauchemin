@@ -6,7 +6,7 @@ page_script('assets/js/scan.js');
 page_script('assets/js/comptage.js');
 $mes_ent = inventaire()->listeEntreprises(utilisateur_id());
 $pre_ent = entreprise_courante();
-$statuts = array('' => 'Tous les comptages', 'en_cours' => 'En cours', 'applique' => 'Appliqués', 'annule' => 'Annulés');
+$statuts = array('' => 'Tous les statuts', 'en_cours' => 'En cours', 'applique' => 'Appliqués', 'annule' => 'Annulés');
 $pre_statut = (isset($_GET['statut']) && is_string($_GET['statut']) && isset($statuts[$_GET['statut']])) ? $_GET['statut'] : '';
 ?>
 <link rel="stylesheet" href="assets/css/scan.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/scan.css'); ?>">
@@ -37,14 +37,14 @@ $pre_statut = (isset($_GET['statut']) && is_string($_GET['statut']) && isset($st
 
     <div class="card cp-carte"><div class="card-header"><h2 class="card-title m-0">Comptages</h2></div><div class="card-body">
       <div class="row cp-liste-filtres">
-        <div class="col-lg-3 col-md-6 form-group">
+        <div class="col-lg-4 col-md-6 form-group">
           <label for="f-statut">Statut</label>
           <select id="f-statut" class="form-control">
             <?php foreach ($statuts as $cle => $lib) { ?><option value="<?php echo e($cle); ?>"<?php echo $pre_statut === $cle ? ' selected' : ''; ?>><?php echo e($lib); ?></option><?php } ?>
           </select>
         </div>
         <?php if (count($mes_ent) > 0) { ?>
-        <div class="col-lg-3 col-md-6 form-group">
+        <div class="col-lg-5 col-md-6 form-group">
           <label for="f-entreprise">Entreprise</label>
           <select id="f-entreprise" class="form-control">
             <option value="">Toutes mes entreprises</option>
@@ -52,7 +52,7 @@ $pre_statut = (isset($_GET['statut']) && is_string($_GET['statut']) && isset($st
           </select>
         </div>
         <?php } ?>
-        <div class="col-lg-3 col-md-6 form-group d-flex align-items-end">
+        <div class="col-lg-3 col-md-12 form-group d-flex align-items-end">
           <div class="custom-control custom-checkbox">
             <input type="checkbox" class="custom-control-input" id="f-mes">
             <label class="custom-control-label" for="f-mes">Seulement mes comptages</label>
@@ -60,15 +60,13 @@ $pre_statut = (isset($_GET['statut']) && is_string($_GET['statut']) && isset($st
         </div>
       </div>
       <div class="table-responsive">
-        <table id="table-comptages" class="table table-striped w-100">
+        <table id="table-comptages" class="table table-striped w-100 cp-liste">
           <thead><tr>
             <th scope="col">Numéro</th>
             <th scope="col">Emplacement</th>
-            <th scope="col">Entreprise</th>
             <th scope="col">Statut</th>
-            <th scope="col">Commencé par</th>
-            <th scope="col">Date</th>
-            <th scope="col" class="nombre">Pièces comptées</th>
+            <th scope="col">Commencé le</th>
+            <th scope="col" class="nombre">Pièces</th>
             <th scope="col">Ajustement</th>
           </tr></thead>
           <tbody></tbody>

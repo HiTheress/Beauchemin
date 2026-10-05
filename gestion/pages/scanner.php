@@ -5,7 +5,7 @@ if (!acces_page('employe')) { return; }
 page_script('assets/js/scan.js');
 ?>
 <link rel="stylesheet" href="assets/css/scan.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/scan.css'); ?>">
-<div class="content-wrapper" id="page-scanner" data-role="<?php echo e($Ouser->role()); ?>">
+<div class="content-wrapper" id="page-scanner" data-role="<?php echo e($Ouser->role()); ?>" data-user="<?php echo (int) utilisateur_id(); ?>">
   <?php page_titre('Scanner / Chercher', array('Opérations')); ?>
   <section class="content"><div class="container-fluid">
 
@@ -22,7 +22,7 @@ page_script('assets/js/scan.js');
 
       <div class="row sc-outils">
         <div class="col-lg-5 col-md-6 form-group">
-          <label for="recherche">Chercher une pièce par son nom ou son code</label>
+          <label for="recherche" id="lib-recherche">Chercher une pièce par son nom ou son code</label>
           <select id="recherche" class="form-control"><option></option></select>
         </div>
         <div class="col-lg-4 col-md-6 form-group">
@@ -31,17 +31,18 @@ page_script('assets/js/scan.js');
         </div>
         <div class="col-lg-3 col-md-12 form-group sc-boutons">
           <button type="button" id="btn-camera" class="btn btn-outline-primary" aria-expanded="false" aria-controls="cam-zone"><i class="fas fa-camera mr-1" aria-hidden="true"></i> Utiliser la caméra</button>
-          <button type="button" id="btn-clavier" class="btn btn-outline-secondary" aria-pressed="false" title="Afficher le clavier de la tablette pour taper un code"><i class="fas fa-keyboard mr-1" aria-hidden="true"></i> Clavier</button>
+          <button type="button" id="btn-clavier" class="btn btn-outline-secondary" aria-pressed="false" title="Afficher le clavier de la tablette pour taper un code"><i class="fas fa-keyboard mr-1" aria-hidden="true"></i> Clavier à l'écran</button>
         </div>
       </div>
       <div id="cam-zone" class="d-none"></div>
     </div></div>
 
     <div id="sc-messages" aria-live="polite"></div>
+    <div id="sc-annonce" class="sr-only" role="status" aria-live="polite"></div>
 
     <div class="row">
       <div class="col-xl-8">
-        <div id="sc-resultat">
+        <div id="sc-resultat" role="region" aria-label="Résultat du scan">
           <div class="card"><div class="card-body text-muted sc-accueil">
             <i class="fas fa-barcode fa-2x mb-2" aria-hidden="true"></i><br>
             Scannez une pièce pour voir où elle se trouve, ou un emplacement (cube, entrepôt, boutique) pour voir tout ce qu'il contient.

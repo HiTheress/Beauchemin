@@ -29,7 +29,8 @@
 .sc-alerte { font-size: 1.1rem; margin: .75rem 0 0; }
 .sc-table th, .sc-table td { vertical-align: middle; }
 .sc-table tr.sc-ent th { background: #eef3fb; border-top: 2px solid #c9d8f0; }
-.sc-table .btn { min-height: 38px; }
+.sc-table .btn { min-height: 44px; min-width: 44px; padding-left: .8rem; padding-right: .8rem; }
+.sc-table .btn.sc-voir-piece { padding-left: .6rem !important; padding-right: .6rem !important; display: inline-flex; align-items: center; justify-content: center; }
 .sc-code-chip { background: #f1f3f5; border: 1px solid #dee2e6; border-radius: .25rem; padding: .15rem .5rem; font-size: 1rem; }
 .sc-codes li { margin-bottom: .35rem; }
 .sc-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.1rem; }
@@ -41,6 +42,11 @@
 
 /* Historique de la session */
 .sc-historique .card-title { font-size: 1.05rem; font-weight: 700; }
+#sc-vider-hist { min-height: 44px; min-width: 44px; padding-left: .9rem; padding-right: .9rem; }
+/* AdminLTE ajoute un pseudo-élément (3e élément flex) à .card-header : il repousse le bouton vers le milieu de la carte */
+.sc-historique .card-header::after, .cp-carte .card-header::after { display: none; }
+/* Le résultat d'un scan est amené à l'écran (scrollIntoView) : on laisse la place de la barre du haut, fixe */
+#sc-resultat { scroll-margin-top: 4.5rem; }
 .sc-hist-item { border-bottom: 1px solid #eef0f2; }
 .sc-hist-item:last-child { border-bottom: 0; }
 .sc-hist-btn { display: block; width: 100%; text-align: left; background: none; border: 0; padding: .6rem .9rem; min-height: 44px; font-size: .95rem; }
@@ -61,13 +67,26 @@ button.sc-hist-btn:hover, button.sc-hist-btn:focus { background: #eef3fb; }
 .cp-statut { font-size: 1rem; padding: .35rem .65rem; }
 .cp-numero { font-size: 1.5rem; font-weight: 700; }
 .cp-table td, .cp-table th { vertical-align: middle; }
-.cp-table input.cp-qte { width: 110px; min-height: 44px; text-align: right; display: inline-block; }
+.cp-table td.code, .cp-table th.code, .cp-apercu .code, .sc-table td.code { white-space: nowrap; }
+.cp-table input.cp-qte { width: 110px; min-height: 44px; text-align: right; display: inline-block; font-size: 1.15rem; font-weight: 700; color: #212529; }
+.cp-erreur-champ { color: #a71d2a; font-size: .85rem; font-weight: 600; margin: .2rem 0 0 auto; max-width: 14rem; white-space: normal; text-align: left; }
+.cp-erreur-champ:empty { display: none; }
+/* « Retirer ? » : l'icône et le texte restent dans le bouton (la cible du clic ne disparaît jamais) ; l'état armé change l'affichage */
+.cp-retirer .cp-retirer-texte { display: none; }
+.cp-retirer.cp-arme .cp-retirer-texte { display: inline; font-weight: 700; }
+.cp-retirer.cp-arme .cp-retirer-icone { display: none; }
 .cp-table .btn { min-height: 44px; min-width: 44px; }
-.cp-table tr.cp-flash td { background: #d4edda; transition: background .6s; }
+.cp-table tr.cp-flash td { background: #b7e4c7; transition: background .6s; }
 .cp-table tr.cp-erreur-ligne td { background: #f8d7da; }
 .cp-ecart-pos { color: #1e7e34; font-weight: 700; }
 .cp-ecart-neg { color: #c82333; font-weight: 700; }
 .cp-ecart-nul { color: #6c757d; }
+.cp-dernier { margin-top: .75rem; padding: .6rem .9rem; border-radius: .35rem; font-size: 1.3rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem 1rem; }
+.cp-dernier.d-none { display: none; }
+.cp-dernier-ok { background: #d4edda; border: 2px solid #1e7e34; color: #14532d; }
+.cp-dernier-ko { background: #f8d7da; border: 2px solid #c82333; color: #721c24; font-weight: 600; }
+.cp-dernier-nom { font-weight: 600; }
+.cp-dernier-total strong { font-size: 1.8rem; }
 .cp-journal { list-style: none; margin: .5rem 0 0; padding: 0; font-size: .95rem; }
 .cp-journal li { padding: .2rem 0; border-bottom: 1px dashed #e3e6ea; }
 .cp-journal li.cp-j-ko { color: #c82333; font-weight: 600; }
@@ -80,7 +99,10 @@ button.sc-hist-btn:hover, button.sc-hist-btn:focus { background: #eef3fb; }
 .modal .btn, .modal .form-control { min-height: 44px; }
 .cp-liste-filtres label { display: block; margin-bottom: .2rem; font-size: .85rem; color: #495057; }
 .cp-liste-filtres .form-control { min-height: 44px; }
-#table-comptages tbody td { padding-top: .7rem; padding-bottom: .7rem; }
+#table-comptages tbody td { padding: .6rem .5rem; vertical-align: middle; }
+#table-comptages thead th { padding-left: .5rem; padding-right: .5rem; }
+#table-comptages a.cp-numero-lien, #table-comptages .cp-date { white-space: nowrap; }
+#table-comptages td .text-muted { font-size: .85rem; }
 .dataTables_wrapper .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
 
 @media (max-width: 767.98px) {
@@ -90,3 +112,25 @@ button.sc-hist-btn:hover, button.sc-hist-btn:focus { background: #eef3fb; }
 @media print {
   .sc-actions, .sc-carte, .sc-historique, .cp-barre, .cp-saisie, .modal { display: none !important; }
 }
+
+/* ------------------------------------------------------------------ focus, contraste, retour visuel (lisibilité au comptoir, en plein soleil) */
+/* Le thème neutralise le halo de focus des champs : on le rétablit (contraste ≥ 3:1) pour tout le module */
+#page-scanner .form-control:focus, #page-comptage .form-control:focus, #page-comptage-voir .form-control:focus,
+#page-scanner .custom-select:focus, #page-comptage .custom-select:focus, #page-comptage-voir .custom-select:focus { border-color: #0b5ed7; box-shadow: 0 0 0 .25rem rgba(11,94,215,.45); outline: 0; }
+#page-scanner .select2-container--focus .select2-selection, #page-scanner .select2-container--open .select2-selection,
+#page-comptage-voir .select2-container--focus .select2-selection, #page-comptage-voir .select2-container--open .select2-selection { border-color: #0b5ed7; box-shadow: 0 0 0 .25rem rgba(11,94,215,.45); }
+#page-scanner .btn:focus-visible, #page-comptage .btn:focus-visible, #page-comptage-voir .btn:focus-visible, #page-scanner a:focus-visible, #page-comptage-voir a:focus-visible,
+.sc-hist-btn:focus-visible { outline: 3px solid #0b5ed7; outline-offset: 2px; }
+/* Champ de scan : actif = bleu, halo net et fond clair ; sans le focus = cadre gris (et texte d'invite « champ inactif », voir scan.js) : le lecteur écrirait dans le vide.
+   Aucun changement de hauteur au passage du focus : le tableau en dessous ne bouge pas sous le doigt. */
+.scan-box { transition: background .15s, box-shadow .15s; }
+.scan-box:focus-within { border-color: #0b5ed7; box-shadow: 0 0 0 .3rem rgba(11,94,215,.4); background: #eef6ff; }
+.scan-box:not(:focus-within) { border-color: #868e96; background: #f1f3f5; }
+.scan-box.ok, .scan-box.ok:not(:focus-within), .scan-box.ok:focus-within { border-color: #1e7e34; background: #d4edda; box-shadow: 0 0 0 .35rem rgba(30,126,52,.55); }
+.scan-box.erreur, .scan-box.erreur:not(:focus-within), .scan-box.erreur:focus-within { border-color: #c82333; background: #f8d7da; box-shadow: 0 0 0 .35rem rgba(200,35,51,.5); }
+.scan-box input.scan-input::placeholder { color: #5c636a; opacity: 1; }
+/* Contrastes : le bleu clair et le vert du thème ne passent pas 4,5:1 avec du texte blanc */
+#page-scanner .alert-info, #page-comptage .alert-info, #page-comptage-voir .alert-info, #page-scanner .badge-info, #page-comptage .badge-info, #page-comptage-voir .badge-info { background-color: #117a8b !important; border-color: #10707f !important; color: #fff !important; }
+#page-scanner .alert-success, #page-comptage .alert-success, #page-comptage-voir .alert-success, #page-scanner .badge-success, #page-comptage .badge-success, #page-comptage-voir .badge-success { background-color: #1e7e34 !important; border-color: #1c7430 !important; color: #fff !important; }
+#page-scanner .alert-success a, #page-comptage-voir .alert-success a { color: #fff; text-decoration: underline; }
+.sc-table tr.sc-ent small, .sc-table tr.sc-ent .text-muted { color: #495057 !important; }

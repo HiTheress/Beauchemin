@@ -110,6 +110,17 @@ async function installerCamera(page) {
     window.BarcodeDetector = class { constructor() {} static async getSupportedFormats() { return ['code_128', 'ean_13']; } async detect() { return window.__camCode ? [{ rawValue: window.__camCode }] : []; } };
   });
 }
+/** Rapport de contraste (WCAG) entre le texte et le fond effectif d'un élément de la page. */
+async function contrasteDe(p, sel, pseudo) {
+  return p.evaluate(([sel, pseudo]) => {
+    const lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    const parse = s => (s.match(/[\d.]+/g) || []).slice(0, 4).map(Number);
+    const fond = el => { for (let x = el; x; x = x.parentElement) { const c = parse(getComputedStyle(x).backgroundColor); if (c.length === 3 || (c.length === 4 && c[3] > 0.99)) { return c.slice(0, 3); } } return [255, 255, 255]; };
+    const el = document.querySelector(sel); if (!el) { return null; }
+    const a = lum(parse(getComputedStyle(el, pseudo || null).color).slice(0, 3)), b = lum(fond(el));
+    return Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100;
+  }, [sel, pseudo || null]);
+}
 const sections = [];
 async function section(nom, fn) {
   const avant = process.hrtime.bigint();
@@ -141,7 +152,7 @@ async function section(nom, fn) {
     await g.waitForSelector('#sc-resultat .sc-fiche');
     const f = await texte(g, '#sc-resultat');
     verifier(f.includes('P-0001') && f.includes('Thermocouple 36 po'), 'code et nom de la pièce');
-    verifier(f.includes('Contrôles') && f.includes('Unité : unité'), 'catégorie et unité');
+    verifier(f.includes('Contrôles') && !f.includes('Unité :'), 'catégorie ; pas de badge « Unité : unité » quand l\'unité est « unité » (constat 36)');
     verifier(/Beauchemin.*Total : 11/.test(f), 'total par entreprise (8 + 3 = 11) : ' + f.slice(0, 300));
     const lignes = await g.$$eval('#sc-resultat tr[data-emplacement]', rs => rs.map(r => [r.children[0].textContent, r.children[1].textContent].map(x => x.replace(/\s+/g, ' ').trim())));
     verifier(lignes.length === 2 && lignes[0][0].startsWith('Entrepôt principal') && lignes[0][1] === '8' && lignes[1][0].startsWith('Cube 12') && lignes[1][1] === '3', 'quantité par emplacement : ' + JSON.stringify(lignes));
@@ -446,14 +457,28 @@ async function section(nom, fn) {
     await L.scanner(e, '#scan', 'P-0014');   // désactivée plus haut
     await e.waitForFunction(() => /désactivée/.test(document.querySelector('#cv-alerte').textContent));
     verifier((await texte(e, '#cv-alerte')).includes('P-0014'), 'pièce désactivée : refusée avec son code');
-    await e.fill('#cv-table tr[data-piece="' + P3 + '"] .cp-qte', 'abc');
-    await e.press('#cv-table tr[data-piece="' + P3 + '"] .cp-qte', 'Enter');
-    await e.waitForFunction(() => /invalide/i.test(document.querySelector('#cv-alerte').textContent));
-    verifier((await lignesComptage(e)).find(x => x.code === 'P-0003').compte === '2', 'quantité invalide refusée : la valeur précédente revient');
-    await e.fill('#cv-table tr[data-piece="' + P3 + '"] .cp-qte', '-4');
-    await e.press('#cv-table tr[data-piece="' + P3 + '"] .cp-qte', 'Enter');
-    await e.waitForFunction(() => /invalide/i.test(document.querySelector('#cv-alerte').textContent));
+    const champ3 = '#cv-table tr[data-piece="' + P3 + '"] .cp-qte', erreur3 = '#cv-table tr[data-piece="' + P3 + '"] .cp-erreur-champ';
+    await e.fill(champ3, 'abc');
+    await e.press(champ3, 'Enter');
+    await e.waitForFunction(sel => /n'est pas valide/.test(document.querySelector(sel).textContent), erreur3);
+    verifier((await texte(e, erreur3)).includes('« abc » n\'est pas valide : tapez un nombre positif') && await e.getAttribute(champ3, 'aria-invalid') === 'true', 'constat 34 : quantité invalide : message précis SOUS la cellule (aria-invalid) : ' + await texte(e, erreur3));
+    verifier(await focusId(e) !== 'scan' && (await e.evaluate(() => document.activeElement.classList.contains('cp-qte'))), 'constat 34 : le curseur reste dans le champ à corriger');
+    verifier(sql("SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = " + C1 + " AND piece_id = " + P3) === '2.000', 'quantité invalide : rien n\'est envoyé');
+    await e.fill(champ3, '-4');
+    await e.press(champ3, 'Enter');
+    await e.waitForFunction(sel => /n'est pas valide/.test(document.querySelector(sel).textContent), erreur3);
     verifier(sql("SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = " + C1 + " AND piece_id = " + P3) === '2.000', 'quantité négative refusée');
+    await e.fill(champ3, '1,2345');
+    await e.press(champ3, 'Enter');
+    await e.waitForFunction(sel => /trop de décimales/.test(document.querySelector(sel).textContent), erreur3);
+    verifier(sql("SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = " + C1 + " AND piece_id = " + P3) === '2.000', 'constat 34 : « 1,2345 » refusé (pas arrondi en silence)');
+    await e.fill(champ3, '2'); await e.press(champ3, 'Enter');   // valeur d'origine : l'erreur s'efface
+    await e.waitForFunction(sel => document.querySelector(sel).textContent === '', erreur3);
+    await e.fill(champ3, '1 000'); await e.press(champ3, 'Enter');   // espace des milliers accepté
+    await e.waitForFunction(id => document.querySelector('#cv-table tr[data-piece="' + id + '"] .cp-qte').getAttribute('data-serveur') === '1000.000', P3);
+    await e.fill(champ3, '2'); await e.press(champ3, 'Enter');
+    await e.waitForFunction(id => document.querySelector('#cv-table tr[data-piece="' + id + '"] .cp-qte').getAttribute('data-serveur') === '2.000', P3);
+    verifier(await focusId(e) === 'scan', 'le curseur revient au champ de scan après une quantité valide');
     verifier(sql('SELECT COUNT(*) FROM comptage_lignes WHERE comptage_id = ' + C1) === avant, 'aucune ligne ajoutée par les scans refusés');
     // XSS : le nom de la pièce P-0005 (renommée) dans le comptage et la recherche
     await e.click('#page-comptage-voir .select2-selection');
@@ -734,17 +759,26 @@ async function section(nom, fn) {
       await L.aller(p, 'comptage_voir&id=' + C5);
       verifier((await texte(p, '.content-wrapper')).includes('n\'existe pas ou vous n\'y avez pas accès') && await p.locator('#cv-table').count() === 0, qui + ' : page d\'un comptage d\'une autre entreprise refusée');
       const r1 = await appel(p, 'app/ajax/comptage_detail.php?id=' + C5, null);
-      verifier(r1.status === 400 && /accès/.test(r1.json.erreur) && !/P-0010/.test(r1.texte), qui + ' : detail refusé : ' + r1.texte);
+      verifier(r1.status === 400 && /Comptage introuvable ou non accessible/.test(r1.json.erreur) && !/P-0010/.test(r1.texte), qui + ' : detail refusé : ' + r1.texte);
       const r2 = await appel(p, 'app/action/comptage_scan.php', { id: C5, code: 'P-0010', mode: 'ajouter', quantite: '1' });
-      verifier(r2.status === 400 && /accès/.test(r2.json.erreur), qui + ' : scan refusé : ' + r2.texte);
+      verifier(r2.status === 400 && /Comptage introuvable ou non accessible/.test(r2.json.erreur), qui + ' : scan refusé : ' + r2.texte);
       const r3 = await appel(p, 'app/action/comptage_retirer.php', { id: C5, piece_id: P9 });
-      verifier(r3.status === 400 && /accès/.test(r3.json.erreur), qui + ' : retrait refusé');
+      verifier(r3.status === 400 && /Comptage introuvable ou non accessible/.test(r3.json.erreur), qui + ' : retrait refusé');
       const r4 = await appel(p, 'app/action/comptage_annuler.php', { id: C5 });
-      verifier(r4.status === 400 && /accès/.test(r4.json.erreur), qui + ' : annulation refusée');
+      verifier(r4.status === 400 && /Comptage introuvable ou non accessible/.test(r4.json.erreur), qui + ' : annulation refusée');
       const r5 = await appel(p, 'app/action/comptage_appliquer.php', { id: C5, zero_non_scannees: true });
-      verifier(r5.status === 400 && /(accès|permission)/.test(r5.json.erreur), qui + ' : application refusée : ' + r5.texte);
+      verifier(r5.status === 400 && /Comptage introuvable ou non accessible/.test(r5.json.erreur), qui + ' : application refusée : ' + r5.texte);
       const r6 = await appel(p, 'app/ajax/comptage_apercu.php?id=' + C5, null);
-      verifier(r6.status === 400 && /(accès|permission)/.test(r6.json.erreur), qui + ' : aperçu refusé');
+      verifier(r6.status === 400 && /Comptage introuvable ou non accessible/.test(r6.json.erreur), qui + ' : aperçu refusé');
+      // constat 18 : un comptage inexistant et un comptage d'une autre entreprise reçoivent EXACTEMENT la même réponse (aucune énumération possible)
+      for (const [nom, url, corps] of [['detail', 'app/ajax/comptage_detail.php?id=', null], ['aperçu', 'app/ajax/comptage_apercu.php?id=', null]]) {
+        const inex = await appel(p, url + '999999', corps), autre = await appel(p, url + C5, corps);
+        verifier(inex.texte === autre.texte && inex.status === autre.status, qui + ' : ' + nom + ' : comptage inexistant et comptage d\'une autre entreprise indiscernables : ' + inex.texte + ' / ' + autre.texte);
+      }
+      for (const u of ['comptage_scan', 'comptage_retirer', 'comptage_annuler', 'comptage_appliquer']) {
+        const inex = await appel(p, 'app/action/' + u + '.php', { id: 999999, code: 'P-0010', piece_id: P9 }), autre = await appel(p, 'app/action/' + u + '.php', { id: C5, code: 'P-0010', piece_id: P9 });
+        verifier(inex.texte === autre.texte && inex.status === autre.status, qui + ' : ' + u + ' : comptage inexistant et comptage d\'une autre entreprise indiscernables : ' + inex.texte + ' / ' + autre.texte);
+      }
       const r7 = await appel(p, 'app/action/comptage_creer.php', { emplacement_id: 2 });
       verifier(r7.status === 400 && /Emplacement introuvable ou non accessible/.test(r7.json.erreur), qui + ' : création de comptage dans une autre entreprise refusée : ' + r7.texte);
       const r8 = await appel(p, 'app/ajax/scanner_contenu.php?emplacement_id=2', null);
@@ -826,14 +860,16 @@ async function section(nom, fn) {
     await L.aller(t, 'scanner');
     await L.scanner(t, '#scan', 'P-0001'); await t.waitForSelector('#sc-resultat .sc-fiche');
     await sansDebordement('scanner (fiche pièce)');
-    const hauteurs = await t.$$eval('#btn-camera, #btn-clavier, #sc-resultat .sc-actions .btn, #sc-resultat .sc-voir-emp', bs => bs.map(b => b.getBoundingClientRect().height));
-    verifier(hauteurs.length >= 6 && hauteurs.every(h => h >= 38), 'scanner : zones cliquables ≥ 38 px (' + hauteurs.map(h => Math.round(h)) + ')');
+    const hauteurs = await t.$$eval('#btn-camera, #btn-clavier, #sc-resultat .sc-actions .btn, #sc-resultat .sc-voir-emp, #sc-vider-hist', bs => bs.map(b => b.getBoundingClientRect().height));
+    verifier(hauteurs.length >= 7 && hauteurs.every(h => h >= 43.5), 'constats 13/30 : scanner : zones cliquables ≥ 44 px (' + hauteurs.map(h => Math.round(h)) + ')');
     verifier(await t.evaluate(() => document.querySelector('#scan').getBoundingClientRect().height) >= 44, 'scanner : champ de scan ≥ 44 px');
     verifier(await t.getAttribute('#scan', 'inputmode') === 'none', 'scanner : pas de clavier tactile par défaut');
     await t.click('#btn-clavier');
     verifier(await t.getAttribute('#scan', 'inputmode') === 'text', 'bouton Clavier : le clavier tactile peut s\'afficher');
     await L.scanner(t, '#scan', 'EMP-000003'); await t.waitForSelector('#sc-resultat .sc-fiche-emp');
     await sansDebordement('scanner (emplacement)');
+    const h3 = await t.$$eval('#sc-resultat .sc-voir-piece, #sc-vider-hist', bs => bs.map(b => [b.getBoundingClientRect().height, b.getBoundingClientRect().width]));
+    verifier(h3.length >= 5 && h3.every(([h, w]) => h >= 43.5 && w >= 43.5), 'constats 13/30 : codes cliquables du contenu et bouton « Effacer » ≥ 44 × 44 px (' + JSON.stringify(h3.map(x => x.map(Math.round))) + ')');
     await L.aller(t, 'comptage'); await sansDebordement('liste des comptages');
     await t.waitForFunction(() => !document.querySelector('#nouveau-emp').disabled);
     await t.selectOption('#nouveau-emp', '4'); await Promise.all([t.waitForURL(/comptage_voir/), t.click('#btn-nouveau')]);
@@ -847,6 +883,455 @@ async function section(nom, fn) {
     await t.waitForFunction(() => document.querySelector('#cv-statut').textContent === 'Annulé');
     verifier(reelles(t).length === 0, 'console propre (tablette) : ' + JSON.stringify(reelles(t)));
     await t.context().close();
+  });
+
+  // =====================================================================================================================
+  //  CORRECTIONS DE LA RELECTURE (les numéros renvoient à la liste des constats du module D1)
+  // =====================================================================================================================
+  const P2 = idPiece('P-0002'), P4 = idPiece('P-0004'), P10 = idPiece('P-0010'), P12 = idPiece('P-0012');
+  const POST_JSON = (p, url, corps) => appel(p, url, corps);
+
+  await section('Constats 1 et 6 : un comptage de plus de 300 écarts crée plusieurs ajustements (aperçu, application, lecture)', async () => {
+    verifier(outil('masse', '4', '305', '1') === '305', 'préparation : 305 pièces GROS-0001… avec 1 en stock au cube 14');
+    const dernierDoc = parseInt(sql('SELECT COALESCE(MAX(id), 0) FROM documents'), 10);
+    const restant = sql("SELECT COUNT(*) FROM stock s JOIN pieces p ON p.id = s.piece_id WHERE s.emplacement_id = 4 AND s.quantite > 0 AND p.code NOT LIKE 'GROS-%'");   // pièces du cube 14 qui seront « non scannées »
+    const total = 305 + parseInt(restant, 10);
+    await L.aller(g, 'comptage');
+    await g.waitForFunction(() => !document.querySelector('#nouveau-emp').disabled);
+    await L.scanner(g, '#scan', 'EMP-000004');
+    await g.waitForURL(/comptage_voir/); await g.waitForSelector('#cv-statut');
+    const CG = idComptage(4);
+    await g.evaluate(async ([id, n]) => {
+      const jeton = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+      const un = async i => {
+        const r = await fetch('app/action/comptage_scan.php', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': jeton }, body: JSON.stringify({ id, code: 'GROS-' + String(i).padStart(4, '0'), mode: 'fixer', quantite: '2', aveugle: 1 }) });
+        const j = await r.json(); if (!j.ok) throw new Error('GROS-' + i + ' : ' + j.erreur);
+      };
+      for (let d = 1; d <= n; d += 20) await Promise.all(Array.from({ length: Math.min(20, n - d + 1) }, (_, k) => un(d + k)));
+    }, [CG, 305]);
+    verifier(sql('SELECT COUNT(*) FROM comptage_lignes WHERE comptage_id = ' + CG) === '305', '305 pièces comptées à 2');
+    await g.reload(); await g.waitForSelector('#cv-statut'); await g.waitForFunction(() => document.querySelectorAll('#cv-table tbody tr').length === 305);
+    await g.click('#btn-appliquer');
+    await g.waitForSelector('#ap-table');
+    let bilan = await texte(g, '#ap-bilan');
+    verifier(bilan.includes('305 pièces seront ajustées') && bilan.includes('2 documents d\'ajustement') && bilan.includes('300 pièces au plus chacun'), 'l\'aperçu annonce DEUX documents au-delà de 300 écarts : ' + bilan);
+    await cocher(g, '#ap-zero', true);
+    bilan = await texte(g, '#ap-bilan');
+    verifier(restant === '1' && bilan.includes(total + ' pièces seront ajustées') && bilan.includes('2 documents d\'ajustement') && (await texte(g, '#ap-zero-zone')).includes('P-0009'), 'avec « non scannées à 0 » : 305 + ' + restant + ' = ' + total + ' pièces, toujours 2 documents : ' + bilan);
+    await cocher(g, '#ap-ok', true);
+    verifier(!(await g.locator('#ap-confirmer').isDisabled()) && (await texte(g, '#ap-confirmer')).includes(total + ' ajustements'), 'le bouton annonce ' + total + ' ajustements');
+    await g.click('#ap-confirmer');
+    await g.waitForSelector('#lien-ajustement-resultat');
+    const alerteFin = await texte(g, '#cv-alerte');
+    await attendre(300);
+    const cSucces = await contrasteDe(g, '#cv-alerte .alert-success');
+    verifier(cSucces !== null && cSucces >= 4.5, 'constat 32 : le message vert « Comptage appliqué » est lisible (contraste ' + cSucces + ':1)');
+    verifier(/Ajustements AJU-\d{4}-\d{5}, AJU-\d{4}-\d{5}/.test(alerteFin) && alerteFin.includes(total + ' pièces') && await g.locator('#cv-alerte a').count() === 2, 'message final : les DEUX documents d\'ajustement sont liés : ' + alerteFin);
+    const docs = sql("SELECT GROUP_CONCAT(n SEPARATOR ',') FROM (SELECT (SELECT COUNT(*) FROM document_lignes l WHERE l.document_id = d.id) AS n FROM documents d WHERE d.type = 'ajustement' AND d.motif = 'comptage' AND d.emplacement_id = 4 AND d.id > " + dernierDoc + " ORDER BY d.id) t");
+    verifier(docs === '300,' + (total - 300), 'deux ajustements en base : 300 lignes puis ' + (total - 300) + ' : ' + docs);
+    verifier(sql("SELECT COUNT(*) FROM stock s JOIN pieces p ON p.id = s.piece_id WHERE p.code LIKE 'GROS-%' AND s.emplacement_id = 4 AND s.quantite = 2") === '305' && stock('P-0009', 4) === '0.000' && stock('P-0010', 4) === '0.000', 'stock : 305 pièces à 2, non scannées remises à 0');
+    verifier(sql("SELECT statut FROM comptages WHERE id = " + CG) === 'applique' && invariantOk(), 'comptage appliqué ; invariant stock = somme des mouvements');
+    // lecture après coup : en-tête avec les deux documents, écarts appliqués de TOUTES les lignes (y compris celles du 2e document)
+    await g.waitForFunction(() => document.querySelector('#cv-statut') && document.querySelector('#cv-statut').textContent === 'Appliqué');
+    const ent = await texte(g, '#cv-entete');
+    verifier(/Ajustements/.test(ent) && ent.includes('2 documents') && await g.locator('#cv-entete a').count() === 2, 'l\'en-tête du comptage appliqué liste les deux ajustements : ' + ent);
+    const brut = await appel(g, 'app/ajax/comptage_detail.php?id=' + CG, null);
+    verifier(brut.json.comptage.documents.length === 2 && brut.json.lignes.length === 305 && brut.json.lignes.every(l => l.ecart_applique === '1.000') && brut.json.remises_a_zero.length === parseInt(restant, 10), 'comptage_detail : 2 documents, 305 lignes à +1 appliqué, ' + restant + ' remise à 0 : ' + brut.texte.slice(0, 200));
+    await L.aller(g, 'comptage'); await g.waitForSelector('#table-comptages tbody tr td');
+    await g.fill('#table-comptages_filter input', 'Cube 14');
+    await g.waitForFunction(() => /et 1 autre/.test(document.querySelector('#table-comptages tbody').textContent));
+    verifier(true, 'la liste des comptages signale « et 1 autre » ajustement');
+  });
+
+  await section('Constats 2 et 7 : l\'aperçu est lié à l\'application (empreinte) — comptage ou stock modifié entre les deux', async () => {
+    // --- (7) un autre utilisateur change une quantité comptée après l'aperçu du gestionnaire
+    await L.aller(g, 'comptage'); await g.waitForFunction(() => !document.querySelector('#nouveau-emp').disabled);
+    await L.scanner(g, '#scan', 'EMP-000001'); await g.waitForURL(/comptage_voir/); await g.waitForSelector('#cv-statut');
+    const CF = idComptage(1);
+    await rafale(g, ['P-0002', 'P-0002']); await fileVide(g);
+    await g.click('#btn-appliquer'); await g.waitForSelector('#ap-table');
+    await cocher(g, '#ap-ok', true);
+    verifier(!(await g.locator('#ap-confirmer').isDisabled()), 'aperçu confirmé par le gestionnaire (P-0002 : 2 compté)');
+    const r = await appel(e, 'app/action/comptage_scan.php', { id: CF, code: 'P-0004', mode: 'fixer', quantite: '50' });   // l'employé gonfle une quantité APRÈS l'aperçu
+    verifier(r.status === 200, 'un autre écran modifie le comptage pendant que l\'aperçu est ouvert');
+    await g.click('#ap-confirmer');
+    await g.waitForSelector('#ap-changement');
+    verifier((await texte(g, '#ap-changement')).includes('a changé depuis l\'aperçu') && sql('SELECT statut FROM comptages WHERE id = ' + CF) === 'en_cours' && stock('P-0004', 1) === '12.000', 'application REFUSÉE : le comptage a changé depuis l\'aperçu, rien n\'est appliqué');
+    verifier(!(await g.isChecked('#ap-ok')) && await g.locator('#ap-confirmer').isDisabled(), 'la confirmation est à refaire (case décochée, bouton désactivé)');
+    verifier((await texte(g, '#ap-table')).includes('P-0004') && (await texte(g, '#ap-table')).includes('50'), 'l\'aperçu est relu : P-0004 compté 50 apparaît');
+    // --- l'empreinte lie aussi l'application à la case « non scannées à 0 » (POST direct)
+    const ap1 = await appel(g, 'app/ajax/comptage_apercu.php?id=' + CF, null);
+    verifier(ap1.status === 200 && /^[0-9a-f]{64}$/.test(ap1.json.empreinte) && ap1.json.empreinte !== ap1.json.empreinte_zero && ap1.json.max_lignes === 300, 'l\'aperçu renvoie deux empreintes (avec / sans « à 0 ») et la limite par document');
+    let b = await appel(g, 'app/action/comptage_appliquer.php', { id: CF, zero_non_scannees: false });
+    verifier(b.status === 400 && /Ouvrez l'aperçu/.test(b.json.erreur), 'POST direct SANS empreinte refusé : ' + b.texte);
+    b = await appel(g, 'app/action/comptage_appliquer.php', { id: CF, zero_non_scannees: false, empreinte: 'x'.repeat(64) });
+    verifier(b.status === 400 && b.json.champ === 'apercu', 'POST direct avec une fausse empreinte refusé : ' + b.texte);
+    b = await appel(g, 'app/action/comptage_appliquer.php', { id: CF, zero_non_scannees: false, empreinte: ap1.json.empreinte_zero });
+    verifier(b.status === 400 && b.json.champ === 'apercu', 'l\'empreinte « à 0 » ne vaut pas pour une application SANS « à 0 »');
+    b = await appel(g, 'app/action/comptage_appliquer.php', { id: CF, zero_non_scannees: false, empreinte: ['a'] });
+    verifier(b.status === 400 && /Ouvrez l'aperçu/.test(b.json.erreur), 'empreinte de mauvais type : traitée comme absente');
+    verifier(sql('SELECT statut FROM comptages WHERE id = ' + CF) === 'en_cours', 'aucun de ces refus n\'a appliqué le comptage');
+    // --- (2) du stock bouge entre l'aperçu et la confirmation : refus aussi, la case « à 0 » reste cochée dans l'aperçu relu
+    await cocher(g, '#ap-zero', true); await cocher(g, '#ap-ok', true);
+    verifier((await texte(g, '#ap-zero-zone')).includes('P-0001'), 'avant le mouvement : P-0001 sera remis à 0 (non scanné)');
+    const sAvant = num(stock('P-0001', 1)), sApres = sAvant - 1;
+    outil('transferer', '1', '3', String(P1), '1');   // pendant que l'aperçu est ouvert, un thermocouple quitte l'entrepôt
+    await g.click('#ap-confirmer');
+    await g.waitForFunction(() => document.querySelector('#ap-changement'));
+    await g.waitForFunction(() => document.querySelector('#ap-zero') && document.querySelector('#ap-zero').checked);
+    verifier(sql('SELECT statut FROM comptages WHERE id = ' + CF) === 'en_cours' && num(stock('P-0001', 1)) === sApres, 'constat 2 : stock modifié entre l\'aperçu et la confirmation : application refusée, rien n\'est remis à 0');
+    verifier(!(await g.isChecked('#ap-ok')) && await g.locator('#ap-zero-zone').isVisible() && (await g.$$eval('#ap-table-zero tr[data-piece="' + P1 + '"] td', tds => tds.slice(1).map(t => t.textContent.trim()).join('|'))) === sApres + '|0', 'l\'aperçu relu garde la case « à 0 » cochée et montre le NOUVEAU stock (P-0001 : ' + sApres + ') : ' + await texte(g, '#ap-table-zero tr[data-piece="' + P1 + '"]'));
+    // le gestionnaire confirme maintenant ce qu'il voit : tout est appliqué
+    await cocher(g, '#ap-ok', true); await g.click('#ap-confirmer');
+    await g.waitForSelector('#lien-ajustement-resultat');
+    verifier(stock('P-0001', 1) === '0.000' && stock('P-0002', 1) === '2.000' && stock('P-0004', 1) === '50.000' && sql('SELECT statut FROM comptages WHERE id = ' + CF) === 'applique', 'après confirmation de l\'aperçu à jour : exactement ce qui était affiché est appliqué');
+    verifier(invariantOk(), 'invariant : stock = somme des mouvements');
+  });
+
+  await section('Constats 3 et 20 : caméra — une étiquette tenue devant l\'objectif compte UNE fois, retirée puis représentée elle recompte', async () => {
+    const pc = suivre(await L.nouvellePage(browser));
+    await installerCamera(pc);
+    await L.connecter(pc, 'gestionnaire');
+    await L.aller(pc, 'comptage'); await pc.waitForFunction(() => !document.querySelector('#nouveau-emp').disabled);
+    await L.scanner(pc, '#scan', 'EMP-000005'); await pc.waitForURL(/comptage_voir/); await pc.waitForSelector('#cv-statut');
+    const CC = idComptage(5);
+    await pc.click('#btn-camera'); await pc.waitForSelector('#cam-zone video');
+    verifier(await pc.getAttribute('#btn-camera', 'aria-expanded') === 'true', 'caméra ouverte : aria-expanded = true');
+    await pc.evaluate(() => { window.__camCode = 'P-0012'; });
+    await pc.waitForFunction(id => !!document.querySelector('#cv-table tr[data-piece="' + id + '"]'), P12, { timeout: 8000 });
+    await attendre(7000);                                            // 7 s devant l'objectif (l'ancien code comptait 4)
+    await fileVide(pc);
+    verifier(sql('SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = ' + CC + ' AND piece_id = ' + P12) === '1.000', 'constat 3 : 7 s devant la caméra = 1 seul article compté');
+    verifier((await texte(pc, '#cam-zone')).includes('Lu : P-0012') || (await texte(pc, '#cv-dernier')).includes('P-0012'), 'retour visuel de la lecture');
+    await pc.evaluate(() => { window.__camCode = ''; });
+    await attendre(1300);                                            // retirée de l'image plus de 0,8 s
+    await pc.evaluate(() => { window.__camCode = 'P-0012'; });
+    await pc.waitForFunction(id => document.querySelector('#cv-table tr[data-piece="' + id + '"] .cp-qte').getAttribute('data-serveur') === '2.000', P12, { timeout: 8000 });
+    await attendre(1500); await pc.evaluate(() => { window.__camCode = ''; }); await fileVide(pc);
+    verifier(sql('SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = ' + CC + ' AND piece_id = ' + P12) === '2.000', 'constat 3 : un second article présenté après avoir retiré le premier est compté (2)');
+    // Un clignotement bref (moins de 0,8 s hors image) ne recompte pas
+    await pc.evaluate(() => { window.__camCode = 'P-0012'; }); await attendre(300);
+    await pc.evaluate(() => { window.__camCode = ''; }); await attendre(300);
+    await pc.evaluate(() => { window.__camCode = 'P-0012'; }); await attendre(1500); await pc.evaluate(() => { window.__camCode = ''; }); await fileVide(pc);
+    verifier(sql('SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = ' + CC + ' AND piece_id = ' + P12) === '2.000', 'un détecteur qui clignote (0,3 s hors image) ne multiplie pas les lectures : toujours 2');
+    // fermeture par la page masquée / quittée : le bouton revient à « fermé » (aria-expanded)
+    await pc.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    verifier(await pc.getAttribute('#btn-camera', 'aria-expanded') === 'false' && await pc.locator('#cam-zone video').count() === 0, 'constat 3 : caméra fermée par la page quittée : aria-expanded repasse à false');
+    // même chose sur la page Scanner
+    await L.aller(pc, 'scanner'); await pc.click('#btn-camera'); await pc.waitForSelector('#cam-zone video');
+    await pc.evaluate(() => { window.__camCode = 'P-0007'; });
+    await pc.waitForFunction(() => /P-0007/.test((document.querySelector('#sc-resultat .sc-code') || { textContent: '' }).textContent), null, { timeout: 8000 });
+    await attendre(3500);
+    const nHist = await pc.locator('#sc-hist .sc-hist-item').count();
+    verifier(nHist === 1, 'constat 20 (page Scanner) : l\'étiquette tenue 3,5 s n\'est lue qu\'une fois (' + nHist + ' entrée)');
+    await pc.evaluate(() => { window.__camCode = ''; });
+    await pc.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    verifier(await pc.getAttribute('#btn-camera', 'aria-expanded') === 'false', 'page Scanner : aria-expanded repasse à false');
+    await L.aller(pc, 'comptage_voir&id=' + CC);
+    await pc.click('#btn-annuler'); await pc.waitForSelector('#modal-annuler.show'); await pc.click('#an-confirmer');
+    await pc.waitForFunction(() => document.querySelector('#cv-statut').textContent === 'Annulé');
+    verifier(reelles(pc).length === 0, 'console propre (caméra) : ' + JSON.stringify(reelles(pc)));
+    await pc.context().close();
+  });
+
+  await section('Constat 4 : réseau coupé et session expirée — messages en français, redirection vers la connexion', async () => {
+    const pn = suivre(await L.nouvellePage(browser));
+    await L.connecter(pn, 'employe');
+    await L.aller(pn, 'comptage'); await pn.waitForFunction(() => !document.querySelector('#nouveau-emp').disabled);
+    // création d'un comptage sans réseau (fetch propre à D1)
+    await pn.route('**/comptage_creer.php*', rt => rt.abort());
+    await pn.selectOption('#nouveau-emp', '3'); await pn.click('#btn-nouveau');
+    await pn.waitForFunction(() => /Connexion impossible/.test(document.querySelector('#cp-nouveau-msg').textContent));
+    verifier(!/Failed|fetch|NetworkError/i.test(await texte(pn, '#cp-nouveau-msg')) && await pn.isEnabled('#btn-nouveau'), 'création sans réseau : « Connexion impossible… », bouton réactivé : ' + await texte(pn, '#cp-nouveau-msg'));
+    await pn.unroute('**/comptage_creer.php*');
+    // scanner sans réseau
+    await L.aller(pn, 'scanner');
+    await pn.route('**/scanner_code.php*', rt => rt.abort());
+    await L.scanner(pn, '#scan', 'P-0003');
+    await pn.waitForFunction(() => /Connexion impossible/.test(document.querySelector('#sc-resultat').textContent));
+    verifier(!/Failed|fetch/i.test(await texte(pn, '#sc-resultat')), 'scanner sans réseau : message français');
+    // « Compter cet emplacement » sans réseau
+    await pn.unroute('**/scanner_code.php*');
+    await L.scanner(pn, '#scan', 'EMP-000003'); await pn.waitForSelector('#sc-compter, #sc-reprendre');
+    if (await pn.locator('#sc-compter').count()) {
+      await pn.route('**/comptage_creer.php*', rt => rt.abort());
+      await pn.click('#sc-compter');
+      await pn.waitForFunction(() => /Connexion impossible/.test(document.getElementById('toasts') ? document.getElementById('toasts').textContent : ''));
+      verifier(true, '« Compter cet emplacement » sans réseau : toast « Connexion impossible… »');
+      await pn.unroute('**/comptage_creer.php*');
+    }
+    // liste des comptages sans réseau, puis session expirée
+    await L.aller(pn, 'comptage'); await pn.waitForSelector('#table-comptages tbody tr');
+    await pn.route('**/comptage_data.php*', rt => rt.abort());
+    await pn.selectOption('#f-statut', 'annule');
+    await pn.waitForFunction(() => /Connexion impossible/.test(document.getElementById('toasts') ? document.getElementById('toasts').textContent : ''));
+    const toasts = await texte(pn, '#toasts');
+    verifier(!/DataTables|Ajax error|Failed/i.test(toasts), 'liste sans réseau : toast français, jamais « DataTables warning » : ' + toasts);
+    await pn.unroute('**/comptage_data.php*');
+    await pn.context().clearCookies();
+    await pn.selectOption('#f-statut', 'en_cours');
+    await pn.waitForURL(/login\.php/, { timeout: 8000 });
+    verifier(/login\.php/.test(pn.url()), 'session expirée dans la liste : redirection vers la connexion');
+    await pn.context().close();
+  });
+
+  await section('Constats 8, 9, 26, 27, 34 : retrait armé, carte « pas encore comptées », bouton d\'approbation, style des boutons', async () => {
+    // Un comptage de l'employé au cube 12 ; le gestionnaire le suit en même temps
+    await L.aller(e, 'comptage'); await e.waitForFunction(() => !document.querySelector('#nouveau-emp').disabled);
+    await e.selectOption('#nouveau-emp', '3'); await Promise.all([e.waitForURL(/comptage_voir/), e.click('#btn-nouveau')]);
+    await e.waitForSelector('#cv-statut');
+    const CE = idComptage(3);
+    await rafale(e, ['P-0001', 'P-0002']); await fileVide(e);
+    verifier(/P-0002/.test(await texte(e, '#cv-dernier')) && /Compté : 1/.test(await texte(e, '#cv-dernier')) && await e.locator('#cv-dernier.cp-dernier-ok').count() === 1, 'constat 32 : le dernier scan est affiché en grand (code, nom, nouveau total) : ' + await texte(e, '#cv-dernier'));
+    await attendre(300);   // fin de la transition de couleur
+    verifier(await e.locator('.scan-box.ok').count() === 1 && await e.$eval('.scan-box', b => getComputedStyle(b).backgroundColor) === 'rgb(212, 237, 218)', 'constat 32 : retour visuel net après un scan réussi (cadre vert plein)');
+    const ligne1 = '#cv-table tr[data-piece="' + P1 + '"] .cp-retirer';
+    // (8) clic dans le COIN du bouton ✕ (et non sur l'icône) : il s'arme, le focus reste sur lui ; un scan qui arrive ne le valide jamais
+    await e.click(ligne1, { position: { x: 4, y: 4 } });
+    verifier(await e.locator('.cp-retirer.cp-arme').count() === 1 && (await texte(e, ligne1)) === 'Retirer ?', 'constat 8 : premier clic : le bouton passe à « Retirer ? »');
+    verifier(await e.evaluate(() => document.activeElement.classList.contains('cp-retirer')), 'constat 8 : le focus reste sur le bouton armé (la cible du clic n\'a pas quitté la page)');
+    await attendre(400);   // fin de la transition de couleur de Bootstrap
+    const st = await e.$eval(ligne1, b => { const c = getComputedStyle(b); return [c.backgroundColor, c.color]; });
+    verifier(['rgb(220, 53, 69)', 'rgb(189, 33, 48)'].includes(st[0]) && st[1] === 'rgb(255, 255, 255)', 'constat 27 : le bouton armé « Retirer ? » est un vrai bouton rouge (fond ' + st[0] + ', texte ' + st[1] + ')');
+    await e.keyboard.type('P-0003'); await e.keyboard.press('Enter');     // le lecteur de codes tape alors que le bouton est armé
+    await fileVide(e);
+    verifier(await e.locator('#cv-table tr[data-piece="' + P1 + '"]').count() === 1 && sql("SELECT COUNT(*) FROM comptage_lignes WHERE comptage_id = " + CE + " AND piece_id = " + P1) === '1', 'constat 8 : un scan pendant l\'armement NE retire PAS la ligne');
+    verifier(sql("SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = " + CE + " AND piece_id = " + idPiece('P-0003')) === '1.000' && await e.locator('.cp-retirer.cp-arme').count() === 0, 'constat 8 : le scan est compté (il n\'est plus tapé dans le bouton) et le bouton est désarmé');
+    // le bouton armé retombe seul au bout de quelques secondes
+    await e.click(ligne1, { position: { x: 4, y: 4 } });
+    await attendre(4400);
+    verifier(await e.locator('.cp-retirer.cp-arme').count() === 0 && (await e.$eval(ligne1, b => b.getAttribute('aria-label'))) === 'Retirer P-0001 du comptage', 'constat 8 : l\'armement tombe seul après 4 s');
+    // cliquer ailleurs le désarme aussi
+    await e.click(ligne1, { position: { x: 4, y: 4 } }); await e.click('h2.card-title >> nth=0');
+    verifier(await e.locator('.cp-retirer.cp-arme').count() === 0, 'constat 8 : un clic ailleurs désarme le bouton');
+
+    // (26) bouton « À faire approuver » : le focus retourne au champ de scan
+    await e.click('#btn-approbation', { position: { x: 4, y: 4 } });
+    verifier((await texte(e, '#cv-alerte')).includes('Seul un gestionnaire') && await focusId(e) === 'scan', 'constat 26 : après « À faire approuver », le curseur est dans le champ de scan');
+    await rafale(e, ['P-0004']); await fileVide(e);
+    verifier(sql("SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = " + CE + " AND piece_id = " + P4) === '1.000', 'constat 26 : le scan suivant est compté');
+
+    // (9) le gestionnaire voit « pas encore comptées » se mettre à jour au scan et au retrait
+    await L.aller(g, 'comptage_voir&id=' + CE); await g.waitForSelector('#cv-statut');
+    await g.waitForFunction(() => !document.querySelector('#cv-non-comptees').classList.contains('d-none'));
+    const non = async () => g.$$eval('#cv-non-corps tr', rs => rs.map(r => r.children[0].textContent.trim()));
+    const avant = await non(); const nb0 = parseInt(await g.textContent('#cv-nb-non'), 10);
+    verifier(avant.includes('P-0005') && nb0 === avant.length, 'constat 9 : P-0005 est dans « pas encore comptées » (' + avant + ')');
+    await rafale(g, ['P-0005']); await fileVide(g);
+    const apres = await non();
+    verifier(!apres.includes('P-0005') && parseInt(await g.textContent('#cv-nb-non'), 10) === nb0 - 1, 'constat 9 : après le scan de P-0005 il sort de la liste et le badge baisse (' + apres + ')');
+    await g.click('#cv-table tr[data-piece="' + P5 + '"] .cp-retirer'); await g.click('#cv-table tr[data-piece="' + P5 + '"] .cp-retirer');
+    await g.waitForSelector('#cv-table tr[data-piece="' + P5 + '"]', { state: 'detached' });
+    const retour = await non();
+    verifier(retour.includes('P-0005') && parseInt(await g.textContent('#cv-nb-non'), 10) === nb0, 'constat 9 : la pièce retirée du comptage revient dans « pas encore comptées » (badge ' + nb0 + ')');
+    // (27) le bouton de confirmation d'annulation est un vrai bouton rouge
+    await g.click('#btn-annuler'); await g.waitForSelector('#modal-annuler.show');
+    const st2 = await g.$eval('#an-confirmer', b => { const c = getComputedStyle(b); return [c.backgroundColor, c.color, c.fontSize]; });
+    verifier(st2[0] === 'rgb(220, 53, 69)' && st2[1] === 'rgb(255, 255, 255)' && st2[2] === '16px', 'constat 27 : « Annuler le comptage » (modale) : bouton rouge, texte blanc, 16 px (' + st2 + ')');
+    await g.click('#modal-annuler [data-dismiss="modal"] >> text=Garder le comptage'); await g.waitForSelector('#modal-annuler.show', { state: 'hidden' });
+    // (24, 25) API : code mal formé, « fixer » sans quantité
+    let r = await appel(e, 'app/action/comptage_scan.php', { id: CE, code: ['P-0001'] });
+    verifier(r.status === 400 && r.json.erreur === 'Scannez ou indiquez une pièce.', 'constat 24 : code en tableau -> « Scannez ou indiquez une pièce. » : ' + r.texte);
+    r = await appel(e, 'app/action/comptage_scan.php', { id: CE });
+    verifier(r.status === 400 && r.json.erreur === 'Scannez ou indiquez une pièce.', 'constat 24 : aucun code -> même message');
+    for (const corps of [{ id: CE, piece_id: P1, mode: 'fixer' }, { id: CE, piece_id: P1, mode: 'fixer', quantite: null }, { id: CE, piece_id: P1, mode: 'fixer', quantite: '' }]) {
+      r = await appel(e, 'app/action/comptage_scan.php', corps);
+      verifier(r.status === 400 && r.json.erreur === 'Indiquez la quantité comptée.' && r.json.champ === 'quantite', 'constat 25 : « fixer » sans quantité refusé : ' + r.texte);
+    }
+    verifier(sql("SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = " + CE + " AND piece_id = " + P1) === '1.000', 'constat 25 : la quantité n\'a pas été fixée à 1 en silence');
+    r = await appel(e, 'app/action/comptage_scan.php', { id: CE, piece_id: P1 });
+    verifier(r.status === 200 && r.json.ligne.quantite_comptee === '2.000', 'le mode « ajouter » sans quantité reste +1 (défaut)');
+    // (21) valeurs en tableau sur les points d'entrée partagés : réponse propre, sans avertissement PHP (le journal est vérifié à la fin)
+    r = await appel(g, 'app/ajax/scan_code.php?code[]=x', null);
+    verifier(r.status === 200 && r.json && r.json.trouve === false, 'constat 21 : scan_code.php?code[]= -> réponse propre');
+    r = await appel(g, 'app/ajax/pieces_recherche.php?q[]=x', null);
+    verifier(r.status === 200 && r.json && Array.isArray(r.json.pieces), 'constat 21 : pieces_recherche.php?q[]= -> réponse propre');
+    r = await appel(g, 'app/ajax/scanner_code.php?code[]=x', null);
+    verifier(r.status === 200 && r.json && r.json.trouve === false, 'scanner_code.php?code[]= -> réponse propre');
+  });
+
+  await section('Constats 10, 12, 19 : l\'historique des scans appartient à l\'utilisateur connecté (tablette partagée)', async () => {
+    const ph = suivre(await L.nouvellePage(browser));
+    await connecterComme(ph, 'gestionnaire1');
+    await L.aller(ph, 'scanner');
+    await L.scanner(ph, '#scan', 'EMP-000005'); await ph.waitForSelector('#sc-resultat .sc-fiche-emp');
+    await L.scanner(ph, '#scan', 'P-0009'); await ph.waitForFunction(() => /P-0009/.test((document.querySelector('#sc-resultat .sc-code') || { textContent: '' }).textContent));
+    verifier((await texte(ph, '#sc-hist')).includes('Boutique Centre-ville'), 'le gestionnaire voit son historique (emplacement de l\'entreprise 2)');
+    await ph.goto(L.BASE + '/app/action/logout.php');
+    await connecterComme(ph, 'employe1');
+    await L.aller(ph, 'scanner');
+    const h1 = await texte(ph, '#sc-hist');
+    verifier(!h1.includes('Boutique Centre-ville') && !h1.includes('P-0009') && h1.includes('Aucun scan'), 'constats 10/12/19 : l\'employé qui se connecte après le gestionnaire ne voit AUCUN de ses scans : ' + h1);
+    const cles = await ph.evaluate(() => Object.keys(sessionStorage).filter(k => k.indexOf('bea_scanner_historique') === 0));
+    verifier(cles.length <= 1 && cles.every(k => /_\d+$/.test(k)), 'la clé de stockage porte l\'identifiant de l\'utilisateur et l\'historique du précédent est purgé : ' + JSON.stringify(cles));
+    // ancienne clé commune (avant la correction) : ignorée et supprimée
+    await ph.evaluate(() => sessionStorage.setItem('bea_scanner_historique', JSON.stringify([{ type: 'emplacement', id: 5, code: 'EMP-000005', libelle: 'Boutique Centre-ville — 3 pièces', h: '10:00:00' }])));
+    await ph.reload(); await ph.waitForLoadState('networkidle');
+    verifier(!(await texte(ph, '#sc-hist')).includes('Boutique Centre-ville') && await ph.evaluate(() => sessionStorage.getItem('bea_scanner_historique')) === null, 'l\'ancienne clé commune est supprimée sans être affichée');
+    // l'employé garde SON historique d'une connexion à l'autre
+    await L.scanner(ph, '#scan', 'P-0001'); await ph.waitForSelector('#sc-resultat .sc-fiche');
+    await ph.goto(L.BASE + '/app/action/logout.php'); await connecterComme(ph, 'employe1'); await L.aller(ph, 'scanner');
+    verifier((await texte(ph, '#sc-hist')).includes('P-0001'), 'l\'historique d\'un utilisateur lui revient à sa reconnexion');
+    await ph.context().close();
+  });
+
+  await section('Constats 14, 15, 28, 29, 33, 35, 39 : liste et écran de comptage — disposition, libellés, messages', async () => {
+    const CE = idComptage(3);
+    const pl = suivre(await L.nouvellePage(browser, { width: 1024, height: 768 }));
+    await L.connecter(pl, 'gestionnaire');
+    for (const [w, h] of [[768, 1024], [1024, 768], [1280, 900]]) {
+      await pl.setViewportSize({ width: w, height: h });
+      await L.aller(pl, 'comptage'); await pl.waitForSelector('#table-comptages tbody tr td');
+      const m = await pl.evaluate(() => {
+        const t = document.querySelector('#table-comptages'), wrap = t.closest('.table-responsive');
+        const lien = document.querySelector('#table-comptages a.cp-numero-lien');
+        return { table: t.scrollWidth, wrap: wrap.clientWidth, lien: lien.getBoundingClientRect().height, doc: document.documentElement.scrollWidth, win: window.innerWidth, ajust: [...document.querySelectorAll('#table-comptages thead th')].map(x => x.textContent.trim()) };
+      });
+      verifier(m.table <= m.wrap + 1 && m.doc <= m.win + 1, 'constats 15/28 : liste des comptages sans défilement horizontal à ' + w + ' px (tableau ' + m.table + ' / conteneur ' + m.wrap + ')');
+      verifier(m.lien < 30, 'constats 15/28 : le numéro COM-… tient sur une ligne à ' + w + ' px (hauteur ' + Math.round(m.lien) + ')');
+      verifier(JSON.stringify(m.ajust) === JSON.stringify(['Numéro', 'Emplacement', 'Statut', 'Commencé le', 'Pièces', 'Ajustement']), 'constat 36 : en-têtes « Commencé le », « Pièces » (' + m.ajust + ')');
+      // largeur du texte le plus long de chaque liste (mesuré avec la police du champ) comparée à la largeur utile du champ
+      const filtres = await pl.$$eval('#f-statut, #f-entreprise', ss => ss.map(s => {
+        const c = document.createElement('canvas').getContext('2d'), st = getComputedStyle(s); c.font = st.font;
+        const utile = s.clientWidth - parseFloat(st.paddingLeft) - parseFloat(st.paddingRight) - 24;   // 24 px : flèche de la liste
+        const plusLong = Math.max(...[...s.options].map(o => c.measureText(o.textContent).width));
+        return [plusLong <= utile, s.id + ' ' + Math.round(plusLong) + '/' + Math.round(utile)];
+      }));
+      verifier(filtres.every(([ok]) => ok), 'constat 15 : les listes de filtre ne sont pas tronquées à ' + w + ' px : ' + JSON.stringify(filtres));
+    }
+    const aria = await pl.$$eval('#table-comptages thead th[aria-label]', ths => ths.map(t => t.getAttribute('aria-label')));
+    verifier(aria.length >= 3 && aria.every(a => !/activate|column|ascending|descending/i.test(a)) && aria.some(a => /activer pour trier/.test(a)), 'constat 14 : libellés d\'accessibilité du tri en français : ' + aria.slice(0, 2));
+    verifier((await pl.$$eval('#f-statut option', os => os.map(o => o.textContent.trim()))).join('|') === 'Tous les statuts|En cours|Appliqués|Annulés', 'constat 36 : « Tous les statuts »');
+    // (33) un filtre qui ne trouve rien ne prétend pas qu'il n'y a aucun comptage
+    await pl.selectOption('#f-entreprise', '2'); await pl.selectOption('#f-statut', 'applique');
+    await pl.waitForFunction(() => /ne correspond/.test(document.querySelector('#table-comptages tbody').textContent));
+    verifier((await texte(pl, '#table-comptages tbody')) === 'Aucun comptage ne correspond à ces filtres.', 'constat 33 : « Aucun comptage ne correspond à ces filtres. » (et non « pour le moment ») : ' + await texte(pl, '#table-comptages tbody'));
+    // (15/29) écran de comptage non à l'aveugle (6 colonnes) : les codes ne se coupent pas
+    for (const [w, h] of [[768, 1024], [1024, 768]]) {
+      await pl.setViewportSize({ width: w, height: h });
+      await L.aller(pl, 'comptage_voir&id=' + CE); await pl.waitForSelector('#cv-table tbody tr td.code');
+      const lignes = await pl.$$eval('#cv-table tbody td.code, #cv-non-corps td.code', tds => tds.map(td => { const r = document.createRange(); r.selectNodeContents(td); return new Set([...r.getClientRects()].map(x => Math.round(x.top))).size; }));
+      verifier(lignes.length >= 4 && lignes.every(n => n === 1), 'constats 15/29 : les codes pièce tiennent sur UNE ligne à ' + w + ' px (' + lignes + ')');
+    }
+    // (39) « Actualiser » est bien à droite de sa carte
+    await pl.setViewportSize({ width: 1280, height: 900 });
+    await L.aller(pl, 'comptage_voir&id=' + CE); await pl.waitForSelector('#cv-statut');
+    const al = await pl.evaluate(() => { const b = document.querySelector('#btn-actualiser').getBoundingClientRect(), h = document.querySelector('#btn-actualiser').closest('.card-header').getBoundingClientRect(); return [b.right, h.right]; });
+    verifier(al[1] - al[0] < 40, 'constat 39 : « Actualiser » aligné à droite de la carte (bord ' + Math.round(al[0]) + ' / carte ' + Math.round(al[1]) + ')');
+    // (35) changer « non scannées à 0 » oblige à confirmer de nouveau
+    await pl.click('#btn-appliquer'); await pl.waitForSelector('#ap-table');
+    await cocher(pl, '#ap-ok', true);
+    verifier(!(await pl.locator('#ap-confirmer').isDisabled()), 'confirmation donnée : bouton actif');
+    await cocher(pl, '#ap-zero', true);
+    verifier(!(await pl.isChecked('#ap-ok')) && await pl.locator('#ap-confirmer').isDisabled(), 'constat 35 : cocher « non scannées à 0 » décoche la confirmation et désactive le bouton');
+    await cocher(pl, '#ap-ok', true); await cocher(pl, '#ap-zero', false);
+    verifier(!(await pl.isChecked('#ap-ok')) && await pl.locator('#ap-confirmer').isDisabled(), 'constat 35 : la décocher aussi');
+    await pl.click('#modal-appliquer [data-dismiss="modal"] >> text=Fermer'); await pl.waitForSelector('#modal-appliquer.show', { state: 'hidden' });
+    // fin : le comptage de l'employé est annulé
+    await pl.click('#btn-annuler'); await pl.waitForSelector('#modal-annuler.show'); await pl.click('#an-confirmer');
+    await pl.waitForFunction(() => document.querySelector('#cv-statut').textContent === 'Annulé');
+    verifier(reelles(pl).length === 0, 'console propre (liste et écran de comptage) : ' + JSON.stringify(reelles(pl)));
+    await pl.context().close();
+  });
+
+  await section('Constats 16, 31, 32, 36, 37, 38 : page Scanner — libellés, accessibilité, focus visible, contrastes, défilement', async () => {
+    const ps = suivre(await L.nouvellePage(browser, { width: 1024, height: 768 }));
+    await L.connecter(ps, 'gestionnaire');
+    await L.aller(ps, 'scanner');
+    const contrastes = sels => ps.evaluate(sels => {
+      const lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+      const parse = s => (s.match(/[\d.]+/g) || []).slice(0, 4).map(Number);
+      const fond = el => { for (let x = el; x; x = x.parentElement) { const c = parse(getComputedStyle(x).backgroundColor); if (c.length === 3 || (c.length === 4 && c[3] > 0.99)) { return c.slice(0, 3); } } return [255, 255, 255]; };
+      return sels.map(([sel, pseudo]) => { const el = document.querySelector(sel); if (!el) { return [sel, null]; } const f = parse(getComputedStyle(el, pseudo || null).color).slice(0, 3), b = fond(el); const a = lum(f), c = lum(b); return [sel, Math.round(((Math.max(a, c) + 0.05) / (Math.min(a, c) + 0.05)) * 100) / 100]; });
+    }, sels);
+    // (36) libellés
+    verifier((await texte(ps, '#btn-clavier')) === 'Clavier à l\'écran', 'constat 36 : bouton « Clavier à l\'écran »');
+    // (31) champ de scan : état actif visible, état inactif distinct
+    const etatScan = () => ps.$eval('#scan', el => { const b = el.closest('.scan-box'), c = getComputedStyle(b); return { ombre: c.boxShadow, bordure: c.borderTopColor, fond: c.backgroundColor, invite: el.getAttribute('placeholder') }; });
+    await ps.focus('#scan'); await attendre(400); const actif = await etatScan();
+    await attendre(400);
+    await ps.evaluate(() => document.activeElement.blur()); await attendre(400); const inactif = await etatScan();
+    verifier(actif.ombre !== 'none' && actif.ombre !== inactif.ombre && actif.bordure !== inactif.bordure && actif.fond !== inactif.fond, 'constat 31 : le champ de scan actif se distingue nettement de l\'inactif : ' + JSON.stringify([actif, inactif]));
+    verifier(/inactif/.test(inactif.invite) && /Scannez/.test(actif.invite), 'constat 31 : le texte d\'invite dit « Champ inactif » sans le focus');
+    await ps.focus('#emp-choix');
+    verifier(/rgba\(11, 94, 215/.test(await ps.$eval('#emp-choix', el => getComputedStyle(el).boxShadow)), 'constat 31 : la liste d\'emplacements a un halo de focus visible');
+    // fiche d'une pièce (gestionnaire) : accessibilité, libellés, contrastes
+    await L.scanner(ps, '#scan', 'P-0001'); await ps.waitForSelector('#sc-resultat .sc-fiche');
+    await ps.waitForFunction(() => /Fiche de P-0001/.test(document.querySelector('#sc-annonce').textContent));
+    verifier((await ps.textContent('#sc-annonce')).includes('Fiche de P-0001, Thermocouple 36 po'), 'constat 37 : le résultat est annoncé aux lecteurs d\'écran (zone vocale) : ' + await ps.textContent('#sc-annonce'));
+    verifier(await ps.getByRole('combobox', { name: /Chercher une pièce par son nom/ }).count() >= 1, 'constat 37 : le champ de recherche a pour nom accessible son étiquette');
+    const voir = await ps.$$eval('.sc-voir-emp', bs => bs.map(b => b.getAttribute('aria-label')));
+    verifier(voir.length >= 1 && voir.every(a => a.startsWith('Voir le contenu — ')), 'constat 36 : aria-label « Voir le contenu — {emplacement} » (sans élision fautive) : ' + voir);
+    const th = await ps.$$eval('#sc-resultat table[aria-label="Prix chez les fournisseurs"] th', ts => ts.map(t => t.textContent.trim()));
+    verifier(JSON.stringify(th) === JSON.stringify(['Fournisseur', 'N° fournisseur', 'Prix', 'Date']), 'constat 36 : « N° fournisseur » et « Date » comme dans le catalogue : ' + th);
+    const c1 = await contrastes([['#sc-resultat .badge-info'], ['#sc-resultat .badge-success'], ['#scan', '::placeholder']]);
+    verifier(c1.every(([, r]) => r !== null && r >= 4.5), 'constat 32 : contrastes ≥ 4,5:1 (catégorie, « Meilleur prix », invite du champ de scan) : ' + JSON.stringify(c1));
+    await L.scanner(ps, '#scan', 'P-0003'); await ps.waitForSelector('#sc-resultat .sc-alerte');
+    const c2 = await contrastes([['.sc-ent small']]);
+    verifier(c2[0][1] >= 4.5, 'constat 32 : « (minimum 20) » lisible : ' + JSON.stringify(c2));
+    // (38) le résultat est amené à l'écran (tablette en paysage)
+    await L.scanner(ps, '#scan', 'P-0001'); await ps.waitForFunction(() => /P-0001/.test((document.querySelector('#sc-resultat .sc-code') || { textContent: '' }).textContent));
+    await attendre(300);
+    const haut = await ps.$eval('#sc-resultat .sc-nom', el => el.getBoundingClientRect().top);
+    verifier(haut >= 0 && haut < 260, 'constat 38 : à 1024 × 768 le nom de la pièce est amené en haut de l\'écran après le scan (y = ' + Math.round(haut) + ')');
+    verifier(await focusId(ps) === 'scan', 'le curseur est toujours dans le champ de scan après le défilement');
+    const alEff = await ps.evaluate(() => { const b = document.querySelector('#sc-vider-hist').getBoundingClientRect(), h = document.querySelector('#sc-vider-hist').closest('.card-header').getBoundingClientRect(); return [b.right, h.right]; });
+    verifier(alEff[1] - alEff[0] < 40, 'constat 39 : « Effacer » aligné à droite de la carte « Derniers scans » (bord ' + Math.round(alEff[0]) + ' / carte ' + Math.round(alEff[1]) + ')');
+    // (16) valeur d'un emplacement : mention de l'arrondi
+    await L.scanner(ps, '#scan', 'EMP-000003'); await ps.waitForSelector('#sc-resultat .sc-fiche-emp');
+    verifier((await texte(ps, '#sc-resume-emp')).includes('arrondie sur l\'ensemble') && (await texte(ps, '#sc-resume-emp')).includes('quelques sous'), 'constat 16 : la valeur totale dit qu\'elle est arrondie sur l\'ensemble : ' + await texte(ps, '#sc-resume-emp'));
+    // (36) pièce désactivée : UN seul message, avec la marche à suivre
+    await L.scanner(ps, '#scan', 'P-0014'); await ps.waitForSelector('#sc-resultat .badge-secondary');
+    verifier(await ps.locator('#sc-messages .alert').count() === 0 && await ps.locator('#sc-resultat .alert-secondary').count() === 1 && (await texte(ps, '#sc-resultat .alert-secondary')).includes('demandez à un gestionnaire'), 'constat 36 : pièce désactivée : un seul message de désactivation (plus de bandeau jaune redondant), avec la marche à suivre');
+    await ps.waitForFunction(() => /désactivée/.test(document.querySelector('#sc-annonce').textContent));
+    verifier(true, 'la désactivation est aussi annoncée aux lecteurs d\'écran');
+    // constats 32 (suite) : contrastes sur l'écran de comptage (message d'approbation = employé ; badge « Appliqué » ; quantité plus grosse)
+    await ps.goto(L.BASE + '/index.php?page=comptage_voir&id=' + C1); await ps.waitForSelector('#cv-statut');
+    const c4 = await contrastes([['#cv-statut.badge-success'], ['#cv-nb.badge-info']]);
+    verifier(c4.every(([, r]) => r !== null && r >= 4.5), 'constat 32 : badges « Appliqué » et compteur lisibles : ' + JSON.stringify(c4));
+    await ps.context().close();
+    // quantité comptée plus grosse et alertes lisibles, vues d'un employé
+    await L.aller(e, 'comptage'); await e.waitForFunction(() => !document.querySelector('#nouveau-emp').disabled);
+    await e.selectOption('#nouveau-emp', '3'); await Promise.all([e.waitForURL(/comptage_voir/), e.click('#btn-nouveau')]); await e.waitForSelector('#cv-statut');
+    const CQ = idComptage(3);
+    await rafale(e, ['P-0001']); await fileVide(e);
+    verifier(await e.$eval('#cv-table .cp-qte', el => parseFloat(getComputedStyle(el).fontSize)) >= 16, 'constat 32 : la quantité comptée est en 16 px au moins');
+    await e.click('#btn-approbation');
+    const cr = await e.evaluate(() => {
+      const lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+      const p = s => (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+      const a = document.querySelector('#cv-alerte .alert-info'), c = getComputedStyle(a); const x = lum(p(c.color)), y = lum(p(c.backgroundColor));
+      return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    });
+    verifier(cr >= 4.5, 'constat 32 : message « À faire approuver » (alert-info) lisible : ' + cr.toFixed(2));
+    await e.click('#btn-annuler'); await e.waitForSelector('#modal-annuler.show'); await e.click('#an-confirmer');
+    await e.waitForFunction(() => document.querySelector('#cv-statut').textContent === 'Annulé');
+    verifier(sql('SELECT statut FROM comptages WHERE id = ' + CQ) === 'annule', 'comptage de contrôle annulé');
+  });
+
+  await section('Constat 5 : tablette à 768 px — la barre latérale repliée ne laisse aucune bande visible', async () => {
+    const t = suivre(await L.nouvellePage(browser, { width: 768, height: 1024 }));
+    await L.connecter(t, 'employe');
+    await L.aller(t, 'comptage');
+    const m = await t.evaluate(() => { const a = document.querySelector('.main-sidebar').getBoundingClientRect(), b = document.querySelector('[data-widget=pushmenu]').getBoundingClientRect(); const x = document.elementFromPoint(b.left + 3, b.top + b.height / 2); return { droite: a.right, bouton: !!(x && x.closest('[data-widget=pushmenu]')), titre: document.querySelector('h1').getBoundingClientRect().left }; });
+    verifier(m.droite <= 1 && m.bouton && m.titre >= 0, 'constat 5 : barre latérale entièrement hors écran (bord droit ' + m.droite + ' px), bouton de menu cliquable sur toute sa largeur, titre entier');
+    await t.click('[data-widget=pushmenu]', { position: { x: 3, y: 10 } });
+    await t.waitForSelector('body.sidebar-open');
+    verifier(await t.locator('.main-sidebar').isVisible(), 'le menu s\'ouvre');
+    await t.context().close();
+  });
+
+  await section('Pièce désactivée : un comptage peut remettre son stock à 0 (un stock n\'est jamais « bloqué »)', async () => {
+    await L.aller(g, 'comptage'); await g.waitForFunction(() => !document.querySelector('#nouveau-emp').disabled);
+    await L.scanner(g, '#scan', 'EMP-000005'); await g.waitForURL(/comptage_voir/); await g.waitForSelector('#cv-statut');
+    verifier(stock('P-0014', 5) === '1.000' && sql("SELECT actif FROM pieces WHERE code = 'P-0014'") === '0', 'préparation : P-0014 est désactivée et il en reste 1 à la boutique');
+    await g.click('#btn-appliquer'); await g.waitForSelector('#ap-bilan');
+    await cocher(g, '#ap-zero', true);
+    verifier((await texte(g, '#ap-zero-zone')).includes('P-0014') && (await texte(g, '#ap-zero-zone')).includes('désactivée') && await g.locator('#ap-bloque').isHidden(), 'la pièce désactivée figure parmi les pièces remises à 0, sans blocage : ' + await texte(g, '#ap-zero-zone'));
+    await cocher(g, '#ap-ok', true);
+    verifier(!(await g.locator('#ap-confirmer').isDisabled()), 'l\'application reste possible');
+    await g.click('#ap-confirmer'); await g.waitForSelector('#lien-ajustement-resultat');
+    verifier(stock('P-0014', 5) === '0.000' && invariantOk(), 'le stock de la pièce désactivée est remis à 0 ; invariant tenu');
   });
 
   // =====================================================================================================================

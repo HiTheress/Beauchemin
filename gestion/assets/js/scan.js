@@ -6,7 +6,10 @@
  *       opts.onAttente(n) nombre de scans pas encore traités
  *       opts.onErreur(err, code)   (défaut : message « toast »)
  *     retourne { ajouter(code), focus(), attente() }
- *   Scan.camera(zone, onCode)         lecture par la caméra (BarcodeDetector ; HTTPS ou localhost) -> { ouvrir(), fermer(), actif() }
+ *   Scan.camera(zone, onCode, opts)   lecture par la caméra (BarcodeDetector ; HTTPS ou localhost) -> { ouvrir(), fermer(), actif() }
+ *       opts.onFermer()   appelé quand la caméra se ferme (bouton, page masquée ou quittée) : l'appelant remet son bouton à l'état « fermé »
+ *       Un code déjà lu n'est relu qu'après avoir quitté l'image (au moins DELAI_REARMEMENT sans détection) : une étiquette tenue devant
+ *       l'objectif compte UNE fois ; la retirer puis la représenter compte de nouveau.
  *   Scan.clavier(bouton, input)       bascule le clavier tactile du champ de scan (inputmode none <-> text)
  *   Scan.typeEmplacement(type)        « Cube de service », …
  *
@@ -48,7 +51,7 @@
     function marquer(cls) {
       if (!box) { return; }
       box.classList.remove('ok', 'erreur'); void box.offsetWidth; box.classList.add(cls);
-      clearTimeout(minuterie); minuterie = setTimeout(function () { box.classList.remove(cls); }, 900);
+      clearTimeout(minuterie); minuterie = setTimeout(function () { box.classList.remove(cls); }, 1500);
     }
     function attente() { return file.length + (enCours ? 1 : 0); }
     function notifier() {
@@ -58,7 +61,7 @@
     function rendreFocus() {
       var a = d.activeElement;
       // On ne vole pas le focus à quelqu'un qui est en train de saisir ailleurs (quantité d'une ligne, fenêtre ouverte…)
-      if (!a || a === d.body || a === el || !tousChampsSaisie(a)) { el.focus(); }
+      if (!a || a === d.body || a === el || !tousChampsSaisie(a)) { el.focus({ preventScroll: true }); }
     }
     function pomper() {
       if (enCours) { return; }
@@ -106,6 +109,10 @@
     w.addEventListener('beforeunload', function (e) {
       if (file.length > 0) { e.preventDefault(); e.returnValue = ''; return ''; }
     });
+    // Champ inactif (le focus est ailleurs) : le texte d'invite le dit ; sans cela, le lecteur de codes écrirait dans le vide
+    var invite = el.getAttribute('placeholder') || '';
+    el.addEventListener('focus', function () { el.setAttribute('placeholder', invite); });
+    el.addEventListener('blur', function () { el.setAttribute('placeholder', 'Champ inactif : cliquez ici pour scanner'); });
     el.setAttribute('data-attente', '0');
     if (opts.focusInitial !== false) { el.focus(); }
     return { ajouter: ajouter, focus: function () { el.focus(); }, attente: attente };
@@ -144,9 +151,12 @@
     return null;
   }
 
-  function camera(zone, onCode) {
-    var video = null, flux = null, minuterie = null, detecteur = null, occupe = false;
-    var dernier = { code: '', t: 0 };
+  var DELAI_REARMEMENT = 800;   // ms sans voir un code avant d'accepter qu'on le relise (étiquette retirée puis représentée)
+
+  function camera(zone, onCode, opts) {
+    opts = opts || {};
+    var video = null, flux = null, minuterie = null, detecteur = null, occupe = false, msgTimer = null;
+    var vus = {};                 // code -> dernier instant où la caméra l'a vu
     var ouverte = false, jeton = 0;
 
     function dessiner(messageHtml) {
@@ -169,10 +179,13 @@
       if (video) { try { video.pause(); } catch (e) { /* rien */ } video.srcObject = null; }
     }
     function fermer() {
+      var etaitOuverte = ouverte;
       jeton++;
       arreterFlux();
-      ouverte = false; detecteur = null;
+      clearTimeout(msgTimer);
+      ouverte = false; detecteur = null; vus = {};
       zone.classList.add('d-none'); zone.innerHTML = '';
+      if (etaitOuverte && opts.onFermer) { opts.onFermer(); }
     }
     function lire() {
       if (occupe || !video || video.readyState < 2) { return; }
@@ -180,8 +193,14 @@
       detecteur.detect(video).then(function (codes) {
         if (!codes || !codes.length) { return; }
         var c = String(codes[0].rawValue || '').trim();
-        var t = Date.now();
-        if (c !== '' && (c !== dernier.code || t - dernier.t > 2000)) { dernier = { code: c, t: t }; onCode(c); }
+        if (c === '') { return; }
+        var t = Date.now(), avant = vus[c];
+        vus[c] = t;                                            // chaque détection prolonge la « présentation » en cours
+        if (avant !== undefined && t - avant <= DELAI_REARMEMENT) { return; }   // même étiquette, toujours devant l'objectif
+        message('Lu : ' + c, 'success');
+        clearTimeout(msgTimer);
+        msgTimer = setTimeout(function () { message('Présentez le code-barres devant la caméra.', 'muted'); }, 1500);
+        onCode(c);
       }).catch(function () { /* image illisible : on réessaie */ }).then(function () { occupe = false; });
     }
     function ouvrir() {
@@ -192,6 +211,7 @@
       var raison = cameraIndisponible();
       if (raison) { message(raison, 'danger'); return Promise.resolve(); }
       var mon = ++jeton;
+      vus = {};
       return w.navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }).then(function (f) {
         if (mon !== jeton) { f.getTracks().forEach(function (t) { t.stop(); }); return; }   // fermée entre-temps
         flux = f; video.srcObject = f;
@@ -227,6 +247,9 @@
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-Token': meta ? meta.getAttribute('content') : '' },
       body: JSON.stringify(obj || {})
+    }).catch(function () {
+      // Réseau coupé / serveur injoignable : le navigateur dirait « Failed to fetch »
+      throw new Error('Connexion impossible au serveur. Vérifiez le réseau, puis réessayez.');
     }).then(function (resp) {
       if (resp.status === 401) { w.location.href = 'login.php'; throw new Error('Session expirée. Veuillez vous reconnecter.'); }
       return resp.text().then(function (txt) {
@@ -253,7 +276,16 @@
     });
   }
 
-  w.Scan = { lier: lier, select2Propre: select2Propre, camera: camera, clavier: clavier, focusAuto: focusAuto, postBrut: postBrut, typeEmplacement: function (t) { return TYPES_EMP[t] || t; }, bip: bip };
+  /* Nom accessible du Select2 : son <label>, pas seulement le texte d'invite (le <label for> pointe vers le <select> masqué). */
+  function select2Etiquette($el, idLabel) {
+    try {
+      var sel = $el.next('.select2-container').find('.select2-selection');
+      var rendu = sel.find('.select2-selection__rendered').attr('id');
+      sel.attr('aria-labelledby', idLabel + (rendu ? ' ' + rendu : ''));
+    } catch (e) { /* version différente de Select2 */ }
+  }
+
+  w.Scan = { lier: lier, select2Propre: select2Propre, select2Etiquette: select2Etiquette, camera: camera, clavier: clavier, focusAuto: focusAuto, postBrut: postBrut, typeEmplacement: function (t) { return TYPES_EMP[t] || t; }, bip: bip };
 
   /* ================================================================================================
    *  Page « Scanner / Chercher »
@@ -267,9 +299,21 @@
   var elResultat = qs('#sc-resultat');
   var elMessages = qs('#sc-messages');
   var elHist = qs('#sc-hist');
+  var elAnnonce = qs('#sc-annonce');
+  function focusScan() { elScan.focus({ preventScroll: true }); }
   var seq = 0;                       // seule la réponse la plus récente s'affiche
-  var CLE_HIST = 'bea_scanner_historique';
+  // L'historique appartient à l'utilisateur connecté : une tablette partagée ne montre jamais les scans du précédent
+  // (libellés d'emplacements d'une entreprise à laquelle le suivant n'a pas accès). Les historiques des autres utilisateurs sont purgés.
+  var PREFIXE_HIST = 'bea_scanner_historique';
+  var CLE_HIST = PREFIXE_HIST + '_' + (parseInt(racine.getAttribute('data-user'), 10) || 0);
   var historique = [];
+  function purgerAutresHist() {
+    try {
+      var aSupprimer = [];
+      for (var i = 0; i < w.sessionStorage.length; i++) { var k = w.sessionStorage.key(i); if (k && k.indexOf(PREFIXE_HIST) === 0 && k !== CLE_HIST) { aSupprimer.push(k); } }
+      aSupprimer.forEach(function (k) { w.sessionStorage.removeItem(k); });
+    } catch (e) { /* stockage indisponible */ }
+  }
 
   // ---- historique de la session (jamais de coût : seulement code, libellé et résultat)
   function lireHist() {
@@ -298,7 +342,7 @@
     if (!b) { return; }
     var e = historique[parseInt(b.getAttribute('data-i'), 10)];
     if (!e) { return; }
-    (e.type === 'piece' ? montrerPiece(e.id, e.code) : montrerEmplacement(e.id, e.code)).then(function () { elScan.focus(); });
+    (e.type === 'piece' ? montrerPiece(e.id, e.code) : montrerEmplacement(e.id, e.code)).then(function () { focusScan(); });
   });
 
   // ---- messages
@@ -310,6 +354,19 @@
   }
   function erreur(texte) {
     elResultat.innerHTML = '<div class="alert alert-danger" role="alert">' + esc(texte) + '</div>';
+  }
+  /** Annonce vocale (lecteur d'écran) du résultat : la fiche remplace tout le bloc, qui ne peut donc pas être une zone « live ». */
+  function annoncer(texte) {
+    if (!elAnnonce) { return; }
+    elAnnonce.textContent = '';
+    setTimeout(function () { elAnnonce.textContent = texte; }, 30);
+  }
+  /** Amène le résultat à l'écran s'il commence trop bas (tablette en paysage, portable) : on consulte sans défiler à la main. */
+  function amener() {
+    try {
+      var r = elResultat.getBoundingClientRect();
+      if (r.top > w.innerHeight * 0.4 || r.top < 0) { elResultat.scrollIntoView({ block: 'start' }); }
+    } catch (e) { /* ancien navigateur */ }
   }
 
   // ---- affichage d'une pièce
@@ -327,11 +384,11 @@
     h.push('<div class="sc-entete"><div class="sc-code code">' + esc(p.code) + '</div>');
     h.push('<h2 class="sc-nom">' + esc(p.nom) + '</h2><div class="sc-meta">');
     if (p.categorie) { h.push('<span class="badge badge-info">' + esc(p.categorie) + '</span> '); }
-    h.push('<span class="badge badge-light border">Unité : ' + esc(p.unite) + '</span>');
+    if (p.unite && p.unite !== 'unité') { h.push('<span class="badge badge-light border">Unité : ' + esc(p.unite) + '</span>'); }
     if (!actif) { h.push(' <span class="badge badge-secondary">Pièce désactivée</span>'); }
     h.push('</div></div>');
     if (p.description) { h.push('<p class="text-muted sc-description">' + esc(p.description) + '</p>'); }
-    if (!actif) { h.push('<div class="alert alert-secondary mt-2" role="status">Cette pièce est désactivée : elle n\'apparaît plus dans les listes de saisie et ne peut plus être déplacée, mais son historique est conservé.</div>'); }
+    if (!actif) { h.push('<div class="alert alert-secondary mt-2" role="status">Cette pièce est désactivée : elle n\'apparaît plus dans les listes de saisie. Son historique est conservé. Pour la remettre en service, demandez à un gestionnaire de la réactiver (bouton « Fiche complète »).</div>'); }
 
     (p.minimums || []).forEach(function (m) {
       if (m.sous_minimum) {
@@ -365,7 +422,7 @@
           h.push('<tr data-emplacement="' + esc(s.emplacement_id) + '"><td class="pl-4">' + esc(s.emplacement) + ' <small class="text-muted">' + esc(TYPES_EMP[s.type] || s.type) + '</small></td>');
           h.push('<td class="nombre">' + qte(s.quantite, p.unite) + '</td>');
           if (gestionnaire) { h.push('<td></td>'); }
-          h.push('<td class="text-right"><button type="button" class="btn btn-sm btn-outline-secondary sc-voir-emp" data-emp="' + esc(s.emplacement_id) + '" aria-label="Voir le contenu de ' + esc(s.emplacement) + '">Voir le contenu</button></td></tr>');
+          h.push('<td class="text-right"><button type="button" class="btn btn-sm btn-outline-secondary sc-voir-emp" data-emp="' + esc(s.emplacement_id) + '" aria-label="Voir le contenu — ' + esc(s.emplacement) + '">Voir le contenu</button></td></tr>');
         });
       });
       h.push('</tbody></table></div>');
@@ -376,7 +433,7 @@
       h.push('<h3 class="sc-h3">Prix chez les fournisseurs</h3>');
       if (!p.prix_fournisseurs.length) { h.push('<p class="text-muted">Aucun prix fournisseur enregistré.</p>'); }
       else {
-        h.push('<div class="table-responsive"><table class="table table-sm sc-table" aria-label="Prix chez les fournisseurs"><thead><tr><th scope="col">Fournisseur</th><th scope="col">N° du fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date du prix</th></tr></thead><tbody>');
+        h.push('<div class="table-responsive"><table class="table table-sm sc-table" aria-label="Prix chez les fournisseurs"><thead><tr><th scope="col">Fournisseur</th><th scope="col">N° fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date</th></tr></thead><tbody>');
         p.prix_fournisseurs.forEach(function (f, i) {
           h.push('<tr><td>' + esc(f.fournisseur) + (i === 0 && p.prix_fournisseurs.length > 1 ? ' <span class="badge badge-success">Meilleur prix</span>' : '') + '</td><td class="code">' + esc(f.no_fournisseur || '') + '</td><td class="nombre">' + esc(w.fmtArgent(f.prix, 4)) + '</td><td>' + esc(f.date_prix) + '</td></tr>');
         });
@@ -413,7 +470,7 @@
     if (!e.actif) { h.push(' <span class="badge badge-secondary">Emplacement désactivé</span>'); }
     h.push('</div></div>');
     h.push('<p class="sc-resume" id="sc-resume-emp"><strong>' + esc(r.nb_pieces) + '</strong> ' + (r.nb_pieces > 1 ? 'pièces différentes' : 'pièce différente') + ' dans cet emplacement');
-    if (gestionnaire && r.valeur_totale !== undefined) { h.push(' — valeur totale : <strong id="sc-valeur-emp">' + esc(w.fmtArgent(r.valeur_totale)) + '</strong> <small class="text-muted">(au coût moyen)</small>'); }
+    if (gestionnaire && r.valeur_totale !== undefined) { h.push(' — valeur totale : <strong id="sc-valeur-emp">' + esc(w.fmtArgent(r.valeur_totale)) + '</strong> <small class="text-muted">(au coût moyen, arrondie sur l\'ensemble : elle peut différer de quelques sous de la somme des lignes)</small>'); }
     h.push('</p>');
     if (r.comptage_en_cours) {
       h.push('<div class="alert alert-warning" role="status">Un comptage est déjà en cours à cet emplacement : <a class="alert-link" href="' + lienPage('comptage_voir', { id: r.comptage_en_cours.id }) + '">' + esc(r.comptage_en_cours.numero) + '</a>.</div>');
@@ -456,7 +513,8 @@
   function rendrePiece(r, codeSaisi) {
     var p = r.piece;
     elResultat.innerHTML = htmlPiece(p);
-    if (!p.actif) { message('warning', 'La pièce « ' + esc(p.code) + ' » est désactivée.'); }
+    amener();
+    annoncer('Fiche de ' + p.code + ', ' + p.nom + (p.actif ? '.' : ' : pièce désactivée.'));
     ajouterHist({ type: 'piece', id: p.id, code: codeSaisi || p.code, libelle: p.nom + (p.actif ? '' : ' (désactivée)') });
     return true;
   }
@@ -465,6 +523,8 @@
     return w.api.get('app/ajax/scanner_contenu.php', { emplacement_id: empId }).then(function (r) {
       if (mon !== seq) { return true; }
       elResultat.innerHTML = htmlEmplacement(r);
+      amener();
+      annoncer('Contenu de ' + r.emplacement.nom + ' : ' + r.nb_pieces + (r.nb_pieces > 1 ? ' pièces différentes.' : ' pièce différente.'));
       ajouterHist({ type: 'emplacement', id: r.emplacement.id, code: codeSaisi || r.emplacement.code_barres || '', libelle: r.emplacement.nom + ' — ' + r.nb_pieces + (r.nb_pieces > 1 ? ' pièces' : ' pièce') });
       return true;
     }).catch(function (e) { if (mon === seq) { erreur(e.message); } return false; });
@@ -475,6 +535,7 @@
     return w.api.get('app/ajax/scanner_code.php', { code: code }).then(function (r) {
       if (mon !== seq) { return r.trouve ? true : false; }
       if (!r.trouve) {
+        annoncer('Code inconnu : ' + code + '.');
         elResultat.innerHTML = '<div class="alert alert-danger sc-inconnu" role="alert"><i class="fas fa-times-circle mr-1" aria-hidden="true"></i> <strong>Code inconnu : « ' + esc(code) + ' ».</strong><br>' +
           'Aucune pièce ni aucun emplacement de vos entreprises ne porte ce code. Vérifiez l\'étiquette ou cherchez la pièce par son nom.</div>';
         ajouterHist({ type: 'inconnu', code: code, libelle: 'Code inconnu' });
@@ -491,9 +552,9 @@
   // ---- actions dans la fiche
   elResultat.addEventListener('click', function (ev) {
     var b = ev.target.closest('.sc-voir-emp');
-    if (b) { montrerEmplacement(parseInt(b.getAttribute('data-emp'), 10)).then(function () { elScan.focus(); }); return; }
+    if (b) { montrerEmplacement(parseInt(b.getAttribute('data-emp'), 10)).then(function () { focusScan(); }); return; }
     b = ev.target.closest('.sc-voir-piece');
-    if (b) { montrerPiece(parseInt(b.getAttribute('data-piece'), 10), b.getAttribute('data-code')).then(function () { elScan.focus(); }); return; }
+    if (b) { montrerPiece(parseInt(b.getAttribute('data-piece'), 10), b.getAttribute('data-code')).then(function () { focusScan(); }); return; }
     b = ev.target.closest('#sc-compter');
     if (b) {
       if (b.disabled) { return; }
@@ -503,8 +564,8 @@
         if (j.ok) { w.location.href = 'index.php?page=comptage_voir&id=' + encodeURIComponent(j.id); return; }
         b.disabled = false;
         message('warning', esc(j.erreur || 'Impossible de créer le comptage.') + (j.existant ? ' <a class="alert-link" href="' + lienPage('comptage_voir', { id: j.existant.id }) + '">Ouvrir le comptage ' + esc(j.existant.numero) + '</a>' : ''));
-        elScan.focus();
-      }).catch(function (e) { b.disabled = false; w.toast(e.message, 'danger'); elScan.focus(); });
+        focusScan();
+      }).catch(function (e) { b.disabled = false; w.toast(e.message, 'danger'); focusScan(); });
     }
   });
 
@@ -527,10 +588,11 @@
     }
   });
   select2Propre($rech);
+  select2Etiquette($rech, 'lib-recherche');
   $rech.on('select2:select', function (e) {
     var id = e.params.data.id;
     $rech.val(null).trigger('change');
-    montrerPiece(id).then(function () { elScan.focus(); });
+    montrerPiece(id).then(function () { focusScan(); });
   });
 
   // ---- choix d'un emplacement dans la liste
@@ -550,25 +612,26 @@
   $emp.on('change', function () {
     var v = parseInt(this.value, 10);
     this.value = '';
-    if (v) { montrerEmplacement(v).then(function () { elScan.focus(); }); }
+    if (v) { montrerEmplacement(v).then(function () { focusScan(); }); }
   });
 
   // ---- caméra
-  var cam = camera(qs('#cam-zone'), function (code) { file.ajouter(code); });
   var bCam = qs('#btn-camera');
+  var cam = camera(qs('#cam-zone'), function (code) { file.ajouter(code); }, { onFermer: function () { if (bCam) { bCam.setAttribute('aria-expanded', 'false'); } } });
   if (bCam) {
     bCam.addEventListener('click', function () {
-      if (cam.actif()) { cam.fermer(); bCam.setAttribute('aria-expanded', 'false'); elScan.focus(); return; }
+      if (cam.actif()) { cam.fermer(); bCam.setAttribute('aria-expanded', 'false'); focusScan(); return; }
       bCam.setAttribute('aria-expanded', 'true');
       cam.ouvrir();
-      elScan.focus();   // le lecteur de codes-barres reste utilisable pendant que la caméra est ouverte
+      focusScan();   // le lecteur de codes-barres reste utilisable pendant que la caméra est ouverte
     });
-    qs('#cam-zone').addEventListener('click', function (e) { if (e.target.closest('.sc-camera-fermer')) { bCam.setAttribute('aria-expanded', 'false'); elScan.focus(); } });
+    qs('#cam-zone').addEventListener('click', function (e) { if (e.target.closest('.sc-camera-fermer')) { bCam.setAttribute('aria-expanded', 'false'); focusScan(); } });
   }
 
   // ---- démarrage
+  purgerAutresHist();
   historique = lireHist();
   dessinerHist();
-  qs('#sc-vider-hist').addEventListener('click', function () { historique = []; ecrireHist(); dessinerHist(); elScan.focus(); });
-  elScan.focus();
+  qs('#sc-vider-hist').addEventListener('click', function () { historique = []; ecrireHist(); dessinerHist(); focusScan(); });
+  focusScan();
 })(window, jQuery);

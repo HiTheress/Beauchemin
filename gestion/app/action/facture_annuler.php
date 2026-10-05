@@ -4,7 +4,7 @@
 // POST JSON : id (facture), motif (obligatoire, 255 caractères maximum).
 // Réponse : {ok:true, id, numero}. 400 avec le message du service si la marchandise a déjà été sortie de la destination, si la
 // facture est déjà annulée ou si le document n'est pas une facture interne. 403 : rôle ou entreprise refusés
-// (l'émettrice OU la destinataire doit être une entreprise de l'utilisateur).
+// (seule l'entreprise ÉMETTRICE peut annuler : règle du service ; la destinataire voit la facture mais ne peut pas l'annuler).
 require_once __DIR__ . '/facture_lib.php';
 exiger_post();
 endpoint(function () {
@@ -21,9 +21,12 @@ endpoint(function () {
 	if (!$doc) {
 		throw new InventaireException('Facture introuvable.');
 	}
-	$ok = $Ouser->peutAcces((int) $doc['entreprise_id']) || ($doc['entreprise_dest_id'] && $Ouser->peutAcces((int) $doc['entreprise_dest_id']));
-	if (!$ok) {
+	$ouvrable = $Ouser->peutAcces((int) $doc['entreprise_id']) || ($doc['entreprise_dest_id'] && $Ouser->peutAcces((int) $doc['entreprise_dest_id']));
+	if (!$ouvrable) {
 		json_fail('Vous n\'avez pas accès à cette facture.', 403);
+	}
+	if (!$Ouser->peutAcces((int) $doc['entreprise_id'])) {
+		json_fail('Seule l\'entreprise émettrice peut annuler cette facture. Pour la défaire, demandez-lui de l\'annuler ou faites émettre une facture en sens inverse.', 403);
 	}
 	if ($doc['type'] !== 'facture_interne') {
 		throw new InventaireException('Ce document n\'est pas une facture interne : annulez-le depuis la page des documents.');

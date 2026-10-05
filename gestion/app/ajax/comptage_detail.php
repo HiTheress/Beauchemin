@@ -4,7 +4,8 @@
 //
 // Réponse : {ok:true,
 //   comptage:{id, numero, statut, statut_libelle, note, emplacement_id, emplacement_nom, entreprise_id, entreprise_nom,
-//             cree_par_nom, cree_le, applique_par_nom, applique_le, document_id, document_numero},
+//             cree_par_nom, cree_le, applique_par_nom, applique_le, document_id, document_numero,
+//             documents:[{id, numero}, …]   // comptage appliqué : un seul document, sauf si plus de 300 écarts (un document par tranche de 300)},
 //   aveugle:bool, peut_appliquer:bool,
 //   lignes:[{piece_id, code, nom, unite, quantite_comptee, (stock attendu seulement si !aveugle : quantite_actuelle, ecart),
 //            (comptage appliqué : ecart_applique)}],
@@ -24,6 +25,7 @@ endpoint(function () {
 	// Par défaut (paramètre absent) : à l'aveugle pour un employé, stock attendu visible pour un gestionnaire+.
 	$aveugle = array_key_exists('aveugle', $in) ? ScanLib::booleen($in['aveugle']) : !$Ouser->aRole('gestionnaire');
 
+	ScanLib::comptageAccessible($id);                    // introuvable = même message qu'un comptage d'une autre entreprise
 	$premier = $inv->comptageDetail($uid, $id, false);   // vérifie le droit d'accès à l'entreprise du comptage
 	$c = $premier['comptage'];
 	$enCours = ($c['statut'] === 'en_cours');
@@ -57,13 +59,21 @@ endpoint(function () {
 	$st->execute(array((int) $c['id']));
 	$noms = $st->fetch(PDO::FETCH_ASSOC) ?: array();
 
-	// Comptage appliqué : écart réellement appliqué, ligne par ligne (document d'ajustement ; coûts masqués par le service)
+	// Comptage appliqué : écart réellement appliqué, ligne par ligne (document(s) d'ajustement ; coûts masqués par le service).
+	// Plus de 300 écarts : plusieurs documents, dont les lignes sont réunies ici.
 	$remises = array();
+	$documents = array();
 	if ($c['statut'] === 'applique' && $c['document_id']) {
-		$doc = $inv->document($uid, (int) $c['document_id']);
+		$documents = ScanLib::documentsDuComptage($c);
+		if (!$documents) {
+			$documents = array(array('id' => (int) $c['document_id'], 'numero' => isset($noms['document_numero']) ? $noms['document_numero'] : ''));
+		}
 		$parPiece = array();
-		foreach ($doc['lignes'] as $dl) {
-			$parPiece[(int) $dl['piece_id']] = $dl;
+		foreach ($documents as $dc) {
+			$doc = $inv->document($uid, (int) $dc['id']);
+			foreach ($doc['lignes'] as $dl) {
+				$parPiece[(int) $dl['piece_id']] = $dl;
+			}
 		}
 		foreach ($lignes as $i => $l) {
 			$lignes[$i]['ecart_applique'] = isset($parPiece[$l['piece_id']]) ? $parPiece[$l['piece_id']]['quantite'] : '0.000';
@@ -90,6 +100,7 @@ endpoint(function () {
 			'applique_le' => $c['applique_le'] ? substr((string) $c['applique_le'], 0, 16) : null,
 			'document_id' => $c['document_id'] ? (int) $c['document_id'] : null,
 			'document_numero' => isset($noms['document_numero']) ? $noms['document_numero'] : null,
+			'documents' => $documents,
 		),
 		'aveugle' => (bool) ($enCours ? $aveugle : true),
 		'peut_appliquer' => $enCours && $Ouser->aRole('gestionnaire'),

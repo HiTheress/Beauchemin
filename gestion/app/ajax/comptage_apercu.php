@@ -3,7 +3,9 @@
 // GET/POST : id. Gestionnaire+ seulement (c'est lui qui peut appliquer) ; droit sur l'entreprise vérifié par le service.
 // Réponse : {ok:true, comptage:{id, numero, emplacement_nom, entreprise_nom},
 //   lignes:[{piece_id, code, nom, unite, actif, quantite_comptee, quantite_actuelle, ecart}],        // pièces scannées
-//   non_scannees:[{piece_id, code, nom, unite, actif, quantite_actuelle}]}                            // en stock mais pas scannées
+//   non_scannees:[{piece_id, code, nom, unite, actif, quantite_actuelle}],                           // en stock mais pas scannées
+//   empreinte, empreinte_zero,   // à renvoyer à comptage_appliquer (selon la case « non scannées à 0 ») : refus si le comptage ou le stock ont changé
+//   max_lignes}                  // un ajustement porte au plus ce nombre de pièces : au-delà, plusieurs documents sont créés
 // Aucun coût.
 require_once '../init.php';
 require_once __DIR__ . '/scanner_lib.php';
@@ -13,6 +15,7 @@ endpoint(function () {
 	$uid = utilisateur_id();
 	$inv = inventaire();
 	$id = ScanLib::entier(isset($in['id']) ? $in['id'] : null, 'Comptage invalide.', 'id');
+	ScanLib::comptageAccessible($id);                // introuvable = même message qu'une autre entreprise
 	$det = $inv->comptageDetail($uid, $id, true);   // droit de consulter + entreprise
 	$c = $det['comptage'];
 	$inv->exiger($uid, 'comptage_appliquer', array((int) $c['entreprise_id']));
@@ -46,5 +49,8 @@ endpoint(function () {
 		'comptage' => array('id' => (int) $c['id'], 'numero' => $c['numero'], 'emplacement_nom' => $c['emplacement_nom'], 'entreprise_nom' => $c['entreprise_nom']),
 		'lignes' => $lignes,
 		'non_scannees' => $non,
+		'empreinte' => ScanLib::empreinte($det, false),
+		'empreinte_zero' => ScanLib::empreinte($det, true),
+		'max_lignes' => Inventaire::MAX_LIGNES,
 	);
 });

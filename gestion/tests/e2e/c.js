@@ -803,7 +803,9 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await lignesListe(gt, 1);
   L.verifier((await texteLignesListe(gt))[0].includes(num14), 'l\'entreprise destinataire voit la facture qu\'elle a reçue (et seulement celle-là)');
   await L.aller(gt, 'facture_interne_voir&id=' + idDoc(num14));
-  L.verifier((await tx(gt, '.ie-titre')) === 'FACTURE INTERNE' && !!(await gt.$('#btn-annuler')), 'la destinataire ouvre la facture et peut l\'annuler');
+  L.verifier((await tx(gt, '.ie-titre')) === 'FACTURE INTERNE' && !(await gt.$('#btn-annuler')) && (await tx(gt, '#annulation-emettrice')).includes('Seule l\'entreprise émettrice (Beauchemin) peut annuler'), 'la destinataire ouvre la facture, sans bouton d\'annulation (réservé à l\'émettrice), avec l\'explication');
+  await L.aller(ad, 'facture_interne_voir&id=' + idDoc(num14));
+  L.verifier(!!(await ad.$('#btn-annuler')) && !(await ad.$('#annulation-emettrice')), 'l\'administrateur (accès à l\'émettrice) garde le bouton d\'annulation');
   L.verifier(reelles(gt).length === 0 && reelles(ad).length === 0, 'aucune erreur console (entreprise tierce, admin) : ' + JSON.stringify(reelles(gt).concat(reelles(ad))));
 
   // ==== 15. Noms piégés partout =====================================================================================================
@@ -1202,10 +1204,19 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   outil('sortir', '2', '13', String(dispoCh - 1));
   r = await api(gbea, 'app/action/facture_annuler.php', { id: idF22, motif: 'essai' });
   L.verifier(r.status === 400 && /Annulation impossible/.test(r.json.erreur) && !/\d/.test(r.json.erreur) && !/Entrepôt|demandé|Stock insuffisant/.test(r.json.erreur), '#22 gest_bea (sans accès à Chaleur) : refus sans nom d\'emplacement ni quantité de l\'autre entreprise : ' + r.texte);
+  // Annulation réservée à l'entreprise ÉMETTRICE (règle du service) : le destinataire est refusé, sans modification du stock
+  const stockAvant46 = stockQte(13, 2) + '/' + stockQte(13, 1);
   r = await api(gchal, 'app/action/facture_annuler.php', { id: idF22, motif: 'essai' });
-  L.verifier(r.status === 400 && /Annulation refusée : des pièces de cette facture ne sont plus à l'emplacement de destination de Boutique Chaleur/.test(r.json.erreur) && /Stock insuffisant/.test(r.json.erreur), '#22 #28 gest_chal (destinataire) : voit le détail de SON stock avec l\'explication : ' + r.texte);
+  L.verifier(r.status === 403 && /Seule l'entreprise émettrice peut annuler/.test(r.json.erreur) && sql("SELECT statut FROM documents WHERE id = " + idF22) === 'valide' && stockQte(13, 2) + '/' + stockQte(13, 1) === stockAvant46,
+    '#46 gest_chal (destinataire) : annulation refusée (403, message en français), facture toujours valide, stock inchangé : ' + r.texte);
+  await L.aller(gchal, 'facture_interne_voir&id=' + idF22);
+  L.verifier(await gchal.locator('#btn-annuler').count() === 0 && await gchal.locator('#modal-annuler').count() === 0 && /Seule l'entreprise émettrice \(Beauchemin\) peut annuler cette facture/.test(await tx(gchal, '#annulation-emettrice')),
+    '#46 le destinataire voit la facture sans bouton « Annuler » et avec l\'explication : ' + await tx(gchal, '#annulation-emettrice'));
+  // Le gestionnaire de démonstration (accès aux deux entreprises) voit le détail du service et l'explication (#22 #28)
+  r = await api(p, 'app/action/facture_annuler.php', { id: idF22, motif: 'essai' });
+  L.verifier(r.status === 400 && /Annulation refusée : des pièces de cette facture ne sont plus à l'emplacement de destination de Boutique Chaleur/.test(r.json.erreur) && /Stock insuffisant/.test(r.json.erreur), '#22 #28 gestionnaire des deux entreprises : voit le détail du stock de la destination avec l\'explication : ' + r.texte);
   outil('ajuster', '2', '13', '1');                                                            // remet 1 pour que l'annulation passe
-  r = await api(gchal, 'app/action/facture_annuler.php', { id: idF22, motif: 'rétabli' });
+  r = await api(p, 'app/action/facture_annuler.php', { id: idF22, motif: 'rétabli' });
   L.verifier(r.status === 200, '#22 annulation acceptée une fois le stock rétabli : ' + r.texte);
   await L.aller(gbea, 'facture_interne_voir&id=' + idF22);
   const partieDest = await tx(gbea, '.ie-partie:nth-child(2)');

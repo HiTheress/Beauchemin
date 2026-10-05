@@ -34,6 +34,9 @@ if (!$r) {
 $d = $r['doc'];
 $lignes = $r['lignes'];
 $annule = ($d['statut'] === 'annule');
+// Seule l'entreprise qui a ÉMIS la facture peut l'annuler (règle du service) : le destinataire voit la facture, sans le bouton,
+// avec l'explication de la marche à suivre (facture en sens inverse).
+$peut_annuler = !$annule && $Ouser->peutAcces((int) $d['entreprise_id']);
 $moment = function ($s) { return $s ? substr((string) $s, 0, 16) : ''; };
 $qte = function ($s) { return Interentreprise::nombre($s); };
 // Message de succès de l'annulation : affiché UNE seule fois (mémorisé dans la session par facture_annuler.php), pas à chaque rechargement
@@ -54,10 +57,13 @@ $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
     <div class="mb-3 no-print ie-barre">
       <a class="btn btn-outline-secondary" href="index.php?page=factures_internes"><i class="fas fa-arrow-left mr-1" aria-hidden="true"></i> Liste des factures</a>
       <button type="button" class="btn btn-outline-secondary" id="btn-imprimer"><i class="fas fa-print mr-1" aria-hidden="true"></i> Imprimer</button>
-      <?php if (!$annule) { ?>
+      <?php if ($peut_annuler) { ?>
         <button type="button" class="btn ie-btn-danger" id="btn-annuler"><i class="fas fa-ban mr-1" aria-hidden="true"></i> Annuler cette facture</button>
       <?php } ?>
     </div>
+    <?php if (!$annule && !$peut_annuler) { ?>
+    <p class="text-muted no-print" id="annulation-emettrice"><i class="fas fa-info-circle mr-1" aria-hidden="true"></i> Seule l'entreprise émettrice (<?php echo e($d['entreprise']); ?>) peut annuler cette facture. Pour la défaire, demandez-lui de l'annuler ou faites émettre une facture en sens inverse.</p>
+    <?php } ?>
 
     <article class="card ie-facture<?php echo $annule ? ' ie-annulee' : ''; ?>" id="facture" aria-label="Facture interne <?php echo e($d['numero']); ?>">
       <?php if ($annule) { ?><div class="ie-filigrane" aria-hidden="true">ANNULÉE</div><?php } ?>
@@ -136,7 +142,7 @@ $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
   </div></section>
 </div>
 
-<?php if (!$annule) { ?>
+<?php if ($peut_annuler) { ?>
 <div class="modal fade" id="modal-annuler" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-annuler-titre">
   <div class="modal-dialog modal-dialog-centered" role="document"><div class="modal-content">
     <div class="modal-header">

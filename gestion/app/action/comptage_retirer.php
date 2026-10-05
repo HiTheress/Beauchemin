@@ -8,6 +8,7 @@ endpoint(function () {
 	$d = entree();
 	$id = ScanLib::entier(isset($d['id']) ? $d['id'] : null, 'Comptage invalide.', 'id');
 	$pieceId = ScanLib::entier(isset($d['piece_id']) ? $d['piece_id'] : null, 'Pièce invalide.', 'piece_id');
+	ScanLib::comptageAccessible($id);   // introuvable = même message qu'un comptage d'une autre entreprise
 	inventaire()->comptageRetirer(utilisateur_id(), $id, $pieceId);
 	return array();
 });

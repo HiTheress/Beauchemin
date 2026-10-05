@@ -1,7 +1,8 @@
 <?php
 // Enregistre un scan (ou une quantité tapée) dans un comptage en cours.
 // POST : id (comptage), code (code scanné : interne ou alias) OU piece_id (choisie dans la recherche),
-//        mode ('ajouter' : ajoute `quantite` à ce qui est compté, défaut ; 'fixer' : remplace), quantite (défaut 1),
+//        mode ('ajouter' : ajoute `quantite` à ce qui est compté, défaut ; 'fixer' : remplace), quantite (défaut 1 pour « ajouter » ;
+//        obligatoire pour « fixer »),
 //        aveugle ('1' : ne pas renvoyer le stock attendu).
 // Employé+ ; droit sur l'entreprise du comptage vérifié par le service. Une seule requête par scan (résolution du code + écriture).
 // Réponse : {ok:true, ligne:{piece_id, code, nom, unite, quantite_comptee, (si !aveugle : quantite_actuelle, ecart)}}
@@ -14,11 +15,18 @@ endpoint(function () {
 	$uid = utilisateur_id();
 	$inv = inventaire();
 	$id = ScanLib::entier(isset($d['id']) ? $d['id'] : null, 'Comptage invalide.', 'id');
+	ScanLib::comptageAccessible($id);   // introuvable = même message qu'un comptage d'une autre entreprise
 	$mode = isset($d['mode']) ? $d['mode'] : 'ajouter';
 	if ($mode !== 'ajouter' && $mode !== 'fixer') {
 		throw new InventaireException('Mode de comptage invalide.', 'mode');
 	}
-	$qte = isset($d['quantite']) ? $d['quantite'] : '1';
+	$qte = isset($d['quantite']) ? $d['quantite'] : null;
+	if ($qte === null || $qte === '') {
+		if ($mode === 'fixer') {
+			throw new InventaireException('Indiquez la quantité comptée.', 'quantite');
+		}
+		$qte = '1';
+	}
 	if (!is_string($qte) && !is_int($qte) && !is_float($qte)) {
 		throw new InventaireException('Quantité invalide.', 'quantite');
 	}
@@ -30,6 +38,9 @@ endpoint(function () {
 		$p = $inv->pieceDetail($uid, $pieceId);
 	} else {
 		$code = isset($d['code']) && is_string($d['code']) ? $d['code'] : '';
+		if (trim($code) === '') {
+			throw new InventaireException('Scannez ou indiquez une pièce.', 'code');
+		}
 		$r = $inv->trouverParCode($uid, $code);
 		if ($r === null) {
 			$aff = mb_substr(preg_replace('/[\x00-\x1F\x7F]/u', '', trim($code)), 0, 40);

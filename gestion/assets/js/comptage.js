@@ -87,9 +87,13 @@
         creer(v);
       });
 
-      // Liste (tableau serveur)
+      // Liste (tableau serveur). Six colonnes (l'entreprise est sous l'emplacement, « par … » sous la date) : le tableau tient sans défilement.
+      // Alias renvoyés par comptage_data.php = columns[].data.
+      var MSG_VIDE = 'Aucun comptage pour le moment. Scannez un emplacement ci-dessus pour en commencer un.';
+      var MSG_FILTRES = 'Aucun comptage ne correspond à ces filtres.';
+      function filtresActifs() { return !!($('#f-statut').val() || $('#f-entreprise').val() || $('#f-mes').is(':checked')); }
       var table = $('#table-comptages').DataTable({
-        serverSide: true, processing: true, searchDelay: 300, order: [[5, 'desc']],
+        serverSide: true, processing: true, searchDelay: 300, order: [[3, 'desc']],
         ajax: {
           url: 'app/ajax/comptage_data.php', type: 'POST',
           data: function (p) {
@@ -99,11 +103,15 @@
           }
         },
         columns: [
-          { data: 'numero' }, { data: 'emplacement' }, { data: 'entreprise' }, { data: 'statut' },
-          { data: 'cree_par', defaultContent: '' }, { data: 'cree_le' },
+          { data: 'numero' }, { data: 'emplacement' }, { data: 'statut' }, { data: 'cree_le' },
           { data: 'nb_lignes', className: 'nombre' }, { data: 'document', orderable: false, defaultContent: '' }
         ],
-        language: $.extend({}, w.DT_LANG, { emptyTable: 'Aucun comptage pour le moment. Scannez un emplacement ci-dessus pour en commencer un.', zeroRecords: 'Aucun comptage ne correspond à ces filtres.', search: 'Rechercher :' })
+        // « Aucun comptage pour le moment » serait faux quand un filtre vide la liste (le serveur compte le total AVEC les filtres)
+        preDrawCallback: function (settings) { settings.oLanguage.sEmptyTable = filtresActifs() ? MSG_FILTRES : MSG_VIDE; },
+        language: $.extend(true, {}, w.DT_LANG, {
+          emptyTable: MSG_VIDE, zeroRecords: MSG_FILTRES, search: 'Rechercher :',
+          aria: { sortAscending: ' : activer pour trier par ordre croissant', sortDescending: ' : activer pour trier par ordre décroissant' }
+        })
       });
       $('#f-statut, #f-entreprise, #f-mes').on('change', function () { table.ajax.reload(); });
     })();
@@ -123,7 +131,8 @@
   var elVide = qs('#cv-vide'), elNb = qs('#cv-nb'), elActions = qs('#cv-actions'), elJournal = qs('#cv-journal');
   var chkAveugle = qs('#cv-aveugle');
 
-  var etat = { det: null, lignes: {}, ordre: [], aveugle: !gestionnaire, termine: false };
+  var MAX_LIGNES_DEFAUT = 300;         // pièces par document d'ajustement (le serveur renvoie la valeur exacte avec l'aperçu)
+  var etat = { det: null, lignes: {}, ordre: [], non: [], aveugle: !gestionnaire, termine: false };
   chkAveugle.checked = etat.aveugle;
   var fileScan = null;                 // file des scans (créée une fois le comptage chargé)
   var serie = Promise.resolve();       // toutes les écritures partent l'une après l'autre : l'ordre est conservé
@@ -147,6 +156,13 @@
     elAlerte.innerHTML = html ? '<div class="alert alert-' + type + '" role="alert">' + html + '</div>' : '';
     if (html && w.scrollTo) { try { elAlerte.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ancien navigateur */ } }
   }
+  /** Dernier scan en GRAND (nom et nouveau total) : on voit d'un coup d'oeil, même de loin, que le scan a été pris en compte. */
+  function dernier(ok, html) {
+    var z = qs('#cv-dernier');
+    if (!z) { return; }
+    z.className = 'cp-dernier ' + (ok ? 'cp-dernier-ok' : 'cp-dernier-ko');
+    z.innerHTML = html;
+  }
   function journal(ok, texte) {
     var li = d.createElement('li'); li.className = ok ? 'cp-j-ok' : 'cp-j-ko';
     li.innerHTML = '<span class="cp-j-h">' + esc(heure()) + '</span> <i class="fas ' + (ok ? 'fa-check text-success' : 'fa-times') + '" aria-hidden="true"></i> ';
@@ -165,7 +181,10 @@
     if (c.note) { h += '<dt class="col-sm-3">Note</dt><dd class="col-sm-9">' + esc(c.note) + '</dd>'; }
     if (c.statut === 'applique') {
       h += '<dt class="col-sm-3">Appliqué</dt><dd class="col-sm-9">' + esc(c.applique_le || '') + (c.applique_par_nom ? ' par ' + esc(c.applique_par_nom) : '') + '</dd>';
-      h += '<dt class="col-sm-3">Ajustement</dt><dd class="col-sm-9">' + (c.document_id ? '<a id="lien-ajustement" href="' + lien('document_voir', c.document_id) + '">' + esc(c.document_numero || 'Voir le document') + '</a>' : '<span class="text-muted">Aucun écart : aucun ajustement n\'a été nécessaire.</span>') + '</dd>';
+      var docs = (c.documents && c.documents.length) ? c.documents : (c.document_id ? [{ id: c.document_id, numero: c.document_numero || 'Voir le document' }] : []);
+      h += '<dt class="col-sm-3">' + (docs.length > 1 ? 'Ajustements' : 'Ajustement') + '</dt><dd class="col-sm-9">' + (docs.length
+        ? docs.map(function (x, i) { return '<a' + (i === 0 ? ' id="lien-ajustement"' : '') + ' href="' + lien('document_voir', x.id) + '">' + esc(x.numero) + '</a>'; }).join(', ') + (docs.length > 1 ? ' <small class="text-muted">(' + docs.length + ' documents : un par tranche de ' + MAX_LIGNES_DEFAUT + ' pièces)</small>' : '')
+        : '<span class="text-muted">Aucun écart : aucun ajustement n\'a été nécessaire.</span>') + '</dd>';
     }
     h += '</dl></div></div>';
     elEntete.innerHTML = h;
@@ -184,7 +203,8 @@
     var c = etat.det.comptage, edition = c.statut === 'en_cours', attendu = edition && !etat.aveugle;
     var h = '<td class="code">' + esc(l.code) + '</td><td>' + esc(l.nom) + unite(l.unite) + '</td>';
     if (edition) {
-      h += '<td class="nombre"><input type="text" inputmode="decimal" class="form-control form-control-sm cp-qte" value="' + esc(brute(l.quantite_comptee)) + '" data-serveur="' + esc(l.quantite_comptee) + '" aria-label="Quantité comptée de ' + esc(l.code) + '" autocomplete="off"></td>';
+      h += '<td class="nombre"><input type="text" inputmode="decimal" class="form-control cp-qte" value="' + esc(brute(l.quantite_comptee)) + '" data-serveur="' + esc(l.quantite_comptee) + '" aria-label="Quantité comptée de ' + esc(l.code) + '" autocomplete="off">' +
+        '<div class="cp-erreur-champ" role="alert"></div></td>';
     } else {
       h += '<td class="nombre cp-comptee">' + esc(w.fmtQte(l.quantite_comptee)) + '</td>';
     }
@@ -195,7 +215,7 @@
       h += '<td class="nombre cp-ecart ' + classeEcart(l.ecart_applique) + '">' + esc(signe(l.ecart_applique || '0')) + '</td>';
     }
     if (edition) {
-      h += '<td class="text-right"><button type="button" class="btn btn-sm btn-outline-danger cp-retirer" aria-label="Retirer ' + esc(l.code) + ' du comptage" title="Retirer cette ligne"><i class="fas fa-times" aria-hidden="true"></i></button></td>';
+      h += '<td class="text-right"><button type="button" class="btn btn-sm btn-outline-danger cp-retirer" data-code="' + esc(l.code) + '" aria-label="Retirer ' + esc(l.code) + ' du comptage" title="Retirer cette ligne"><i class="fas fa-times cp-retirer-icone" aria-hidden="true"></i><span class="cp-retirer-texte">Retirer ?</span></button></td>';
     }
     return h;
   }
@@ -210,6 +230,15 @@
     table.style.display = n ? '' : 'none';
     elVide.textContent = etat.det.comptage.statut === 'en_cours' ? 'Aucune pièce comptée pour le moment. Scannez une pièce pour commencer.' : 'Aucune pièce n\'avait été comptée.';
   }
+  /** Carte « En stock selon le système, pas encore comptées » : tient à jour ce qu'il reste à compter (scan, retrait, actualisation). */
+  function dessinerNonComptees() {
+    var carte = qs('#cv-non-comptees'), non = etat.non;
+    if (etat.det && etat.det.comptage.statut === 'en_cours' && !etat.aveugle && non.length) {
+      qs('#cv-nb-non').textContent = non.length;
+      qs('#cv-non-corps').innerHTML = non.map(function (l) { return '<tr data-piece="' + esc(l.piece_id) + '"><td class="code">' + esc(l.code) + '</td><td>' + esc(l.nom) + unite(l.unite) + '</td><td class="nombre">' + esc(w.fmtQte(l.quantite_actuelle)) + '</td></tr>'; }).join('');
+      carte.classList.remove('d-none');
+    } else { carte.classList.add('d-none'); }
+  }
   /** Dessine tout le tableau. Les lignes déjà affichées gardent leur place ; les nouvelles (autre onglet) passent en tête. */
   function dessinerTout() {
     var det = etat.det, map = {};
@@ -223,12 +252,8 @@
     etat.ordre.forEach(function (id) { tbody.appendChild(creerTr(map[id])); });
     majCompteurs();
     // Pièces en stock pas encore comptées (jamais en mode aveugle : le serveur ne les envoie pas)
-    var non = det.non_comptees || [], carte = qs('#cv-non-comptees');
-    if (det.comptage.statut === 'en_cours' && !etat.aveugle && non.length) {
-      qs('#cv-nb-non').textContent = non.length;
-      qs('#cv-non-corps').innerHTML = non.map(function (l) { return '<tr><td class="code">' + esc(l.code) + '</td><td>' + esc(l.nom) + unite(l.unite) + '</td><td class="nombre">' + esc(w.fmtQte(l.quantite_actuelle)) + '</td></tr>'; }).join('');
-      carte.classList.remove('d-none');
-    } else { carte.classList.add('d-none'); }
+    etat.non = (det.non_comptees || []).slice();
+    dessinerNonComptees();
     // Comptage appliqué : pièces non scannées mises à 0 par l'ajustement
     var rem = det.remises_a_zero || [];
     if (det.comptage.statut === 'applique' && rem.length) {
@@ -252,11 +277,14 @@
       if (forcer || !enSaisie) { tr.innerHTML = htmlLigne(l); }
     }
     if (!existe) { etat.ordre.unshift(l.piece_id); }
+    var avant = etat.non.length;
+    etat.non = etat.non.filter(function (x) { return x.piece_id !== l.piece_id; });
+    if (etat.non.length !== avant) { dessinerNonComptees(); }
     if (mettreEnTete !== false) {
       if (tbody.firstChild !== tr) { tbody.insertBefore(tr, tbody.firstChild); }
       etat.ordre = [l.piece_id].concat(etat.ordre.filter(function (x) { return x !== l.piece_id; }));
     } else if (!tr.parentNode) { tbody.appendChild(tr); }
-    tr.classList.add('cp-flash'); setTimeout(function () { tr.classList.remove('cp-flash'); }, 700);
+    tr.classList.add('cp-flash'); setTimeout(function () { tr.classList.remove('cp-flash'); }, 1500);
     majCompteurs();
   }
 
@@ -316,12 +344,14 @@
       return w.api.post('app/action/comptage_scan.php', corps).then(function (r) {
         majLigne(r.ligne, true);
         journal(true, r.ligne.code + ' — ' + r.ligne.nom + ' : ' + w.fmtQte(r.ligne.quantite_comptee));
+        dernier(true, '<span class="cp-dernier-code code">' + esc(r.ligne.code) + '</span> <span class="cp-dernier-nom">' + esc(r.ligne.nom) + '</span> <span class="cp-dernier-total">Compté : <strong>' + esc(w.fmtQte(r.ligne.quantite_comptee)) + '</strong></span>');
         return true;
       });
     }).catch(function (e) { gererErreurEcriture(e, libelle); throw e; });
   }
   function gererErreurEcriture(e, libelle) {
     journal(false, (libelle ? libelle + ' : ' : '') + e.message);
+    dernier(false, '<i class="fas fa-times-circle mr-1" aria-hidden="true"></i> ' + esc(e.message));
     if (/termin/i.test(e.message)) { alerte('warning', 'Ce comptage est terminé : il ne peut plus être modifié.'); charger(true); }
     else { alerte('danger', esc(e.message)); }
   }
@@ -345,6 +375,7 @@
       }
     });
     w.Scan.select2Propre($rech);
+    w.Scan.select2Etiquette($rech, 'lib-recherche');
     $rech.on('select2:select', function (e) {
       var id = parseInt(e.params.data.id, 10), texte = e.params.data.text;
       $rech.val(null).trigger('change');
@@ -353,8 +384,8 @@
     });
 
     // Caméra : mêmes scans, mêmes règles
-    var cam = w.Scan.camera(qs('#cam-zone'), function (code) { fileScan.ajouter(code); });
     var bCam = qs('#btn-camera');
+    var cam = w.Scan.camera(qs('#cam-zone'), function (code) { fileScan.ajouter(code); }, { onFermer: function () { bCam.setAttribute('aria-expanded', 'false'); } });
     bCam.addEventListener('click', function () {
       if (cam.actif()) { cam.fermer(); bCam.setAttribute('aria-expanded', 'false'); elScan.focus(); return; }
       bCam.setAttribute('aria-expanded', 'true'); cam.ouvrir(); elScan.focus();
@@ -362,53 +393,113 @@
     qs('#cam-zone').addEventListener('click', function (e) { if (e.target.closest('.sc-camera-fermer')) { bCam.setAttribute('aria-expanded', 'false'); elScan.focus(); } });
   }
 
-  // Quantité exacte tapée dans le tableau (« fixer »)
-  function validerChamp(inp) {
+  // Quantité exacte tapée dans le tableau (« fixer »). Validée AVANT l'envoi ; l'erreur s'affiche sous la cellule fautive.
+  var FORME_QTE = /^\d+([.,]\d+)?$/;
+  function erreurChamp(inp, texte) {
+    var z = qs('.cp-erreur-champ', inp.closest('td'));
+    if (!z) { return; }
+    clearTimeout(z._t);
+    z.textContent = texte || '';
+    if (texte) { inp.setAttribute('aria-invalid', 'true'); z._t = setTimeout(function () { erreurChamp(inp, ''); }, 8000); }
+    else { inp.removeAttribute('aria-invalid'); }
+  }
+  /** Retourne une Promise<boolean> : true = rien à corriger (le curseur peut retourner au champ de scan), false = erreur affichée sous le champ. */
+  function validerChamp(inp, depuisEntree) {
     var tr = inp.closest('tr'), id = parseInt(tr.getAttribute('data-piece'), 10), l = etat.lignes[id];
     var ancienne = brute(inp.getAttribute('data-serveur'));
-    var v = inp.value.trim();
-    if (v === ancienne) { return Promise.resolve(); }
-    if (v === '') { inp.value = ancienne; return Promise.resolve(); }
-    if (inp.getAttribute('data-envoi') === v) { return Promise.resolve(); }   // Entrée puis perte du focus : un seul envoi
+    var brut = inp.value.trim();
+    var v = brut.replace(/[\s  ]/g, '');      // « 1 000 » = 1000
+    if (v === ancienne) { erreurChamp(inp, ''); return Promise.resolve(true); }
+    if (v === '') { inp.value = ancienne; erreurChamp(inp, ''); return Promise.resolve(true); }
+    var probleme = '';
+    if (!FORME_QTE.test(v)) { probleme = 'La quantité « ' + brut + ' » n\'est pas valide : tapez un nombre positif (ex. : 12 ou 2,5).'; }
+    else if (/[.,]\d{4,}$/.test(v)) { probleme = 'La quantité « ' + brut + ' » a trop de décimales : trois au maximum (ex. : 2,5 ou 0,125).'; }
+    if (probleme) {
+      erreurChamp(inp, probleme);
+      journal(false, (l ? l.code + ' : ' : '') + probleme);
+      if (depuisEntree) { inp.select(); } else { inp.value = ancienne; }
+      return Promise.resolve(false);
+    }
+    if (inp.getAttribute('data-envoi') === v) { return Promise.resolve(true); }   // Entrée puis perte du focus : un seul envoi
     inp.setAttribute('data-envoi', v);
-    alerte('', '');
+    erreurChamp(inp, ''); alerte('', '');
     return enSerie(function () {
       return w.api.post('app/action/comptage_scan.php', { id: ID, piece_id: id, mode: 'fixer', quantite: v, aveugle: etat.aveugle ? 1 : 0 }).then(function (r) {
         majLigne(r.ligne, false, true);
         journal(true, r.ligne.code + ' — ' + r.ligne.nom + ' : ' + w.fmtQte(r.ligne.quantite_comptee) + ' (quantité tapée)');
+        dernier(true, '<span class="cp-dernier-code code">' + esc(r.ligne.code) + '</span> <span class="cp-dernier-nom">' + esc(r.ligne.nom) + '</span> <span class="cp-dernier-total">Compté : <strong>' + esc(w.fmtQte(r.ligne.quantite_comptee)) + '</strong></span>');
+        return true;
       });
-    }).then(function () { inp.removeAttribute('data-envoi'); }, function (e) {
+    }).then(function (ok) { inp.removeAttribute('data-envoi'); return ok; }, function (e) {
       inp.removeAttribute('data-envoi');
+      var termine = /termin/i.test(e.message);
+      if (!termine) { erreurChamp(inp, e.message); }
       inp.value = ancienne; tr.classList.add('cp-erreur-ligne'); setTimeout(function () { tr.classList.remove('cp-erreur-ligne'); }, 1500);
-      gererErreurEcriture(e, l ? l.code : '');
+      if (termine) { gererErreurEcriture(e, l ? l.code : ''); } else { journal(false, (l ? l.code + ' : ' : '') + e.message); dernier(false, '<i class="fas fa-times-circle mr-1" aria-hidden="true"></i> ' + esc(e.message)); }
+      return false;
     });
   }
   tbody.addEventListener('keydown', function (e) {
     var inp = e.target.closest ? e.target.closest('.cp-qte') : null;
     if (!inp) { return; }
-    if (e.key === 'Enter') { e.preventDefault(); validerChamp(inp).then(function () { elScan.focus(); }); }
-    else if (e.key === 'Escape') { inp.value = brute(inp.getAttribute('data-serveur')); elScan.focus(); }
+    if (e.key === 'Enter') { e.preventDefault(); validerChamp(inp, true).then(function (ok) { if (ok) { elScan.focus(); } }); }
+    else if (e.key === 'Escape') { inp.value = brute(inp.getAttribute('data-serveur')); erreurChamp(inp, ''); elScan.focus(); }
   });
   tbody.addEventListener('change', function (e) {
     var inp = e.target.closest ? e.target.closest('.cp-qte') : null;
-    if (inp) { validerChamp(inp); }
+    if (inp) { validerChamp(inp, false); }
   });
   tbody.addEventListener('focusin', function (e) { if (e.target.classList && e.target.classList.contains('cp-qte')) { e.target.select(); } });
 
-  // Retirer une ligne : premier clic « Retirer ? », second clic = confirmation (évite le clic accidentel sur tablette)
+  // Retirer une ligne : premier clic = le bouton passe à « Retirer ? » (rouge), second clic = confirmation (évite le clic accidentel sur tablette).
+  // Le bouton garde son contenu (icône + texte, seule la classe change) : la cible du clic reste dans la page et le focus reste sur le bouton.
+  // L'armement tombe seul : après 4 s, dès que le focus quitte le bouton, ou dès qu'une touche de caractère est tapée (un scan qui arrive
+  // ne doit jamais valider un retrait : la touche Entrée du lecteur irait sur le bouton armé).
+  var armee = null, minArme = null;
+  function desarmer() {
+    clearTimeout(minArme);
+    if (!armee) { return; }
+    var b = armee; armee = null;
+    b.classList.remove('cp-arme', 'btn-danger'); b.classList.add('btn-outline-danger');
+    b.setAttribute('aria-label', 'Retirer ' + (b.getAttribute('data-code') || '') + ' du comptage');
+  }
+  function armer(b) {
+    desarmer();
+    armee = b;
+    b.classList.remove('btn-outline-danger'); b.classList.add('btn-danger', 'cp-arme');
+    b.setAttribute('aria-label', 'Confirmer le retrait de ' + (b.getAttribute('data-code') || '') + ' du comptage');
+    annoncer('Cliquez de nouveau pour confirmer le retrait de ' + (b.getAttribute('data-code') || 'la pièce') + '.');
+    minArme = setTimeout(desarmer, 4000);
+  }
+  /** Annonce vocale discrète (lecteur d'écran), sans bandeau à l'écran. */
+  function annoncer(texte) {
+    var z = qs('#cv-annonce');
+    if (!z) { return; }
+    z.textContent = '';
+    setTimeout(function () { z.textContent = texte; }, 30);
+  }
+  d.addEventListener('keydown', function (e) {
+    if (!armee || !e.key || e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) { return; }
+    if (e.key === ' ' && e.target === armee) { return; }   // la barre d'espace sur le bouton armé = le confirmer au clavier
+    desarmer();
+  }, true);
+  tbody.addEventListener('focusout', function (e) { if (armee && e.target === armee) { desarmer(); } });
   tbody.addEventListener('click', function (e) {
     var b = e.target.closest ? e.target.closest('.cp-retirer') : null;
     if (!b) { return; }
     var tr = b.closest('tr'), id = parseInt(tr.getAttribute('data-piece'), 10), l = etat.lignes[id];
-    if (!b.classList.contains('btn-danger')) {
-      b.classList.remove('btn-outline-danger'); b.classList.add('btn-danger'); b.innerHTML = 'Retirer ?'; b.setAttribute('data-confirme', '1');
-      setTimeout(function () { if (b.parentNode && b.getAttribute('data-confirme')) { b.classList.add('btn-outline-danger'); b.classList.remove('btn-danger'); b.removeAttribute('data-confirme'); b.innerHTML = '<i class="fas fa-times" aria-hidden="true"></i>'; } }, 4000);
-      return;
-    }
+    if (!b.classList.contains('cp-arme')) { armer(b); return; }
     if (b.disabled) { return; }
+    desarmer();
     b.disabled = true;
     enSerie(function () { return w.api.post('app/action/comptage_retirer.php', { id: ID, piece_id: id }); }).then(function () {
       delete etat.lignes[id]; etat.ordre = etat.ordre.filter(function (x) { return x !== id; }); tr.remove(); majCompteurs();
+      // En stock selon le système : la pièce retirée du comptage retourne dans « pas encore comptées » (jamais à l'aveugle : pas de stock connu)
+      if (l && !etat.aveugle && l.quantite_actuelle !== undefined && parseFloat(l.quantite_actuelle) > 0) {
+        etat.non.push({ piece_id: l.piece_id, code: l.code, nom: l.nom, unite: l.unite, quantite_actuelle: l.quantite_actuelle });
+        etat.non.sort(function (x, y) { return x.code < y.code ? -1 : x.code > y.code ? 1 : 0; });
+      }
+      dessinerNonComptees();
       journal(true, (l ? l.code : 'Ligne') + ' retiré du comptage');
       elScan.focus();
     }).catch(function (err) { b.disabled = false; gererErreurEcriture(err, l ? l.code : ''); });
@@ -429,6 +520,7 @@
     else if (b.id === 'btn-annuler') { qs('#an-erreur').textContent = ''; $('#modal-annuler').modal('show'); }
     else if (b.id === 'btn-approbation') {
       alerte('info', '<strong>Votre comptage est enregistré.</strong> Seul un gestionnaire peut l\'appliquer au stock : demandez-lui d\'ouvrir le comptage <strong>' + esc(etat.det.comptage.numero) + '</strong> (menu « Comptage ») et de cliquer sur « Appliquer le comptage ». Rien n\'est modifié tant qu\'il ne l\'a pas fait.');
+      if (fileScan) { fileScan.focus(); }   // le prochain scan doit être compté, pas tapé dans le bouton
     }
   });
 
@@ -445,24 +537,32 @@
   });
   $('#modal-annuler').on('hidden.bs.modal', function () { if (fileScan && !etat.termine) { fileScan.focus(); } });
 
-  // ---- application (gestionnaire+) : aperçu des écarts contre le stock ACTUEL, case « non scannées à 0 », confirmation explicite
+  // ---- application (gestionnaire+) : aperçu des écarts contre le stock ACTUEL, case « non scannées à 0 », confirmation explicite.
+  // L'aperçu porte une EMPREINTE (comptage + stock actuel + pièces à remettre à 0) : l'application la renvoie et le serveur refuse si
+  // quelque chose a changé depuis (autre écran, mouvement) ; l'aperçu est alors relu et le gestionnaire doit confirmer de nouveau.
   var ap = { donnees: null };
   var bConfirmer = qs('#ap-confirmer');
   function ouvrirApercu() {
+    $('#modal-appliquer').modal('show');
+    chargerApercu(null);
+  }
+  /** reprise : { zero:bool, message:texte } pour rouvrir l'aperçu à jour après un changement détecté (la case « à 0 » reste cochée). */
+  function chargerApercu(reprise) {
     var corps = qs('#ap-corps');
     corps.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin mr-1" aria-hidden="true"></i> Calcul des écarts…</p>';
-    bConfirmer.disabled = true;
-    $('#modal-appliquer').modal('show');
-    fileInactive().then(function () { return enSerie(function () { return w.api.get('app/ajax/comptage_apercu.php', { id: ID }); }); }).then(function (r) {
-      ap.donnees = r; dessinerApercu();
+    bConfirmer.disabled = true; ap.donnees = null;
+    return fileInactive().then(function () { return enSerie(function () { return w.api.get('app/ajax/comptage_apercu.php', { id: ID }); }); }).then(function (r) {
+      ap.donnees = r; dessinerApercu(reprise);
     }).catch(function (e) { corps.innerHTML = '<div class="alert alert-danger mb-0" role="alert">' + esc(e.message) + '</div>'; });
   }
-  function dessinerApercu() {
+  function dessinerApercu(reprise) {
     var r = ap.donnees, corps = qs('#ap-corps');
     var avecEcart = r.lignes.filter(function (l) { return !zero(l.ecart); });
     var plus = 0, moins = 0;
     avecEcart.forEach(function (l) { var n = parseFloat(l.ecart); if (n > 0) { plus++; } else { moins++; } });
-    var h = '<p class="cp-apercu-resume">Comptage <strong>' + esc(r.comptage.numero) + '</strong> — ' + esc(r.comptage.emplacement_nom) + ' <small class="text-muted">(' + esc(r.comptage.entreprise_nom) + ')</small>.<br>' +
+    var h = '';
+    if (reprise && reprise.message) { h += '<div class="alert alert-warning" role="alert" id="ap-changement">' + esc(reprise.message) + '</div>'; }
+    h += '<p class="cp-apercu-resume">Comptage <strong>' + esc(r.comptage.numero) + '</strong> — ' + esc(r.comptage.emplacement_nom) + ' <small class="text-muted">(' + esc(r.comptage.entreprise_nom) + ')</small>.<br>' +
       'Les écarts ci-dessous sont calculés contre le <strong>stock actuel</strong> (au moment de cet aperçu), pas celui du début du comptage.</p>';
     h += '<h3 class="sc-h3">Pièces comptées <span class="badge badge-info" id="ap-nb-comptees">' + r.lignes.length + '</span></h3>';
     if (!r.lignes.length) { h += '<p class="text-muted">Aucune pièce n\'a été comptée.</p>'; }
@@ -484,41 +584,55 @@
     h += '<div class="custom-control custom-checkbox mb-2"><input type="checkbox" class="custom-control-input" id="ap-ok"><label class="custom-control-label" for="ap-ok">Je confirme que le stock de « ' + esc(r.comptage.emplacement_nom) + ' » sera modifié avec ces écarts.</label></div>';
     h += '<div id="ap-erreur" class="text-danger" role="alert"></div>';
     corps.innerHTML = h;
+    if (reprise && reprise.zero && r.non_scannees.length) { qs('#ap-zero').checked = true; }
     recalculerApercu();
   }
   function recalculerApercu() {
     var r = ap.donnees, zeroOn = qs('#ap-zero').checked, ok = qs('#ap-ok').checked;
     var ecarts = r.lignes.filter(function (l) { return !zero(l.ecart); }).length + (zeroOn ? r.non_scannees.length : 0);
+    var max = r.max_lignes || MAX_LIGNES_DEFAUT, nbDocs = Math.max(1, Math.ceil(ecarts / max));
     qs('#ap-zero-zone').classList.toggle('d-none', !zeroOn);
     var txt;
     if (!ecarts) { txt = 'Aucun écart : le stock correspond déjà au comptage. Aucun ajustement ne sera créé.'; }
-    else { txt = '<strong>' + ecarts + '</strong> ' + (ecarts > 1 ? 'pièces seront ajustées' : 'pièce sera ajustée') + ' : un seul document d\'ajustement sera créé.'; }
+    else if (nbDocs === 1) { txt = '<strong>' + ecarts + '</strong> ' + (ecarts > 1 ? 'pièces seront ajustées' : 'pièce sera ajustée') + ' : un seul document d\'ajustement sera créé.'; }
+    else { txt = '<strong>' + ecarts + '</strong> pièces seront ajustées : <strong>' + nbDocs + ' documents d\'ajustement</strong> seront créés (' + max + ' pièces au plus chacun), tous ensemble ou aucun.'; }
     if (zeroOn && !r.lignes.length && r.non_scannees.length) { txt += '<br><strong>Attention : aucune pièce n\'a été comptée. TOUT le stock de cet emplacement sera remis à 0.</strong>'; }
     qs('#ap-bilan').innerHTML = txt;
-    // Une pièce désactivée ne peut plus être ajustée : on le dit avant, au lieu de laisser le serveur refuser
-    var bloquees = r.lignes.filter(function (l) { return !l.actif && !zero(l.ecart); }).map(function (l) { return l.code; });
-    if (zeroOn) { bloquees = bloquees.concat(r.non_scannees.filter(function (l) { return !l.actif; }).map(function (l) { return l.code; })); }
+    // Une pièce désactivée ne peut plus être ajustée à la hausse : on le dit avant, au lieu de laisser le serveur refuser
+    var bloquees = r.lignes.filter(function (l) { return !l.actif && parseFloat(l.ecart) > 0; }).map(function (l) { return l.code; });
     var bl = qs('#ap-bloque');
-    if (bloquees.length) { bl.classList.remove('d-none'); bl.textContent = 'La pièce « ' + bloquees.join(' », « ') + ' » est désactivée et ne peut pas être ajustée. Retirez-la du comptage' + (zeroOn ? ' (ou décochez « Mettre à 0 les pièces non scannées »)' : '') + ', ou réactivez-la d\'abord.'; }
+    if (bloquees.length) { bl.classList.remove('d-none'); bl.textContent = 'La pièce « ' + bloquees.join(' », « ') + ' » est désactivée : son stock ne peut pas augmenter. Retirez-la du comptage, ou réactivez-la d\'abord.'; }
     else { bl.classList.add('d-none'); bl.textContent = ''; }
     bConfirmer.disabled = !ok || bloquees.length > 0;
     bConfirmer.textContent = ecarts ? 'Appliquer le comptage (' + ecarts + (ecarts > 1 ? ' ajustements)' : ' ajustement)') : 'Terminer le comptage (aucun écart)';
   }
-  qs('#ap-corps').addEventListener('change', function (e) { if (e.target.id === 'ap-zero' || e.target.id === 'ap-ok') { recalculerApercu(); } });
+  qs('#ap-corps').addEventListener('change', function (e) {
+    // Changer la case « non scannées à 0 » change ce qui sera appliqué : la confirmation déjà donnée ne vaut plus, il faut confirmer de nouveau.
+    if (e.target.id === 'ap-zero') { qs('#ap-ok').checked = false; recalculerApercu(); }
+    else if (e.target.id === 'ap-ok') { recalculerApercu(); }
+  });
   bConfirmer.addEventListener('click', function () {
-    if (bConfirmer.disabled) { return; }
+    if (bConfirmer.disabled || !ap.donnees) { return; }
     bConfirmer.disabled = true;
     var zeroOn = qs('#ap-zero').checked;
-    fileInactive().then(function () { return enSerie(function () { return w.api.post('app/action/comptage_appliquer.php', { id: ID, zero_non_scannees: zeroOn }); }); }).then(function (r) {
+    var empreinte = zeroOn ? ap.donnees.empreinte_zero : ap.donnees.empreinte;
+    fileInactive().then(function () { return enSerie(function () { return w.api.post('app/action/comptage_appliquer.php', { id: ID, zero_non_scannees: zeroOn, empreinte: empreinte }); }); }).then(function (r) {
       $('#modal-appliquer').modal('hide');
-      var msg = r.document_id
-        ? 'Comptage appliqué : le stock a été ajusté (' + esc(r.ecarts) + (r.ecarts > 1 ? ' pièces' : ' pièce') + '). Ajustement <a class="alert-link" id="lien-ajustement-resultat" href="' + lien('document_voir', r.document_id) + '">' + esc(r.numero) + '</a>.'
+      var docs = (r.documents && r.documents.length) ? r.documents : (r.document_id ? [{ id: r.document_id, numero: r.numero }] : []);
+      var msg = docs.length
+        ? 'Comptage appliqué : le stock a été ajusté (' + esc(r.ecarts) + (r.ecarts > 1 ? ' pièces' : ' pièce') + '). ' + (docs.length > 1 ? 'Ajustements ' : 'Ajustement ') +
+          docs.map(function (x, i) { return '<a class="alert-link"' + (i === 0 ? ' id="lien-ajustement-resultat"' : '') + ' href="' + lien('document_voir', x.id) + '">' + esc(x.numero) + '</a>'; }).join(', ') + '.'
         : 'Comptage terminé : aucun écart, donc aucun ajustement n\'a été nécessaire.';
       alerte('success', msg);
       return charger(true, true);
     }).catch(function (err) {
-      qs('#ap-erreur').textContent = err.message;
       if (/termin/i.test(err.message)) { $('#modal-appliquer').modal('hide'); alerte('warning', 'Ce comptage est déjà terminé.'); charger(true); return; }
+      if (err.champ === 'apercu') {
+        // Le comptage ou le stock a changé depuis l'aperçu : on relit l'aperçu, la confirmation est à refaire
+        chargerApercu({ zero: zeroOn, message: 'Le comptage ou le stock a changé depuis l\'aperçu (un autre écran ou un mouvement). Les écarts ci-dessous ont été recalculés : vérifiez-les, puis confirmez de nouveau.' });
+        return;
+      }
+      qs('#ap-erreur').textContent = err.message;
       bConfirmer.disabled = false;
     });
   });

@@ -3,7 +3,8 @@
 // Seuls les comptages des entreprises de l'utilisateur sont listés (droits relus dans la base, jamais pris du navigateur).
 // POST : paramètres DataTables + statut ('en_cours'|'applique'|'annule'), entreprise_id, mine ('1' = seulement mes comptages),
 //        search[value] (numéro, emplacement, entreprise, utilisateur, note).
-// Colonnes (alias) : numero, emplacement, entreprise, statut, cree_par, cree_le, nb_lignes, document — doivent correspondre à columns[].data côté JS.
+// Colonnes (alias) : numero, emplacement (HTML : nom + entreprise), statut, cree_le (HTML : date + « par … »), nb_lignes, document (HTML : lien du
+// document d'ajustement, « + N » s'il y en a plusieurs) — doivent correspondre à columns[].data côté JS.
 require_once '../init.php';
 require_once __DIR__ . '/scanner_lib.php';
 endpoint(function () {
@@ -88,26 +89,37 @@ endpoint(function () {
 			'nb_lignes' => '(SELECT COUNT(*) FROM comptage_lignes cl WHERE cl.comptage_id = c.id)',
 			'document_id' => 'c.document_id',
 			'document' => 'd.numero',
+			// ajustements du comptage : plus d'un seulement au-delà de 300 écarts (note « Comptage COM-… (partie i de n) »)
+			'nb_documents' => "(SELECT COUNT(*) FROM documents dd WHERE c.document_id IS NOT NULL AND dd.type = 'ajustement' AND dd.motif = 'comptage' AND dd.emplacement_id = c.emplacement_id
+			                      AND (dd.note = CONCAT('Comptage ', c.numero) OR dd.note LIKE CONCAT('Comptage ', c.numero, ' (partie %')))",
 		),
 		// une seule expression de recherche : le même paramètre ne peut pas être répété (requêtes préparées natives)
 		'recherche' => array("CONCAT_WS(' ', c.numero, e.nom, en.nom, u.nom_utilisateur, u.nom_complet, c.note)"),
 		'where' => $where,
 		'params' => $params,
 		'tri_defaut' => array('cree_le', 'desc'),
-		'brut' => array('numero', 'statut', 'document'),
+		'brut' => array('numero', 'emplacement', 'statut', 'cree_le', 'document'),
 		'formateurs' => array(
 			'numero' => function ($l) {
-				return '<a href="index.php?page=comptage_voir&amp;id=' . (int) $l['id'] . '">' . e($l['numero']) . '</a>';
+				return '<a class="cp-numero-lien" href="index.php?page=comptage_voir&amp;id=' . (int) $l['id'] . '">' . e($l['numero']) . '</a>';
+			},
+			'emplacement' => function ($l) {
+				return e($l['emplacement']) . '<br><small class="text-muted">' . e($l['entreprise']) . '</small>';
 			},
 			'statut' => function ($l) use ($statuts) {
 				$s = isset($statuts[$l['statut']]) ? $statuts[$l['statut']] : array($l['statut'], 'secondary');
 				return '<span class="badge badge-' . e($s[1]) . '">' . e($s[0]) . '</span>';
 			},
 			'cree_le' => function ($l) {
-				return e(substr((string) $l['cree_le'], 0, 16));
+				return '<span class="cp-date">' . e(substr((string) $l['cree_le'], 0, 16)) . '</span>' . ($l['cree_par'] !== null && $l['cree_par'] !== '' ? '<br><small class="text-muted">par ' . e($l['cree_par']) . '</small>' : '');
 			},
 			'document' => function ($l) {
-				return $l['document_id'] ? '<a href="index.php?page=document_voir&amp;id=' . (int) $l['document_id'] . '">' . e($l['document']) . '</a>' : '';
+				if (!$l['document_id']) {
+					return '';
+				}
+				$plus = (int) $l['nb_documents'] - 1;
+				return '<a href="index.php?page=document_voir&amp;id=' . (int) $l['document_id'] . '">' . e($l['document']) . '</a>'
+					. ($plus > 0 ? ' <small class="text-muted">et ' . $plus . ($plus > 1 ? ' autres' : ' autre') . '</small>' : '');
 			},
 		),
 	));

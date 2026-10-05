@@ -4,6 +4,7 @@
 //   php tests/e2e/d1-outils.php transferer <emp_source> <emp_dest> <piece_id> <quantite>   transfert (service) ; écrit le numéro du document
 //   php tests/e2e/d1-outils.php sortir <emplacement_id> <piece_id> <quantite>              sortie de stock (service) ; écrit le numéro du document
 //   php tests/e2e/d1-outils.php utilisateur <nom> <role> <entreprises : 1,2>               crée un utilisateur (mot de passe Test-Beauchemin-1) ; écrit son id
+//   php tests/e2e/d1-outils.php masse <emplacement_id> <nombre> <quantite>                 crée <nombre> pièces GROS-0001… et en reçoit <quantite> de chacune (réceptions de 300 lignes) ; écrit le nombre
 if (PHP_SAPI !== 'cli') { exit("Ligne de commande seulement.\n"); }
 require __DIR__ . '/../../app/init.php';
 if (!preg_match('/^bea_/', (string) DATABASE_NAME)) { exit("Refusé : ce n'est pas une base de développement (bea_*).\n"); }
@@ -28,6 +29,24 @@ switch ($cmd) {
 			$pdo->prepare('INSERT INTO utilisateur_entreprises (utilisateur_id, entreprise_id) VALUES (?, ?)')->execute(array($uid, (int) $e));
 		}
 		echo $uid, "\n";
+		break;
+	case 'masse':
+		$emp = (int) $argv[2];
+		$n = (int) $argv[3];
+		$ids = array();
+		for ($i = 1; $i <= $n; $i++) {
+			$code = sprintf('GROS-%04d', $i);
+			$pdo->prepare('INSERT IGNORE INTO pieces (code, nom, unite) VALUES (?, ?, ?)')->execute(array($code, 'Pièce de masse ' . $i, 'unité'));
+			$ids[] = (int) $pdo->query("SELECT id FROM pieces WHERE code = '" . $code . "'")->fetchColumn();
+		}
+		foreach (array_chunk($ids, Inventaire::MAX_LIGNES) as $paquet) {
+			$lignes = array();
+			foreach ($paquet as $pid) {
+				$lignes[] = array('piece_id' => $pid, 'quantite' => $argv[4], 'cout_unitaire' => '1.00');
+			}
+			$inv->recevoir($admin, array('emplacement_id' => $emp, 'lignes' => $lignes));
+		}
+		echo count($ids), "\n";
 		break;
 	default:
 		fwrite(STDERR, "Commande inconnue.\n");
