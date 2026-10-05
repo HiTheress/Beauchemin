@@ -1,0 +1,145 @@
+/* Inter-entreprises et rapports : facture interne, liste, facture imprimable, bilan mensuel, valeur de l'inventaire (module C) */
+
+/* Zones cliquables ≥ 44 px (tablette) */
+.ie-carte .form-control, .ie-carte .btn { min-height: 44px; }
+.ie-carte textarea.form-control { min-height: 70px; }
+.ie-carte .btn-sm { min-height: 38px; }
+.ie-carte label { margin-bottom: .2rem; font-size: .9rem; color: #343a40; }
+.ie-carte .custom-control-label { min-height: 28px; padding-top: .1rem; font-size: 1rem; }
+.ie-carte .select2-container--default .select2-selection--single { min-height: 44px; display: flex; align-items: center; }
+.ie-carte .select2-container--default .select2-selection--single .select2-selection__arrow { height: 42px; }
+.ie-carte .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 42px; }
+.ie-barre .btn { margin-bottom: .25rem; min-height: 44px; }
+.modal .btn, .modal .form-control { min-height: 44px; }
+.modal textarea.form-control { min-height: 88px; }
+
+/* Facture interne : champ de scan et lignes */
+.ie-scan { margin-top: .25rem; }
+.ie-scan-label { display: block; font-weight: 600; color: #0b5ed7; margin-bottom: .3rem; }
+.ie-aide-scan { margin: -.25rem 0 .75rem; }
+.ie-lignes table { background: #fff; }
+.ie-lignes td, .ie-lignes th { vertical-align: middle; }
+.ie-lignes input.form-control { min-width: 84px; min-height: 40px; }
+.ie-lignes .btn { min-width: 44px; min-height: 40px; }
+.ie-lignes input.is-invalid { border-color: #dc3545; }
+.ie-lignes th { white-space: nowrap; }
+.ie-lignes td.code { white-space: nowrap; }
+.ie-lignes td.ie-cout, .ie-lignes td.ie-total-ligne { white-space: nowrap; }
+.ie-lignes td.ie-attente { color: #6c757d; font-style: italic; }
+.ie-lignes .badge-sans-cout { background: #dc3545; color: #fff; font-size: .8rem; }
+.ie-lignes tr.ie-ligne-sans-cout td { background: #fff5f5; }
+.ie-total-general { margin: .75rem 0 0; font-size: 1.25rem; font-weight: 600; text-align: right; }
+.ie-total-general:empty { display: none; }
+.ie-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+.ie-actions .btn-lg { min-height: 52px; padding-left: 1.75rem; padding-right: 1.75rem; }
+.ie-erreur, .ie-succes { font-size: 1.05rem; }
+.ie-succes a { font-weight: 700; text-decoration: underline; }
+.ie-actions { position: sticky; bottom: 0; z-index: 5; background: #fff; margin: .75rem -1.25rem -1.25rem; padding: .75rem 1.25rem; border-top: 1px solid #dee2e6; border-radius: 0 0 .25rem .25rem; }
+.ie-erreur { scroll-margin-bottom: 110px; }
+.ie-succes { scroll-margin-top: 80px; }
+#ie-avert ul { margin: .25rem 0 0; padding-left: 1.2rem; }
+#ie-zero-bloc, #ie-avert, #ie-total { scroll-margin-bottom: 110px; }
+
+/* Bouton d'action destructrice (le thème redéfinit .btn-danger : on le force explicitement) */
+.ie-btn-danger { background: #dc3545; border-color: #dc3545; color: #fff; font-size: 1rem; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
+.ie-btn-danger:hover, .ie-btn-danger:focus { background: #bd2130; border-color: #b21f2d; color: #fff; }
+.ie-btn-danger[disabled] { opacity: .65; }
+
+/* Liste des factures */
+.ie-filtres label { display: block; margin-bottom: .2rem; font-size: .85rem; color: #495057; }
+.ie-filtres .form-control { min-height: 44px; }
+#table-factures tbody tr td { padding-top: .7rem; padding-bottom: .7rem; }   /* lignes ≥ 44 px */
+#table-factures tbody tr.ie-ligne-annulee td { color: #6c757d; }
+#table-factures tbody tr.ie-ligne-annulee td:first-child a { text-decoration: line-through; }
+#table-factures td:first-child, #table-factures td:nth-child(2) { white-space: nowrap; }
+.dataTables_wrapper .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.dataTables_wrapper .dataTables_length select { min-height: 38px; }
+.ie-totaux { margin-top: .75rem; padding: .75rem 1rem; background: #eef4ff; border: 1px solid #c8d9f7; border-radius: .25rem; font-size: 1.05rem; }
+.ie-totaux strong { font-size: 1.2rem; }
+
+/* Facture imprimable */
+.ie-facture { position: relative; overflow: hidden; max-width: 900px; margin-left: auto; margin-right: auto; }
+.ie-facture .card-body { padding: 2rem; position: relative; z-index: 1; }
+.ie-entete { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; border-bottom: 3px solid #26323f; padding-bottom: .75rem; margin-bottom: 1.25rem; }
+.ie-titre { font-size: 2rem; font-weight: 800; letter-spacing: .08em; margin: 0; color: #26323f; }
+.ie-sous-titre { color: #6c757d; }
+.ie-meta { display: grid; grid-template-columns: auto auto; gap: .15rem 1rem; margin: 0; }
+.ie-meta dt { font-weight: 600; color: #495057; text-align: right; }
+.ie-meta dd { margin: 0; }
+.ie-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; }
+.ie-partie { border: 1px solid #ced4da; border-radius: .25rem; padding: .75rem 1rem; }
+.ie-partie h3 { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: #6c757d; margin: 0 0 .25rem; }
+.ie-partie-nom { font-size: 1.25rem; font-weight: 700; margin: 0 0 .25rem; }
+.ie-table-facture th { border-top: 0; border-bottom: 2px solid #26323f; }
+.ie-ligne-total th { font-size: 1.15rem; border-top: 2px solid #26323f; }
+.ie-mention { margin: 1rem 0; font-weight: 700; font-size: 1.05rem; text-align: center; padding: .5rem; border: 1px dashed #6c757d; border-radius: .25rem; }
+.ie-note { margin-top: 1rem; }
+.ie-note-texte { white-space: pre-wrap; }
+.ie-signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; margin-top: 3rem; }
+.ie-trait { border-bottom: 1px solid #343a40; height: 2.25rem; margin-bottom: .25rem; }
+.ie-pied { margin: 1.5rem 0 0; color: #6c757d; font-size: .85rem; }
+.ie-bandeau-annule { background: #fdecea; border: 1px solid #f5c2c7; color: #58151c; font-size: 1.05rem; }
+.ie-badge-annule { font-size: 1rem; letter-spacing: .08em; padding: .35rem .6rem; }
+.ie-annulee { border-top: 3px solid #dc3545; }
+.ie-filigrane { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-20deg); font-size: 6.5rem; font-weight: 900; letter-spacing: .1em; color: rgba(220, 53, 69, .16); border: .45rem solid rgba(220, 53, 69, .16); padding: 0 1.5rem; pointer-events: none; user-select: none; z-index: 0; white-space: nowrap; }
+
+/* Bilan mensuel */
+.ie-bilan-titre { font-size: 1.6rem; font-weight: 700; margin: .25rem 0; }
+.ie-bilan-paire { color: #495057; margin-bottom: 1rem; }
+.ie-nav-mois .btn { margin-right: .25rem; }
+.ie-solde { background: #fff; border: 2px solid #26323f; border-left-width: 10px; border-radius: .35rem; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+.ie-solde-texte { font-size: 1.9rem; font-weight: 600; line-height: 1.3; }
+.ie-solde-qui { font-weight: 800; }
+.ie-montant { font-weight: 800; color: #0b5ed7; white-space: nowrap; }
+.ie-solde-nul { border-color: #6c757d; }
+.ie-solde-sous { color: #6c757d; margin-top: .25rem; }
+.ie-sous-section { font-size: 1.05rem; font-weight: 700; margin: 1rem 0 .5rem; color: #343a40; }
+.ie-sous-section:first-of-type { margin-top: 0; }
+.ie-total-sens { font-size: 1.15rem; }
+.ie-note-ligne { white-space: pre-wrap; }
+.ie-bilan-pied { margin-top: .5rem; }
+.ie-impression-entete { font-size: 10pt; color: #555; margin-bottom: .5rem; }
+
+/* Valeur de l'inventaire */
+.ie-carte-valeur .card-body { padding: 1rem 1.25rem; }
+.ie-valeur-nom { font-weight: 600; color: #495057; }
+.ie-valeur-montant { font-size: 2rem; font-weight: 800; color: #26323f; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ie-carte-total { background: #26323f; }
+.ie-carte-total .ie-valeur-nom, .ie-carte-total .ie-valeur-montant { color: #fff; }
+.text-warning-dark { color: #8a5a00; }
+.ie-table-emplacements tbody tr.ie-ligne-emplacement { cursor: pointer; }
+.ie-table-emplacements tbody tr.ie-ligne-emplacement.ie-actif td { background: #eef4ff; }
+.ie-table-emplacements td { padding-top: .7rem; padding-bottom: .7rem; vertical-align: middle; }
+.ie-table td, .ie-table th { vertical-align: middle; }
+.ie-detail-total { font-size: 1.15rem; }
+#table-detail .badge-sans-cout { background: #ffc107; color: #343a40; }
+
+@media (max-width: 767.98px) {
+  .ie-actions .btn-lg { width: 100%; }
+  .ie-parties, .ie-signatures { grid-template-columns: 1fr; }
+  .ie-solde-texte { font-size: 1.4rem; }
+  .ie-filigrane { font-size: 3.5rem; }
+  .ie-facture .card-body { padding: 1rem; }
+}
+
+@media print {
+  .content-wrapper[data-ie] .breadcrumb { display: none !important; }
+  .ie-filigrane { font-size: 5rem; }
+  .ie-barre, .modal, .ie-filtres, .ie-actions, .ie-valeur-entete { display: none !important; }
+  .content-wrapper[data-ie="facture_interne_voir"] .content-header { display: none !important; }
+  .ie-facture { max-width: none; border: 1px solid #000 !important; }
+  .ie-facture .card-body { padding: 1rem 1.25rem; }
+  .ie-titre { font-size: 22pt; }
+  .ie-filigrane { color: rgba(0, 0, 0, .13) !important; border-color: rgba(0, 0, 0, .13) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .ie-bandeau-annule { border: 2px solid #000; background: #fff; color: #000; }
+  .badge { border: 1px solid #000; color: #000 !important; background: #fff !important; }
+  .table { font-size: 10.5pt; }
+  .ie-table-facture tr, .ie-sens tr { break-inside: avoid; }
+  .ie-sens, .ie-solde { break-inside: avoid; }
+  .ie-solde { border: 2px solid #000; }
+  .ie-montant { color: #000; }
+  .ie-signatures { margin-top: 2.5rem; }
+  .ie-carte-total { background: #fff !important; border: 1px solid #000 !important; }
+  .ie-carte-total .ie-valeur-nom, .ie-carte-total .ie-valeur-montant { color: #000 !important; }
+  .ie-table-emplacements tbody tr.ie-ligne-emplacement { cursor: auto; }
+}

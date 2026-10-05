@@ -1,0 +1,34 @@
+/* Administration (utilisateurs, entreprises, emplacements, journal, profil, sauvegarde) — module E */
+.adm-actions .btn, .adm-filtres .form-control, .adm-filtres .btn { min-height: 44px; }
+.adm-filtres label { margin-bottom: .2rem; font-size: .85rem; color: #495057; }
+.adm-table td, .adm-table th { vertical-align: middle; }
+.adm-table tbody tr td { padding-top: .6rem; padding-bottom: .6rem; }          /* lignes ≥ 44 px (tablette) */
+.adm-table .btn-sm { min-height: 40px; min-width: 40px; }
+.adm-table td.adm-boutons { white-space: nowrap; text-align: right; }
+.adm-table tr.adm-inactif td { color: #6c757d; background: #f8f9fa; }
+.adm-table .code, .adm-code, .adm-mdp-champ { font-family: SFMono-Regular, Menlo, Consolas, monospace; }
+.adm-mdp-champ { font-size: 1.15rem; letter-spacing: .04em; }
+.adm-legende { font-size: 1rem; font-weight: 600; margin-bottom: .4rem; width: auto; }
+.adm-case { min-height: 44px; padding-top: .35rem; }
+.adm-case .custom-control-label { padding-top: .1rem; cursor: pointer; }
+.adm-compte { border-top: 1px solid #dee2e6; padding-top: 1rem; }
+.modal .btn, .adm-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; min-height: 44px; }
+.modal .form-control { min-height: 44px; }
+.modal .input-group-append .btn { min-height: 44px; }
+.adm-infos dt { color: #6c757d; font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; margin-top: .75rem; }
+.adm-infos dt:first-child { margin-top: 0; }
+.adm-infos dd { margin: 0; overflow-wrap: anywhere; }
+/* Journal : détails lisibles, une information par ligne */
+.jr-ligne { display: block; line-height: 1.35; }
+.jr-cle { color: #6c757d; }
+.jr-chg { font-weight: 500; }
+#table-journal td { vertical-align: top; }
+#table-journal td:nth-child(1) { white-space: nowrap; }
+.table-responsive { position: relative; }
+.dataTables_wrapper .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+/* Le thème du projet redéfinit .btn-danger (texte rouge seulement) : bouton d'action destructrice explicite */
+.adm-btn-danger { background: #dc3545; border-color: #dc3545; color: #fff; font-size: 1rem; }
+.adm-btn-danger:hover, .adm-btn-danger:focus { background: #bd2130; border-color: #b21f2d; color: #fff; }
+.content-wrapper h1, .alert, dd { overflow-wrap: anywhere; }
+.adm-table td { overflow-wrap: break-word; }   /* coupe les très longs noms sans écraser les colonnes */
+@media print { .adm-actions, .adm-filtres { display: none !important; } }

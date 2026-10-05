@@ -1,0 +1,92 @@
+/* Scanner / Chercher et comptage d'inventaire (module D1) */
+
+/* Zones cliquables ≥ 44 px (tablette) */
+.sc-carte .btn, .sc-carte .form-control, .sc-fiche .btn, .cp-carte .btn, .cp-carte .form-control, .cp-carte .custom-control-label { min-height: 44px; }
+.sc-carte .select2-container--default .select2-selection--single, .cp-carte .select2-container--default .select2-selection--single { min-height: 44px; display: flex; align-items: center; }
+.sc-carte .select2-container--default .select2-selection--single .select2-selection__arrow, .cp-carte .select2-container--default .select2-selection--single .select2-selection__arrow { height: 42px; }
+.sc-carte .select2-container--default .select2-selection--single .select2-selection__rendered, .cp-carte .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 42px; }
+.sc-carte label, .cp-carte label { margin-bottom: .2rem; font-size: .9rem; color: #343a40; }
+.sc-carte label.sc-label, .cp-carte label.sc-label { font-size: 1.05rem; font-weight: 600; color: #0b5ed7; margin-bottom: .35rem; }
+.sc-sous-champ { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin: .25rem 0 .75rem; }
+.sc-attente { font-weight: 600; white-space: nowrap; }
+.sc-boutons { display: flex; align-items: flex-end; gap: .5rem; flex-wrap: wrap; }
+.sc-boutons .btn { flex: 1 1 auto; }
+
+/* Caméra */
+.sc-camera { border: 1px solid #ced4da; border-radius: .35rem; padding: .75rem; background: #fff; margin-top: .25rem; }
+.sc-camera-barre { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+.sc-camera-msg { margin-bottom: .5rem; }
+.sc-camera-video { width: 100%; max-height: 260px; background: #000; border-radius: .25rem; object-fit: cover; }
+
+/* Fiche pièce / emplacement */
+.sc-fiche { border-top: 3px solid #0b5ed7; }
+.sc-fiche-emp { border-top-color: #17a2b8; }
+.sc-entete { margin-bottom: .5rem; }
+.sc-code { font-size: 1.15rem; color: #495057; letter-spacing: .04em; }
+.sc-nom { font-size: 1.7rem; font-weight: 700; margin: .1rem 0 .4rem; word-break: break-word; }
+.sc-meta .badge { font-size: .85rem; padding: .35em .6em; }
+.sc-h3 { font-size: 1.05rem; font-weight: 700; margin: 1.1rem 0 .4rem; color: #343a40; text-transform: uppercase; letter-spacing: .03em; }
+.sc-alerte { font-size: 1.1rem; margin: .75rem 0 0; }
+.sc-table th, .sc-table td { vertical-align: middle; }
+.sc-table tr.sc-ent th { background: #eef3fb; border-top: 2px solid #c9d8f0; }
+.sc-table .btn { min-height: 38px; }
+.sc-code-chip { background: #f1f3f5; border: 1px solid #dee2e6; border-radius: .25rem; padding: .15rem .5rem; font-size: 1rem; }
+.sc-codes li { margin-bottom: .35rem; }
+.sc-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.1rem; }
+.sc-actions .btn { min-height: 48px; padding-left: 1.2rem; padding-right: 1.2rem; font-size: 1.05rem; }
+.sc-resume { font-size: 1.1rem; }
+.sc-accueil { text-align: center; padding: 2.5rem 1rem; font-size: 1.05rem; }
+.sc-message { font-size: 1.05rem; }
+.sc-inconnu { font-size: 1.15rem; }
+
+/* Historique de la session */
+.sc-historique .card-title { font-size: 1.05rem; font-weight: 700; }
+.sc-hist-item { border-bottom: 1px solid #eef0f2; }
+.sc-hist-item:last-child { border-bottom: 0; }
+.sc-hist-btn { display: block; width: 100%; text-align: left; background: none; border: 0; padding: .6rem .9rem; min-height: 44px; font-size: .95rem; }
+button.sc-hist-btn:hover, button.sc-hist-btn:focus { background: #eef3fb; }
+.sc-hist-h { color: #6c757d; font-size: .8rem; margin-right: .25rem; }
+.sc-hist-lib { color: #495057; }
+.sc-hist-mort { color: #6c757d; }
+
+@media (max-width: 767.98px) {
+  .sc-nom { font-size: 1.4rem; }
+  .sc-actions .btn { flex: 1 1 100%; }
+}
+
+/* ------------------------------------------------------------------ comptage */
+.cp-carte .form-text { font-size: .85rem; }
+.cp-entete dt { font-weight: 600; color: #495057; }
+.cp-entete dd { margin-bottom: .35rem; }
+.cp-statut { font-size: 1rem; padding: .35rem .65rem; }
+.cp-numero { font-size: 1.5rem; font-weight: 700; }
+.cp-table td, .cp-table th { vertical-align: middle; }
+.cp-table input.cp-qte { width: 110px; min-height: 44px; text-align: right; display: inline-block; }
+.cp-table .btn { min-height: 44px; min-width: 44px; }
+.cp-table tr.cp-flash td { background: #d4edda; transition: background .6s; }
+.cp-table tr.cp-erreur-ligne td { background: #f8d7da; }
+.cp-ecart-pos { color: #1e7e34; font-weight: 700; }
+.cp-ecart-neg { color: #c82333; font-weight: 700; }
+.cp-ecart-nul { color: #6c757d; }
+.cp-journal { list-style: none; margin: .5rem 0 0; padding: 0; font-size: .95rem; }
+.cp-journal li { padding: .2rem 0; border-bottom: 1px dashed #e3e6ea; }
+.cp-journal li.cp-j-ko { color: #c82333; font-weight: 600; }
+.cp-journal .cp-j-h { color: #6c757d; font-size: .8rem; margin-right: .3rem; }
+.cp-barre { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.cp-barre .btn { min-height: 48px; font-size: 1.05rem; padding-left: 1.2rem; padding-right: 1.2rem; }
+.cp-barre .cp-espace { flex: 1 1 auto; }
+.cp-apercu td, .cp-apercu th { vertical-align: middle; }
+.cp-apercu-resume { font-size: 1.05rem; }
+.modal .btn, .modal .form-control { min-height: 44px; }
+.cp-liste-filtres label { display: block; margin-bottom: .2rem; font-size: .85rem; color: #495057; }
+.cp-liste-filtres .form-control { min-height: 44px; }
+#table-comptages tbody td { padding-top: .7rem; padding-bottom: .7rem; }
+.dataTables_wrapper .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+
+@media (max-width: 767.98px) {
+  .cp-barre .btn { flex: 1 1 100%; }
+  .cp-table input.cp-qte { width: 90px; }
+}
+@media print {
+  .sc-actions, .sc-carte, .sc-historique, .cp-barre, .cp-saisie, .modal { display: none !important; }
+}

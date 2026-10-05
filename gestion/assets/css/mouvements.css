@@ -1,0 +1,102 @@
+/* Mouvements : réception, transfert, sortie, ajustement, documents (module B) */
+
+/* Zones cliquables ≥ 44 px (tablette) */
+.mv-carte .form-control, .mv-carte .btn { min-height: 44px; }
+.mv-carte textarea.form-control { min-height: 70px; }
+.mv-carte .btn-sm { min-height: 38px; }
+.mv-carte label { margin-bottom: .2rem; font-size: .9rem; color: #343a40; }
+.mv-carte .custom-control-label { min-height: 28px; padding-top: .1rem; font-size: 1rem; }
+.mv-carte .select2-container--default .select2-selection--single { min-height: 44px; display: flex; align-items: center; }
+.mv-carte .select2-container--default .select2-selection--single .select2-selection__arrow { height: 42px; }
+.mv-carte .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 42px; }
+
+/* Champ de scan */
+.mv-scan { margin-top: .25rem; }
+.mv-scan-label { display: block; font-weight: 600; color: #0b5ed7; margin-bottom: .3rem; }
+.mv-aide-scan { margin: -.25rem 0 .75rem; }
+
+/* Lignes de saisie (composant) */
+.mv-lignes table { background: #fff; }
+.mv-lignes td, .mv-lignes th { vertical-align: middle; }
+.mv-lignes input.form-control { min-width: 84px; min-height: 40px; }
+.mv-lignes .btn { min-width: 44px; min-height: 40px; }
+.mv-lignes input.is-invalid { border-color: #dc3545; }
+.mv-lignes th { white-space: nowrap; }
+
+/* Total estimé et actions */
+.mv-total-estime { margin: .75rem 0 0; font-size: 1.15rem; font-weight: 600; text-align: right; }
+.mv-total-estime:empty { display: none; }
+.mv-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+.mv-actions .btn-lg { min-height: 52px; padding-left: 1.75rem; padding-right: 1.75rem; }
+.mv-erreur, .mv-succes { font-size: 1.05rem; }
+.mv-succes a { font-weight: 700; text-decoration: underline; }
+
+/* Bouton d'action destructrice (le thème redéfinit .btn-danger : on le force explicitement) */
+.mv-btn-danger { background: #dc3545; border-color: #dc3545; color: #fff; font-size: 1rem; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
+.mv-btn-danger:hover, .mv-btn-danger:focus { background: #bd2130; border-color: #b21f2d; color: #fff; }
+.mv-btn-danger[disabled] { opacity: .65; }
+.mv-barre .btn { margin-bottom: .25rem; }
+.modal .btn, .modal .form-control { min-height: 44px; }
+.modal textarea.form-control { min-height: 88px; }
+
+/* Documents */
+.mv-filtres label, .mv-label-plage { display: block; margin-bottom: .2rem; font-size: .85rem; color: #495057; }
+.mv-filtres .form-control, .mv-filtres .input-group-text { min-height: 44px; }
+.mv-table td, .mv-table th { vertical-align: middle; }
+#table-documents tbody tr td { padding-top: .7rem; padding-bottom: .7rem; }   /* lignes ≥ 44 px */
+#table-documents tbody tr.mv-ligne-annule td { color: #6c757d; }
+#table-documents tbody tr.mv-ligne-annule td:first-child a { text-decoration: line-through; }
+.dataTables_wrapper .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.dataTables_wrapper .dataTables_length select { min-height: 38px; }
+
+/* Détail d'un document */
+.mv-entete dt { font-weight: 600; color: #495057; }
+.mv-entete dd { margin-bottom: .4rem; }
+.mv-note { white-space: pre-wrap; }
+.mv-bandeau-annule { background: #fdecea; border: 1px solid #f5c2c7; color: #58151c; font-size: 1.05rem; }
+.mv-badge-annule { font-size: 1rem; letter-spacing: .08em; padding: .35rem .6rem; }
+.mv-document.mv-annule { border-top: 3px solid #dc3545; }
+.mv-mouv-annulation td { background: #fff5f5; }
+.mv-total-ligne th { font-size: 1.05rem; }
+
+@media (max-width: 767.98px) {
+  .mv-actions .btn-lg { width: 100%; }
+}
+
+@media print {
+  .mv-barre, .modal, .mv-filtres { display: none !important; }
+  .mv-impression-entete { font-size: 10pt; color: #555; margin-bottom: .5rem; }
+  .mv-carte { break-inside: avoid; }
+  .mv-bandeau-annule { border: 2px solid #000; background: #fff; color: #000; }
+  .badge { border: 1px solid #000; color: #000 !important; background: #fff !important; }
+  .table { font-size: 10.5pt; }
+}
+
+/* Barre d'enregistrement toujours visible (longues listes, tablette) */
+.mv-actions { position: sticky; bottom: 0; z-index: 5; background: #fff; margin: .75rem -1.25rem -1.25rem; padding: .75rem 1.25rem; border-top: 1px solid #dee2e6; border-radius: 0 0 .25rem .25rem; }
+.mv-erreur { scroll-margin-bottom: 110px; }
+.mv-succes { scroll-margin-top: 80px; }
+#table-documents td:first-child, #table-documents td:nth-child(3) { white-space: nowrap; }
+
+/* Case à cocher : la case elle-même est cliquable (et grande), le libellé aussi */
+.mv-check { display: flex; align-items: center; gap: .6rem; min-height: 44px; margin: 0; cursor: pointer; font-weight: 600; }
+.mv-check input[type=checkbox] { width: 1.4rem; height: 1.4rem; margin: 0; flex: 0 0 auto; }
+.mv-check input[disabled] + span { color: #6c757d; cursor: not-allowed; }
+.mv-maj-prix small { margin-top: -.25rem; }
+
+/* Le champ qui reçoit le focus ne reste pas caché sous la barre d'enregistrement */
+html { scroll-padding-bottom: 6rem; }
+
+/* Impression : tout tient dans la largeur de la page (pas de défilement dans les tableaux) */
+@media print {
+  .mv-document, .mv-carte, .content-wrapper .container-fluid { width: 100% !important; max-width: 100% !important; }
+  .table-responsive { overflow: visible !important; }
+  .mv-table { width: 100% !important; }
+  .mv-table th, .mv-table td { white-space: normal !important; padding: .25rem .4rem; }
+  .mv-table td.nombre, .mv-table th.nombre { white-space: nowrap !important; }
+  .mv-table { font-size: 9.5pt; }
+  .mv-carte .card-header { padding: .4rem .6rem; }
+}
+@media print {
+  body { min-width: 0 !important; }      /* Bootstrap impose 992 px : la mise en page suit la largeur du papier */
+}

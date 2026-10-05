@@ -1,0 +1,34 @@
+/* Catalogue (pièces, fournisseurs, catégories) — module A1 */
+.cat-actions .btn { min-height: 44px; }
+.cat-filtres .form-control, .cat-filtres .btn { min-height: 44px; }
+.cat-filtres label { margin-bottom: .2rem; font-size: .85rem; color: #495057; }
+.cat-table td, .cat-table th { vertical-align: middle; }
+.cat-table tbody tr td { padding-top: .7rem; padding-bottom: .7rem; }          /* lignes ≥ 44 px (tablette) */
+.cat-table tbody tr.cliquable { cursor: pointer; }
+.cat-table tbody tr.cliquable:hover { background: #eef4ff; }
+.cat-table .btn-sm { min-height: 36px; min-width: 40px; }
+.cat-table a.code { font-weight: 600; }
+.cat-entete-entreprise td { background: #e9ecef; font-weight: 600; }
+.cat-barcode img { max-width: 100%; height: 64px; background: #fff; border: 1px solid #dee2e6; border-radius: .25rem; padding: 4px 8px; }
+.cat-alias-liste { list-style: none; padding: 0; margin: .5rem 0 0; }
+.cat-alias-liste li { display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem; border: 1px solid #dee2e6; border-radius: .25rem; margin-bottom: .35rem; background: #fff; }
+.cat-alias-liste li .code { flex: 1 1 auto; word-break: break-all; }
+.cat-alias-liste .btn { min-height: 36px; min-width: 36px; }
+.cat-desc { white-space: pre-wrap; }
+.cat-ecart-bon { color: #1e7e34; }
+.cat-ecart-mauvais { color: #c82333; }
+.cat-code-fige { background: #e9ecef; }
+.modal .btn, .cat-form .btn { min-height: 44px; }
+.cat-form .form-control, .modal .form-control { min-height: 44px; }
+.cat-form textarea.form-control, .modal textarea.form-control { min-height: 88px; }
+.cat-form .custom-control-label { min-height: 44px; padding-top: .4rem; }
+@media print { .cat-actions, .cat-filtres { display: none !important; } }
+.cat-actions .btn, .cat-form .btn, .cat-filtres .btn, .modal .btn { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; }
+.cat-actions .btn { margin-bottom: .25rem; }
+.table-responsive { position: relative; }      /* les textes .sr-only (position absolue) restent dans le conteneur défilant */
+.dataTables_wrapper .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }   /* pagination tactile */
+/* Le thème du projet redéfinit .btn-danger (texte rouge seulement) : bouton d'action destructrice explicite */
+.cat-btn-danger { background: #dc3545; border-color: #dc3545; color: #fff; font-size: 1rem; }
+.cat-btn-danger:hover, .cat-btn-danger:focus { background: #bd2130; border-color: #b21f2d; color: #fff; }
+/* Noms très longs sans espace : on coupe plutôt que de déborder (tablette) */
+.content-wrapper h1, .cat-table td, .cat-desc, .cat-alias-liste .code, dd, .alert { overflow-wrap: anywhere; }

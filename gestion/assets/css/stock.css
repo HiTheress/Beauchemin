@@ -1,0 +1,60 @@
+/* Stock, historique, sous le minimum, tableau de bord (module D2) */
+
+/* Zones cliquables ≥ 44 px (tablette) */
+.sk-page .form-control, .sk-page .btn { min-height: 44px; }
+.sk-page .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.sk-carte .btn-sm { min-height: 44px; display: inline-flex; align-items: center; }
+.sk-carte label { margin-bottom: .2rem; font-size: .9rem; font-weight: 700; color: #343a40; }
+.sk-carte .custom-control-label { font-weight: 400; font-size: 1rem; min-height: 44px; padding-top: .55rem; white-space: nowrap; }
+.sk-case { min-height: 44px; }
+.sk-carte .sk-case .custom-control-label::before, .sk-carte .sk-case .custom-control-label::after { top: .8rem; }
+.sk-carte .select2-container--default .select2-selection--single { min-height: 44px; display: flex; align-items: center; }
+.sk-carte .select2-container--default .select2-selection--single .select2-selection__arrow { height: 42px; }
+.sk-carte .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 42px; }
+.sk-etiquette { display: block; margin-bottom: .2rem; font-size: .9rem; font-weight: 700; color: #343a40; }
+.sk-vue .btn { white-space: normal; }
+.sk-vue .btn.active { background: #0b5ed7; border-color: #0b5ed7; color: #fff; }
+.sk-aide { margin: -.25rem 0 .75rem; }
+.sk-actions .btn { white-space: nowrap; }
+
+/* Tableaux */
+.sk-table { margin-bottom: 0; }
+.sk-table th { white-space: nowrap; }
+.sk-table th, .sk-table td { padding: .5rem .6rem; }
+.sk-table td.sk-date { white-space: nowrap; }
+.sk-table td.nombre { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sk-table tbody tr.sk-bas, .sk-table tbody tr.sk-bas > td { background-color: #fde8e8; }
+.sk-table tbody tr.sk-bas > td:first-child { box-shadow: inset 4px 0 0 #dc3545; }
+.sk-table tbody tr.sk-annulation > td { color: #6c757d; }
+.sk-table a { text-decoration: underline; text-decoration-color: rgba(11,94,215,.35); }
+.sk-table a:focus, .sk-carte a:focus, .ds-carte a:focus { outline: 2px solid #0b5ed7; outline-offset: 2px; }
+.sk-btn-recevoir { text-decoration: none !important; }
+.sk-pos { color: #1e7e34; }
+.sk-neg { color: #bd2130; }
+
+/* État vide (rien sous le minimum) */
+.sk-vide { text-align: center; padding: 2.5rem 1rem; }
+.sk-vide-icone { font-size: 2.5rem; color: #1e7e34; margin-bottom: .75rem; }
+.sk-vide-titre { font-size: 1.25rem; font-weight: 600; }
+
+/* Tableau de bord */
+.ds-raccourcis .btn { margin: 0 .5rem .5rem 0; min-height: 52px; }
+.ds-carte { margin-bottom: 1rem; }
+.ds-titre { font-size: 1rem; font-weight: 700; color: #495057; margin: 0 0 .5rem; }
+.ds-nombre { font-size: 2.25rem; font-weight: 700; line-height: 1.1; margin: 0; font-variant-numeric: tabular-nums; }
+.ds-detail { margin: .25rem 0 .5rem; color: #495057; min-height: 1.5rem; }
+.ds-alerte .ds-nombre { color: #bd2130; }
+.ds-alerte { border-left: 4px solid #dc3545; }
+.ds-lien { display: inline-block; padding: .5rem 0; font-weight: 600; }
+.ds-lien-sep { color: #6c757d; margin: 0 .5rem; }
+.ds-ligne { display: flex; justify-content: space-between; gap: .75rem; padding: .35rem 0; border-bottom: 1px solid #e9ecef; }
+.ds-ligne:last-child { border-bottom: 0; }
+.ds-ligne-factures { display: grid; grid-template-columns: minmax(9rem, 1.1fr) repeat(3, 1fr); gap: .25rem 1rem; align-items: baseline; }
+.ds-ligne-factures .ds-ent { font-weight: 700; }
+@media (max-width: 767.98px) {
+  .ds-ligne-factures { grid-template-columns: 1fr; }
+}
+
+.ds-carte td .code { white-space: nowrap; }
+.ds-carte td.ds-date { white-space: nowrap; }
+.sk-table td .code { white-space: nowrap; }
