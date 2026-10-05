@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS prix_fournisseurs_hist (
   prix            DECIMAL(12,4) NOT NULL,
   date_prix       DATE NOT NULL,
   utilisateur_id  INT UNSIGNED NULL,
+  document_id     INT UNSIGNED NULL,
   cree_le         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY ix_hist_piece (piece_id, fournisseur_id, date_prix)
@@ -231,6 +232,7 @@ CREATE TABLE IF NOT EXISTS mouvements (
   PRIMARY KEY (id),
   KEY ix_mouv_piece_date (piece_id, date_mouvement),
   KEY ix_mouv_emplacement_date (emplacement_id, date_mouvement),
+  KEY ix_mouv_date (date_mouvement),
   KEY ix_mouv_document (document_id),
   CONSTRAINT fk_mouv_document FOREIGN KEY (document_id) REFERENCES documents (id),
   CONSTRAINT fk_mouv_piece FOREIGN KEY (piece_id) REFERENCES pieces (id),
@@ -277,6 +279,7 @@ CREATE TABLE IF NOT EXISTS utilisateurs (
   mot_de_passe        VARCHAR(255) NOT NULL,
   role                ENUM('admin','gestionnaire','employe') NOT NULL DEFAULT 'employe',
   actif               TINYINT(1) NOT NULL DEFAULT 1,
+  mdp_version         INT UNSIGNED NOT NULL DEFAULT 0,   -- augmente à chaque changement de mot de passe : coupe les autres sessions
   tentatives_echec    INT UNSIGNED NOT NULL DEFAULT 0,
   verrouille_jusqua   DATETIME NULL,
   derniere_connexion  DATETIME NULL,

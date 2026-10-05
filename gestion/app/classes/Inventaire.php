@@ -527,7 +527,7 @@ class Inventaire
 				$this->bouger($docId, (int) $emp['entreprise_id'], $l['piece_id'], (int) $emp['id'], $l['qte'], 'entree', $l['cout'], false, $userId);
 				$total += $this->ligneDocument($docId, $l['piece_id'], $l['qte'], $l['cout']);
 				if ($fid && !empty($d['maj_prix'])) {
-					$this->definirPrixInterne($userId, $l['piece_id'], $fid, $l['cout'], null, $date, 'Réception ' . $numero);
+					$this->definirPrixInterne($userId, $l['piece_id'], $fid, $l['cout'], null, $date, 'Réception ' . $numero, $docId);
 				}
 			}
 			$this->totalDocument($docId, $total);
@@ -767,6 +767,9 @@ class Inventaire
 						break;
 				}
 			}
+			if ($doc['type'] === 'reception' && $doc['fournisseur_id']) {
+				$this->restaurerPrixDeReception($userId, $doc);
+			}
 			$this->exec(
 				"UPDATE documents SET statut = 'annule', annule_par = ?, annule_le = ?, motif_annulation = ? WHERE id = ?",
 				array($userId, date('Y-m-d H:i:s'), $motif, $doc['id'])
@@ -774,6 +777,34 @@ class Inventaire
 			Journal::ecrire($this->pdo, $userId, 'document.annule', 'documents', (int) $doc['id'], array('numero' => $doc['numero'], 'motif' => $motif));
 			return array('id' => (int) $doc['id'], 'numero' => $doc['numero']);
 		});
+	}
+
+	/**
+	 * Annulation d'une réception qui avait mis à jour les prix du fournisseur : on remet le prix précédent
+	 * (ou on retire la ligne si le fournisseur n'avait pas de prix) — sauf si quelqu'un a changé ce prix depuis.
+	 */
+	private function restaurerPrixDeReception($userId, array $doc)
+	{
+		$lignes = $this->tous('SELECT DISTINCT piece_id FROM document_lignes WHERE document_id = ? ORDER BY piece_id', array($doc['id']));
+		foreach ($lignes as $l) {
+			$pid = (int) $l['piece_id'];
+			$h = $this->un('SELECT id, prix FROM prix_fournisseurs_hist WHERE piece_id = ? AND fournisseur_id = ? AND document_id = ? ORDER BY id DESC LIMIT 1', array($pid, $doc['fournisseur_id'], $doc['id']));
+			if (!$h) {
+				continue;   // cette réception n'a pas modifié le prix
+			}
+			$cur = $this->un('SELECT id, prix FROM prix_fournisseurs WHERE piece_id = ? AND fournisseur_id = ? FOR UPDATE', array($pid, $doc['fournisseur_id']));
+			if (!$cur || Dec::parse($cur['prix'], Dec::COUT) !== Dec::parse($h['prix'], Dec::COUT)) {
+				continue;   // le prix a été changé depuis : on n'y touche pas
+			}
+			$prev = $this->un('SELECT prix, date_prix FROM prix_fournisseurs_hist WHERE piece_id = ? AND fournisseur_id = ? AND id < ? ORDER BY id DESC LIMIT 1', array($pid, $doc['fournisseur_id'], $h['id']));
+			if ($prev) {
+				$this->exec('UPDATE prix_fournisseurs SET prix = ?, date_prix = ?, note = ? WHERE id = ?', array($prev['prix'], $prev['date_prix'], 'Annulation de ' . $doc['numero'], $cur['id']));
+				$this->exec('INSERT INTO prix_fournisseurs_hist (piece_id, fournisseur_id, prix, date_prix, utilisateur_id, document_id) VALUES (?, ?, ?, ?, ?, ?)', array($pid, $doc['fournisseur_id'], $prev['prix'], date('Y-m-d'), $userId, $doc['id']));
+			} else {
+				$this->exec('DELETE FROM prix_fournisseurs WHERE id = ?', array($cur['id']));
+			}
+			Journal::ecrire($this->pdo, $userId, 'prix.restaure', 'pieces', $pid, array('fournisseur_id' => (int) $doc['fournisseur_id'], 'document' => $doc['numero']));
+		}
 	}
 
 	// ======================================================================
@@ -1012,7 +1043,7 @@ class Inventaire
 		});
 	}
 
-	private function definirPrixInterne($userId, $pieceId, $fournisseurId, $prix4, $noFournisseur, $date, $note)
+	private function definirPrixInterne($userId, $pieceId, $fournisseurId, $prix4, $noFournisseur, $date, $note, $documentId = null)
 	{
 		$ex = $this->un('SELECT id, prix FROM prix_fournisseurs WHERE piece_id = ? AND fournisseur_id = ? FOR UPDATE', array($pieceId, $fournisseurId));
 		// null = champ inchangé ; chaîne vide = champ effacé
@@ -1036,8 +1067,8 @@ class Inventaire
 		}
 		if ($change) {
 			$this->exec(
-				'INSERT INTO prix_fournisseurs_hist (piece_id, fournisseur_id, prix, date_prix, utilisateur_id) VALUES (?, ?, ?, ?, ?)',
-				array($pieceId, $fournisseurId, $strPrix, $date, $userId)
+				'INSERT INTO prix_fournisseurs_hist (piece_id, fournisseur_id, prix, date_prix, utilisateur_id, document_id) VALUES (?, ?, ?, ?, ?, ?)',
+				array($pieceId, $fournisseurId, $strPrix, $date, $userId, $documentId)
 			);
 			Journal::ecrire($this->pdo, $userId, 'prix.maj', 'pieces', $pieceId, array('fournisseur_id' => $fournisseurId, 'prix' => $strPrix));
 		}

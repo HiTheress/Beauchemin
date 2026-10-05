@@ -22,6 +22,16 @@ async function tenter(page, nom, mdp) {
   // un compte désactivé répond comme un compte inconnu
   const desact = await tenter(p, 'personne-ici', 'Test-Beauchemin-1');
   L.verifier(desact === inconnu, 'compte inexistant avec un mot de passe qui existe ailleurs : message identique');
+  // un tiers (autre adresse IP) qui échoue des dizaines de fois sur ce compte ne le verrouille pas pour son propriétaire
+  const DB = process.env.DB_NAME || 'beauchemin_dev';
+  const sql = q => execFileSync('mysql', ['-uroot', '-N', DB, '-e', q]).toString().trim();
+  sql("UPDATE utilisateurs SET tentatives_echec = 0, verrouille_jusqua = NULL WHERE nom_utilisateur = 'gestionnaire1'");
+  sql("DELETE FROM journal WHERE action = 'connexion.echec'");
+  const idG = sql("SELECT id FROM utilisateurs WHERE nom_utilisateur = 'gestionnaire1'");
+  for (let i = 0; i < 12; i++) { sql("INSERT INTO journal (date_action, utilisateur_id, action, entite, entite_id, ip) VALUES (NOW(), " + idG + ", 'connexion.echec', 'utilisateurs', " + idG + ", '203.0.113.77')"); }
+  const proprio = await tenter(await (await b.newContext()).newPage(), 'gestionnaire1', 'Test-Beauchemin-1');
+  L.verifier(proprio === 'CONNECTÉ', 'le propriétaire se connecte malgré 12 échecs venant d\'une autre adresse : ' + proprio);
+  L.verifier(sql("SELECT verrouille_jusqua IS NULL FROM utilisateurs WHERE nom_utilisateur = 'gestionnaire1'") === '1', 'le compte n\'est pas verrouillé par les échecs d\'un tiers');
   // téléchargement après expiration de session : redirection vers la connexion, pas du JSON brut
   const ctxSans = await b.newContext(); const q = await ctxSans.newPage();
   await q.goto(base + '/app/ajax/code128.php?texte=ABC', { waitUntil: 'load' });

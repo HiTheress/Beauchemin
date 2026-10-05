@@ -10,7 +10,8 @@ class User {
 	protected $pdo;
 	private $courant = false; // false = pas encore chargé, null = personne
 
-	const MAX_ECHECS = 5;
+	const MAX_ECHECS = 20;            // échecs consécutifs (toutes adresses) avant de verrouiller le COMPTE : seuil volontairement élevé
+	const MAX_ECHECS_COUPLE = 5;      // échecs d'une même adresse IP sur un même compte en 15 min : cette adresse seule est refusée
 	const VERROU_MINUTES = 15;
 	const RANG = array('employe' => 1, 'gestionnaire' => 2, 'admin' => 3);
 
@@ -49,6 +50,15 @@ class User {
 
 		$utilisable = ($u && $u['actif']);
 		$verrouille = ($utilisable && $u['verrouille_jusqua'] && strtotime($u['verrouille_jusqua']) > time());
+		// Limite par COUPLE compte + adresse IP : une adresse qui échoue trop souvent sur ce compte est refusée, sans bloquer le compte
+		// pour son vrai propriétaire (un tiers anonyme ne peut donc pas verrouiller le compte d'un collègue ni de l'administrateur).
+		if ($utilisable && !$verrouille) {
+			$st = $this->pdo->prepare("SELECT COUNT(*) FROM journal WHERE action = 'connexion.echec' AND entite = 'utilisateurs' AND entite_id = ? AND ip = ? AND date_action > ?");
+			$st->execute(array($u['id'], $ip, date('Y-m-d H:i:s', time() - self::VERROU_MINUTES * 60)));
+			if ((int) $st->fetchColumn() >= self::MAX_ECHECS_COUPLE) {
+				$verrouille = true;
+			}
+		}
 		$hash = $utilisable ? $u['mot_de_passe'] : self::EMPREINTE_FACTICE;
 		$bon = password_verify((string) $pass, $hash);   // toujours exécuté
 
@@ -61,6 +71,7 @@ class User {
 				->execute(array(date('Y-m-d H:i:s'), $u['id']));
 			session_regenerate_id(true);
 			$_SESSION['user_id'] = (int) $u['id'];
+			$_SESSION['auth_v'] = (int) $u['mdp_version'];
 			$_SESSION['user_name'] = $u['nom_utilisateur'];
 			Journal::ecrire($this->pdo, (int) $u['id'], 'connexion', 'utilisateurs', (int) $u['id']);
 			redirect("index.php");
@@ -69,15 +80,13 @@ class User {
 		if ($verrouille) {
 			Journal::ecrire($this->pdo, (int) $u['id'], 'connexion.verrouille', 'utilisateurs', (int) $u['id']);
 		} elseif ($utilisable) {
-			$n = (int) $u['tentatives_echec'] + 1;
-			$verrou = null;
-			if ($n >= self::MAX_ECHECS) {
-				$verrou = date('Y-m-d H:i:s', time() + self::VERROU_MINUTES * 60);
-				$n = 0;
+			// Compteur ATOMIQUE (des tentatives parallèles ne doivent pas se « perdre ») : une seule instruction incrémente et verrouille.
+			$verrou = date('Y-m-d H:i:s', time() + self::VERROU_MINUTES * 60);
+			$this->pdo->prepare("UPDATE utilisateurs SET verrouille_jusqua = IF(tentatives_echec + 1 >= ?, ?, verrouille_jusqua), tentatives_echec = IF(tentatives_echec + 1 >= ?, 0, tentatives_echec + 1) WHERE id = ?")
+				->execute(array(self::MAX_ECHECS, $verrou, self::MAX_ECHECS, $u['id']));
+			if ((int) $u['tentatives_echec'] + 1 >= self::MAX_ECHECS) {
 				Journal::ecrire($this->pdo, (int) $u['id'], 'utilisateur.verrouille', 'utilisateurs', (int) $u['id']);
 			}
-			$this->pdo->prepare("UPDATE utilisateurs SET tentatives_echec = ?, verrouille_jusqua = ? WHERE id = ?")
-				->execute(array($n, $verrou, $u['id']));
 		}
 		Journal::ecrire($this->pdo, $u ? (int) $u['id'] : null, 'connexion.echec', 'utilisateurs', $u ? (int) $u['id'] : null, array('nom' => mb_substr($username, 0, 50)));
 		sleep(1); // ralentit les essais répétés
@@ -93,10 +102,11 @@ class User {
 		$this->courant = null;
 		$id = (int) ($_SESSION['user_id'] ?? 0);
 		if ($id) {
-			$st = $this->pdo->prepare("SELECT id, nom_utilisateur, nom_complet, role, actif FROM utilisateurs WHERE id = ?");
+			$st = $this->pdo->prepare("SELECT id, nom_utilisateur, nom_complet, role, actif, mdp_version FROM utilisateurs WHERE id = ?");
 			$st->execute(array($id));
 			$u = $st->fetch();
-			if ($u && $u['actif']) {
+			// La session n'est valable que tant que la « version » du mot de passe n'a pas changé (changement/réinitialisation ailleurs).
+			if ($u && $u['actif'] && (int) ($_SESSION['auth_v'] ?? -1) === (int) $u['mdp_version']) {
 				if ($u['role'] === 'admin') {
 					$ids = $this->pdo->query("SELECT id FROM entreprises WHERE actif = 1 ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
 				} else {
@@ -107,7 +117,7 @@ class User {
 				$u['entreprises'] = array_map('intval', $ids);
 				$this->courant = $u;
 			} else {
-				unset($_SESSION['user_id'], $_SESSION['user_name']);
+				unset($_SESSION['user_id'], $_SESSION['user_name'], $_SESSION['auth_v']);
 			}
 		}
 		return $this->courant;
@@ -143,6 +153,20 @@ class User {
 
 	public function peutAcces($entrepriseId) {
 		return in_array((int) $entrepriseId, $this->entreprisesAutorisees(), true);
+	}
+
+	/**
+	 * Coupe toutes les sessions ouvertes d'un compte (à appeler après un changement ou une réinitialisation de mot de passe).
+	 * $garderCourante : l'utilisateur change SON mot de passe — sa session actuelle reste valable.
+	 */
+	public function invaliderSessions($userId, $garderCourante = false) {
+		$this->pdo->prepare("UPDATE utilisateurs SET mdp_version = mdp_version + 1 WHERE id = ?")->execute(array((int) $userId));
+		if ($garderCourante && (int) ($_SESSION['user_id'] ?? 0) === (int) $userId) {
+			$st = $this->pdo->prepare("SELECT mdp_version FROM utilisateurs WHERE id = ?");
+			$st->execute(array((int) $userId));
+			$_SESSION['auth_v'] = (int) $st->fetchColumn();
+		}
+		$this->courant = false;
 	}
 
 	public function logOut() {

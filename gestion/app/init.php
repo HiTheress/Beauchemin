@@ -17,6 +17,12 @@ require_once 'functions.php';
 header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
+header_remove('X-Powered-By');
+// Politique de contenu stricte : aucun script en ligne ni externe (le projet n'en contient aucun). Les styles en ligne restent permis
+// (DataTables, Select2 et AdminLTE positionnent des éléments par style). La caméra n'est autorisée que pour ce site (lecture de codes-barres).
+header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
+header('Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=()');
+header('Cross-Origin-Opener-Policy: same-origin');
 
 // Session durcie (8 h d'inactivité avant déconnexion : un quart de travail ; identifiants de session non devinables)
 ini_set('session.use_strict_mode', '1');

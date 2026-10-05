@@ -342,6 +342,45 @@ egal(null, $inv->trouverParCode($gA, array('x')), 'trouverParCode : un tableau n
 ok(is_array($inv->piecesRecherche($gA, array('x'))), 'piecesRecherche : un tableau comme terme ne plante pas (traité comme une recherche vide)');
 ok(is_array($inv->piecesRecherche($gA, "\xff\xfe")), 'piecesRecherche : octets UTF-8 invalides ignorés sans erreur');
 
+// ---- prix fournisseur lié à la réception : l'annulation remet le prix précédent --------------------------------------
+function prixF($piece, $four) { $v = val('SELECT prix FROM prix_fournisseurs WHERE piece_id = ? AND fournisseur_id = ?', array($piece, $four)); return $v === false ? null : $v; }
+$inv->definirPrixFournisseur($gA, $P['T3'], 2, '4.00');
+$rp = $inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'fournisseur_id' => 2, 'maj_prix' => true, 'lignes' => array(L($P['T3'], '1', '9.00'))));
+egal('9.0000', prixF($P['T3'], 2), 'réception avec mise à jour des prix : le prix du fournisseur change');
+$inv->annuler($gA, $rp['id'], 'erreur de frappe');
+egal('4.0000', prixF($P['T3'], 2), 'annulation de la réception : le prix précédent revient');
+// fournisseur sans prix : la réception en crée un, l'annulation le retire
+$rp2 = $inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'fournisseur_id' => 1, 'maj_prix' => true, 'lignes' => array(L($P['T3'], '1', '5.50'))));
+egal('5.5000', prixF($P['T3'], 1), 'réception : prix créé chez un fournisseur qui n\'en avait pas');
+$inv->annuler($gA, $rp2['id'], 'doublon');
+egal(null, prixF($P['T3'], 1), 'annulation : le prix créé par la réception est retiré');
+// le prix a été changé par quelqu'un d'autre entre-temps : on n'y touche pas
+$rp3 = $inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'fournisseur_id' => 2, 'maj_prix' => true, 'lignes' => array(L($P['T3'], '1', '7.00'))));
+$inv->definirPrixFournisseur($gA, $P['T3'], 2, '6.25');
+$inv->annuler($gA, $rp3['id'], 'erreur');
+egal('6.2500', prixF($P['T3'], 2), 'annulation : un prix modifié depuis par quelqu\'un d\'autre est conservé');
+// réception sans mise à jour des prix : l'annulation ne touche à aucun prix
+$rp4 = $inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'fournisseur_id' => 2, 'lignes' => array(L($P['T3'], '1', '99.00'))));
+$inv->annuler($gA, $rp4['id'], 'erreur');
+egal('6.2500', prixF($P['T3'], 2), 'réception sans maj_prix : prix inchangé après annulation');
+
+// ---- sessions : un changement de mot de passe coupe les autres sessions ---------------------------------------------------
+$_SESSION = array('user_id' => $gA, 'auth_v' => (int) val('SELECT mdp_version FROM utilisateurs WHERE id = ?', array($gA)));
+$ouA = new User($pdo);
+ok($ouA->courant() !== null, 'session valide au départ');
+$ancienneSession = $_SESSION;
+$_SESSION = array('user_id' => $gA, 'auth_v' => $ancienneSession['auth_v']);          // « l'autre onglet » change le mot de passe
+$ouB = new User($pdo); $ouB->courant();
+$ouB->invaliderSessions($gA, true);
+ok($ouB->courant() !== null && $_SESSION['auth_v'] !== $ancienneSession['auth_v'], 'la session qui change son mot de passe reste valable');
+$_SESSION = $ancienneSession;
+$ouC = new User($pdo);
+egal(null, $ouC->courant(), 'l\'ancienne session de ce compte est invalidée');
+ok(!isset($_SESSION['user_id']), 'la session invalidée est vidée');
+$_SESSION = array('user_id' => $gA);   // session sans version (ancienne) : refusée
+egal(null, (new User($pdo))->courant(), 'session sans version : refusée');
+$_SESSION = array();
+
 // coût moyen jamais remis à zéro par un retrait
 egal(10000, Dec::coutMoyenRetrait(10000, 10000, 5000, 30000), 'Dec : un retrait trop « cher » garde la moyenne actuelle (pas de 0)');
 egal(10000, Dec::coutMoyenRetrait(20000, 15000, 10000, 20000), 'Dec : retrait normal (20@1,50 moins 10@2,00 = 10@1,00)');
