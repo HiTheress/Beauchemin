@@ -4,7 +4,7 @@
  *   esc(texte)                -> échappe pour HTML (à utiliser pour TOUTE valeur insérée dans innerHTML)
  *   fmtArgent('12.5') / fmtQte('3.000') / fmtNombre(...)  -> format fr-CA à partir des chaînes décimales du serveur
  *   bip(true|false)           -> petit son de succès / d'erreur (scanner)
- *   scanner(input, fn, opts)  -> appelle fn(code) quand le lecteur envoie Entrée ; garde le focus
+ *   scanner(input, fn, opts)  -> appelle fn(code) quand le lecteur envoie Entrée ; FILE D'ATTENTE (aucun scan perdu) ; garde le focus
  *   DT_LANG                   -> libellés français de DataTables (déjà appliqués par défaut)
  */
 (function (w, $) {
@@ -79,28 +79,53 @@
   };
 
   /* Champ de scan. Un lecteur USB/Bluetooth « tape » le code puis Entrée.
-   * fn(code) peut retourner une Promise ; opts.garderFocus (défaut true) remet le focus après chaque scan. */
+   * fn(code) peut retourner une Promise ; retourner false (ou lancer une erreur) = échec (bip grave + message).
+   * FILE D'ATTENTE : un code reçu pendant le traitement du précédent est mis en file et traité dans l'ordre (aucun scan perdu).
+   * Le focus revient au champ une fois la file vide, sauf si l'utilisateur est en train de saisir ailleurs (quantité d'une ligne, fenêtre…).
+   * opts.garderFocus === false : ne remet jamais le focus.  Retourne { focus(), attente() } ; l'attribut data-attente du champ = nombre de scans en attente. */
   w.scanner = function (input, fn, opts) {
     opts = opts || {};
     var el = (typeof input === 'string') ? document.querySelector(input) : input;
     var box = el.closest('.scan-box');
-    var occupe = false;
-    function marquer(cls) { if (!box) { return; } box.classList.remove('ok', 'erreur'); void box.offsetWidth; box.classList.add(cls); setTimeout(function () { box.classList.remove(cls); }, 900); }
+    var file = [], enCours = false, minuterie = null;
+    function attente() { return file.length + (enCours ? 1 : 0); }
+    function notifier() { el.setAttribute('data-attente', String(attente())); }
+    function marquer(cls) {
+      if (!box) { return; }
+      box.classList.remove('ok', 'erreur'); void box.offsetWidth; box.classList.add(cls);
+      clearTimeout(minuterie); minuterie = setTimeout(function () { box.classList.remove(cls); }, 900);
+    }
+    function rendreFocus() {
+      if (opts.garderFocus === false) { return; }
+      var a = document.activeElement;
+      if (!a || a === document.body || a === el || !a.matches('input, select, textarea, [contenteditable]')) { el.focus(); }
+    }
+    function pomper() {
+      if (enCours) { return; }
+      var code = file.shift();
+      if (code === undefined) { notifier(); rendreFocus(); return; }
+      enCours = true; notifier();
+      Promise.resolve().then(function () { return fn(code); })
+        .then(function (r) {
+          if (r !== false) { if (!file.length) { w.bip(true); } marquer('ok'); } else { w.bip(false); marquer('erreur'); }
+        }, function (err) {
+          w.bip(false); marquer('erreur'); w.toast((err && err.message) ? err.message : String(err), 'danger');
+        })
+        .then(function () { enCours = false; pomper(); });
+    }
     el.addEventListener('keydown', function (e) {
       if (e.key !== 'Enter' && e.key !== 'Tab') { return; }
       var code = el.value.replace(/[\u0000-\u001f\u007f]/g, '').trim();
       if (e.key === 'Tab' && code === '') { return; }
       e.preventDefault();
       el.value = '';
-      if (code === '' || occupe) { return; }
-      occupe = true;
-      Promise.resolve().then(function () { return fn(code); })
-        .then(function (r) { if (r !== false) { w.bip(true); marquer('ok'); } else { w.bip(false); marquer('erreur'); } })
-        .catch(function (err) { w.bip(false); marquer('erreur'); w.toast(err.message || String(err), 'danger'); })
-        .then(function () { occupe = false; if (opts.garderFocus !== false) { el.focus(); } });
+      if (code === '') { return; }
+      if (file.length >= 500) { w.bip(false); w.toast('Trop de scans en attente : patientez un instant.', 'warning'); return; }
+      file.push(code); notifier(); pomper();
     });
+    notifier();
     if (opts.focusInitial !== false) { el.focus(); }
-    return { focus: function () { el.focus(); } };
+    return { focus: function () { el.focus(); }, attente: attente };
   };
 
   // ---- DataTables en français, par défaut -----------------------------------------------------

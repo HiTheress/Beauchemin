@@ -13,7 +13,7 @@ $menu = array(
     array('comptage',        'Comptage',               'fa-clipboard-check',     'employe',      array('comptage_voir')),
   ),
   'Catalogue' => array(
-    array('pieces',          'Pièces',                 'fa-cogs',                'employe',      array('piece_voir', 'piece_edit')),
+    array('pieces',          'Pièces',                 'fa-cogs',                'employe',      array('piece_voir', 'piece_edit', 'pieces_import')),
     array('fournisseurs',    'Fournisseurs',           'fa-industry',            'gestionnaire', array()),
     array('categories',      'Catégories',             'fa-tags',                'gestionnaire', array()),
     array('etiquettes',      'Étiquettes code-barres', 'fa-print',               'gestionnaire', array()),

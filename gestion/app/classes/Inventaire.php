@@ -35,6 +35,7 @@ class Inventaire
 		'comptage_appliquer' => 'gestionnaire',
 		'catalogue'          => 'gestionnaire',
 		'rapport'            => 'gestionnaire',
+		'administration'     => 'admin',
 	);
 
 	const MAX_LIGNES = 300;
@@ -213,6 +214,22 @@ class Inventaire
 			throw new InventaireException('L\'emplacement « ' . $e['nom'] . ' » est désactivé.', 'emplacement_id');
 		}
 		return $e;
+	}
+
+	/**
+	 * Emplacement SOURCE d'une opération : l'utilisateur doit avoir accès à son entreprise, sinon l'emplacement
+	 * est présenté comme introuvable (on ne révèle ni son nom ni son état à qui n'y a pas droit).
+	 */
+	private function emplacementAccessible($userId, $id, $actifSeulement = true)
+	{
+		$e = $this->un('SELECT entreprise_id FROM emplacements WHERE id = ?', array((int) $id));
+		if ($e) {
+			$u = $this->utilisateur($userId);
+			if (!in_array((int) $e['entreprise_id'], $u['entreprises'], true)) {
+				throw new InventaireException('Emplacement introuvable.', 'emplacement_id');
+			}
+		}
+		return $this->emplacement($id, $actifSeulement);
 	}
 
 	/** Lignes brutes -> lignes normalisées [piece_id, qte (milli), cout (1/10000)|null], validées. */
@@ -437,6 +454,16 @@ class Inventaire
 		return $total;
 	}
 
+	/** Résultat d'une opération : le total (valeur) n'est donné qu'à qui a le droit de voir les coûts. */
+	private function resultat($userId, $docId, $numero, $cents)
+	{
+		$r = array('id' => $docId, 'numero' => $numero);
+		if ($this->peutVoirCouts($userId)) {
+			$r['total'] = Dec::fmt($cents, Dec::TOTAL);
+		}
+		return $r;
+	}
+
 	private function totalDocument($docId, $cents)
 	{
 		$this->exec('UPDATE documents SET total = ? WHERE id = ?', array(Dec::fmt($cents, Dec::TOTAL), $docId));
@@ -475,7 +502,7 @@ class Inventaire
 	public function recevoir($userId, array $d)
 	{
 		return $this->transaction(function () use ($userId, $d) {
-			$emp = $this->emplacement(isset($d['emplacement_id']) ? $d['emplacement_id'] : 0);
+			$emp = $this->emplacementAccessible($userId, isset($d['emplacement_id']) ? $d['emplacement_id'] : 0);
 			$this->exiger($userId, 'reception', array($emp['entreprise_id']));
 			$date = $this->dateDocument(isset($d['date']) ? $d['date'] : null);
 			$fid = null;
@@ -504,7 +531,7 @@ class Inventaire
 				}
 			}
 			$this->totalDocument($docId, $total);
-			return array('id' => $docId, 'numero' => $numero, 'total' => Dec::fmt($total, Dec::TOTAL));
+			return $this->resultat($userId, $docId, $numero, $total);
 		});
 	}
 
@@ -515,8 +542,14 @@ class Inventaire
 	public function transferer($userId, array $d)
 	{
 		return $this->transaction(function () use ($userId, $d) {
-			$src = $this->emplacement(isset($d['emplacement_id']) ? $d['emplacement_id'] : 0);
-			$dst = $this->emplacement(isset($d['emplacement_dest_id']) ? $d['emplacement_dest_id'] : 0);
+			$src = $this->emplacementAccessible($userId, isset($d['emplacement_id']) ? $d['emplacement_id'] : 0);
+			$dst = $this->emplacement(isset($d['emplacement_dest_id']) ? $d['emplacement_dest_id'] : 0, false);
+			if ((int) $src['entreprise_id'] !== (int) $dst['entreprise_id']) {
+				throw new InventaireException('Pour passer d\'une entreprise à l\'autre, utilisez une facture interne.', 'emplacement_dest_id');
+			}
+			if (!$dst['actif']) {
+				throw new InventaireException('L\'emplacement « ' . $dst['nom'] . ' » est désactivé.', 'emplacement_dest_id');
+			}
 			if ((int) $src['id'] === (int) $dst['id']) {
 				throw new InventaireException('La source et la destination doivent être différentes.', 'emplacement_dest_id');
 			}
@@ -527,7 +560,7 @@ class Inventaire
 			$this->exiger($userId, 'transfert', array($eid));
 			$date = $this->dateDocument(isset($d['date']) ? $d['date'] : null);
 			$lignes = $this->fusionner($this->lignes(isset($d['lignes']) ? $d['lignes'] : null, 'positif', 'aucun'));
-			$this->pieces($lignes);
+			$this->pieces($lignes, true);   // une pièce désactivée garde son stock : on doit pouvoir le déplacer
 
 			list($docId, $numero) = $this->creerDocument('transfert', array(
 				'date_document' => $date, 'entreprise_id' => $eid, 'emplacement_id' => (int) $src['id'],
@@ -541,7 +574,7 @@ class Inventaire
 				$total += $this->ligneDocument($docId, $l['piece_id'], $l['qte'], $c);
 			}
 			$this->totalDocument($docId, $total);
-			return array('id' => $docId, 'numero' => $numero, 'total' => Dec::fmt($total, Dec::TOTAL));
+			return $this->resultat($userId, $docId, $numero, $total);
 		});
 	}
 
@@ -552,7 +585,7 @@ class Inventaire
 	public function sortir($userId, array $d)
 	{
 		return $this->transaction(function () use ($userId, $d) {
-			$emp = $this->emplacement(isset($d['emplacement_id']) ? $d['emplacement_id'] : 0);
+			$emp = $this->emplacementAccessible($userId, isset($d['emplacement_id']) ? $d['emplacement_id'] : 0);
 			$eid = (int) $emp['entreprise_id'];
 			$this->exiger($userId, 'sortie', array($eid));
 			$motif = isset($d['motif']) ? $d['motif'] : '';
@@ -561,7 +594,7 @@ class Inventaire
 			}
 			$date = $this->dateDocument(isset($d['date']) ? $d['date'] : null);
 			$lignes = $this->fusionner($this->lignes(isset($d['lignes']) ? $d['lignes'] : null, 'positif', 'aucun'));
-			$this->pieces($lignes);
+			$this->pieces($lignes, true);   // idem : on peut sortir (vider) une pièce désactivée
 
 			list($docId, $numero) = $this->creerDocument('sortie', array(
 				'date_document' => $date, 'entreprise_id' => $eid, 'emplacement_id' => (int) $emp['id'],
@@ -575,7 +608,7 @@ class Inventaire
 				$total += $this->ligneDocument($docId, $l['piece_id'], $l['qte'], $c);
 			}
 			$this->totalDocument($docId, $total);
-			return array('id' => $docId, 'numero' => $numero, 'total' => Dec::fmt($total, Dec::TOTAL));
+			return $this->resultat($userId, $docId, $numero, $total);
 		});
 	}
 
@@ -586,7 +619,7 @@ class Inventaire
 	public function ajuster($userId, array $d)
 	{
 		return $this->transaction(function () use ($userId, $d) {
-			$emp = $this->emplacement(isset($d['emplacement_id']) ? $d['emplacement_id'] : 0);
+			$emp = $this->emplacementAccessible($userId, isset($d['emplacement_id']) ? $d['emplacement_id'] : 0);
 			$this->exiger($userId, 'ajustement', array($emp['entreprise_id']));
 			return $this->ajusterInterne($userId, $emp, $d);
 		});
@@ -601,7 +634,12 @@ class Inventaire
 		}
 		$date = $this->dateDocument(isset($d['date']) ? $d['date'] : null);
 		$lignes = $this->fusionner($this->lignes(isset($d['lignes']) ? $d['lignes'] : null, 'signe', 'optionnel'));
-		$this->pieces($lignes);
+		$pcs = $this->pieces($lignes, true);
+		foreach ($lignes as $l) {
+			if ($l['qte'] > 0 && !$pcs[$l['piece_id']]['actif']) {
+				throw new InventaireException('La pièce « ' . $pcs[$l['piece_id']]['code'] . ' » est désactivée : réactivez-la pour augmenter son stock (on peut seulement la diminuer).', 'lignes');
+			}
+		}
 
 		list($docId, $numero) = $this->creerDocument('ajustement', array(
 			'date_document' => $date, 'entreprise_id' => $eid, 'emplacement_id' => (int) $emp['id'],
@@ -620,7 +658,7 @@ class Inventaire
 			$total += $this->ligneDocument($docId, $l['piece_id'], $l['qte'], $c);
 		}
 		$this->totalDocument($docId, $total);
-		return array('id' => $docId, 'numero' => $numero, 'total' => Dec::fmt($total, Dec::TOTAL));
+		return $this->resultat($userId, $docId, $numero, $total);
 	}
 
 	/**
@@ -632,12 +670,12 @@ class Inventaire
 	public function factureInterne($userId, array $d)
 	{
 		return $this->transaction(function () use ($userId, $d) {
-			$src = $this->emplacement(isset($d['emplacement_id']) ? $d['emplacement_id'] : 0);
+			$src = $this->emplacementAccessible($userId, isset($d['emplacement_id']) ? $d['emplacement_id'] : 0);
 			$dst = $this->emplacement(isset($d['emplacement_dest_id']) ? $d['emplacement_dest_id'] : 0);
 			$e1 = (int) $src['entreprise_id'];
 			$e2 = (int) $dst['entreprise_id'];
 			if ($e1 === $e2) {
-				throw new InventaireException('Une facture interne se fait entre deux entreprises différentes. Pour le même entreprise, utilisez un transfert.', 'emplacement_dest_id');
+				throw new InventaireException('Une facture interne se fait entre deux entreprises différentes. Pour la même entreprise, utilisez un transfert.', 'emplacement_dest_id');
 			}
 			if (!empty($d['entreprise_dest_id']) && (int) $d['entreprise_dest_id'] !== $e2) {
 				throw new InventaireException('L\'emplacement de destination n\'appartient pas à l\'entreprise choisie.', 'emplacement_dest_id');
@@ -658,14 +696,14 @@ class Inventaire
 				$this->verrouillerPiece(array($e1, $e2), $l['piece_id']);
 				$c = $this->lireCout($e1, $l['piece_id']);
 				if ($c === 0 && empty($d['permettre_cout_zero'])) {
-					throw new InventaireException('La pièce « ' . $this->libelle($l['piece_id']) . ' » n\'a aucun coût connu. Faites d\'abord une réception (ou un ajustement avec coût), ou cochez « facturer à 0 $ ».', 'lignes');
+					throw new InventaireException('La pièce « ' . $this->libelle($l['piece_id']) . ' » n\'a aucun coût connu. Faites d\'abord une réception (ou un ajustement avec coût), ou cochez « Facturer les pièces sans coût à 0 $ ».', 'lignes');
 				}
 				$this->bouger($docId, $e1, $l['piece_id'], (int) $src['id'], -$l['qte'], 'sortie_moy', null, false, $userId);
 				$this->bouger($docId, $e2, $l['piece_id'], (int) $dst['id'], $l['qte'], 'entree', $c, false, $userId);
 				$total += $this->ligneDocument($docId, $l['piece_id'], $l['qte'], $c);
 			}
 			$this->totalDocument($docId, $total);
-			return array('id' => $docId, 'numero' => $numero, 'total' => Dec::fmt($total, Dec::TOTAL));
+			return $this->resultat($userId, $docId, $numero, $total);
 		});
 	}
 
@@ -739,7 +777,7 @@ class Inventaire
 	public function creerComptage($userId, $emplacementId, $note = null)
 	{
 		return $this->transaction(function () use ($userId, $emplacementId, $note) {
-			$emp = $this->emplacement($emplacementId);
+			$emp = $this->emplacementAccessible($userId, $emplacementId);
 			$this->exiger($userId, 'comptage', array($emp['entreprise_id']));
 			$ex = $this->un("SELECT numero FROM comptages WHERE emplacement_id = ? AND statut = 'en_cours' LIMIT 1 FOR UPDATE", array($emp['id']));
 			if ($ex) {
@@ -772,7 +810,7 @@ class Inventaire
 	{
 		return $this->transaction(function () use ($userId, $comptageId, $pieceId, $quantite, $mode) {
 			$c = $this->comptageOuvert($comptageId, $userId, 'comptage');
-			$this->pieces(array(array('piece_id' => (int) $pieceId)));
+			$this->pieces(array(array('piece_id' => (int) $pieceId)), true);   // on doit pouvoir compter une pièce désactivée qui a du stock
 			$q = Dec::parse($quantite, Dec::QTE, 'quantite');
 			if ($mode === 'ajouter') {
 				$ex = $this->un('SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = ? AND piece_id = ? FOR UPDATE', array($c['id'], (int) $pieceId));
@@ -825,7 +863,7 @@ class Inventaire
 		}
 		$this->exiger($userId, 'consulter', array($c['entreprise_id']));
 		$rows = $this->tous(
-			'SELECT p.id AS piece_id, p.code, p.nom, p.unite,
+			'SELECT p.id AS piece_id, p.code, p.nom, p.unite, p.actif,
 			        COALESCE(cl.quantite_comptee, NULL) AS quantite_comptee, COALESCE(s.quantite, 0) AS quantite_actuelle
 			   FROM pieces p
 			   LEFT JOIN comptage_lignes cl ON cl.piece_id = p.id AND cl.comptage_id = ?
@@ -897,13 +935,31 @@ class Inventaire
 	//  Catalogue : codes et prix fournisseurs
 	// ======================================================================
 
-	/** Vrai si $code n'est utilisé par aucune pièce (code interne ou alias), sauf $sauf (id de pièce). */
+	/**
+	 * Qui détient ce code ? null si libre, sinon array('type' => 'piece'|'alias'|'emplacement', 'id' => int, 'libelle' => string).
+	 * $sauf : id d'une pièce dont les propres codes sont ignorés (modification d'une pièce).
+	 */
+	public function codeUtilisePar($code, $sauf = 0)
+	{
+		$a = $this->un('SELECT id, code, nom FROM pieces WHERE code = ? AND id <> ? LIMIT 1', array($code, (int) $sauf));
+		if ($a) {
+			return array('type' => 'piece', 'id' => (int) $a['id'], 'libelle' => $a['code'] . ' — ' . $a['nom']);
+		}
+		$b = $this->un('SELECT pc.piece_id, p.code, p.nom FROM pieces_codes pc JOIN pieces p ON p.id = pc.piece_id WHERE pc.code = ? AND pc.piece_id <> ? LIMIT 1', array($code, (int) $sauf));
+		if ($b) {
+			return array('type' => 'alias', 'id' => (int) $b['piece_id'], 'libelle' => $b['code'] . ' — ' . $b['nom']);
+		}
+		$c = $this->un('SELECT e.id, e.nom, en.nom AS entreprise FROM emplacements e JOIN entreprises en ON en.id = e.entreprise_id WHERE e.code_barres = ? LIMIT 1', array($code));
+		if ($c) {
+			return array('type' => 'emplacement', 'id' => (int) $c['id'], 'libelle' => $c['nom'] . ' (' . $c['entreprise'] . ')');
+		}
+		return null;
+	}
+
+	/** Vrai si $code n'est utilisé par aucune pièce (code interne ou alias) ni emplacement, sauf $sauf (id de pièce). */
 	public function codeDisponible($code, $sauf = 0)
 	{
-		$a = $this->un('SELECT id FROM pieces WHERE code = ? AND id <> ? LIMIT 1', array($code, (int) $sauf));
-		$b = $this->un('SELECT piece_id FROM pieces_codes WHERE code = ? AND piece_id <> ? LIMIT 1', array($code, (int) $sauf));
-		$c = $this->un('SELECT id FROM emplacements WHERE code_barres = ? LIMIT 1', array($code));
-		return !$a && !$b && !$c;
+		return $this->codeUtilisePar($code, $sauf) === null;
 	}
 
 	/** Met à jour (ou crée) le prix d'une pièce chez un fournisseur ; garde l'historique. */
@@ -915,7 +971,9 @@ class Inventaire
 			if ($p < 0 || $p > self::MAX_COUT * 10000) {
 				throw new InventaireException('Prix invalide.', 'prix');
 			}
-			$this->pieces(array(array('piece_id' => (int) $pieceId)), true);
+			if (!$this->un('SELECT id FROM pieces WHERE id = ?', array((int) $pieceId))) {
+				throw new InventaireException('Pièce introuvable.', 'piece_id');
+			}
 			$f = $this->un('SELECT id FROM fournisseurs WHERE id = ?', array((int) $fournisseurId));
 			if (!$f) {
 				throw new InventaireException('Fournisseur introuvable.', 'fournisseur_id');
@@ -927,14 +985,17 @@ class Inventaire
 	private function definirPrixInterne($userId, $pieceId, $fournisseurId, $prix4, $noFournisseur, $date, $note)
 	{
 		$ex = $this->un('SELECT id, prix FROM prix_fournisseurs WHERE piece_id = ? AND fournisseur_id = ? FOR UPDATE', array($pieceId, $fournisseurId));
+		// null = champ inchangé ; chaîne vide = champ effacé
+		$noModifie = ($noFournisseur !== null);
+		$ntModifie = ($note !== null);
 		$no = self::texte($noFournisseur, 60);
 		$nt = self::texte($note, 255);
 		$strPrix = Dec::fmt($prix4, Dec::COUT);
 		if ($ex) {
 			$change = Dec::parse($ex['prix'], Dec::COUT) !== $prix4;
 			$this->exec(
-				'UPDATE prix_fournisseurs SET prix = ?, date_prix = ?, note = ?, no_fournisseur = COALESCE(?, no_fournisseur) WHERE id = ?',
-				array($strPrix, $date, $nt, $no, $ex['id'])
+				'UPDATE prix_fournisseurs SET prix = ?, date_prix = ?, note = IF(?, ?, note), no_fournisseur = IF(?, ?, no_fournisseur) WHERE id = ?',
+				array($strPrix, $date, $ntModifie ? 1 : 0, $nt, $noModifie ? 1 : 0, $no, $ex['id'])
 			);
 		} else {
 			$change = true;
@@ -1021,7 +1082,7 @@ class Inventaire
 			return array('type' => 'piece', 'piece' => $this->pieceDetail($userId, (int) $p['id']));
 		}
 		$e = $this->un(
-			'SELECT e.id, e.nom, e.type, e.entreprise_id, en.nom AS entreprise_nom FROM emplacements e JOIN entreprises en ON en.id = e.entreprise_id WHERE e.code_barres = ?',
+			'SELECT e.id, e.nom, e.type, e.entreprise_id, e.actif, en.nom AS entreprise_nom FROM emplacements e JOIN entreprises en ON en.id = e.entreprise_id WHERE e.code_barres = ?',
 			array($code)
 		);
 		if ($e) {
@@ -1132,12 +1193,12 @@ class Inventaire
 			$ids
 		);
 		$emp = $this->tous(
-			"SELECT e.id, e.nom, e.type, e.entreprise_id, COALESCE(ROUND(SUM(s.quantite * COALESCE(sc.cout_moyen, 0)), 2), 0) AS valeur,
+			"SELECT e.id, e.nom, e.type, e.entreprise_id, e.actif, COALESCE(ROUND(SUM(s.quantite * COALESCE(sc.cout_moyen, 0)), 2), 0) AS valeur,
 			        COUNT(CASE WHEN s.quantite > 0 THEN 1 END) AS nb_pieces
 			   FROM emplacements e
 			   LEFT JOIN stock s ON s.emplacement_id = e.id
 			   LEFT JOIN stock_couts sc ON sc.entreprise_id = e.entreprise_id AND sc.piece_id = s.piece_id
-			  WHERE e.entreprise_id IN ($in) AND e.actif = 1 GROUP BY e.id, e.nom, e.type, e.entreprise_id ORDER BY e.entreprise_id, e.type, e.nom",
+			  WHERE e.entreprise_id IN ($in) AND (e.actif = 1 OR s.quantite > 0) GROUP BY e.id, e.nom, e.type, e.entreprise_id, e.actif ORDER BY e.entreprise_id, e.type, e.nom",
 			$ids
 		);
 		return array('entreprises' => $ent, 'emplacements' => $emp);
@@ -1194,6 +1255,12 @@ class Inventaire
 		if (!$acces) {
 			throw new InventaireException("Vous n'avez pas accès à ce document.");
 		}
+		if (!in_array((int) $d['entreprise_id'], $u['entreprises'], true)) {
+			$d['emplacement'] = null;   // emplacement d'une autre entreprise : nom non communiqué
+		}
+		if ($d['entreprise_dest_id'] && !in_array((int) $d['entreprise_dest_id'], $u['entreprises'], true)) {
+			$d['emplacement_dest'] = null;
+		}
 		$lignes = $this->tous(
 			'SELECT l.id, l.piece_id, p.code, p.nom, p.unite, l.quantite, l.cout_unitaire, l.total_ligne
 			   FROM document_lignes l JOIN pieces p ON p.id = l.piece_id WHERE l.document_id = ? ORDER BY l.id',
@@ -1244,7 +1311,7 @@ class Inventaire
 				array($de, $vers, $du, $au)
 			);
 			$pieces = $this->tous(
-				"SELECT l.piece_id, p.code, p.nom, p.unite, SUM(l.quantite) AS quantite, SUM(l.total_ligne) AS total
+				"SELECT l.piece_id, p.code, p.nom, p.unite, SUM(l.quantite) AS quantite, SUM(l.total_ligne) AS total, SUM(l.quantite * l.cout_unitaire) AS valeur
 				   FROM document_lignes l JOIN documents d ON d.id = l.document_id JOIN pieces p ON p.id = l.piece_id
 				  WHERE d.type = 'facture_interne' AND d.statut = 'valide' AND d.entreprise_id = ? AND d.entreprise_dest_id = ?
 				    AND d.date_document BETWEEN ? AND ?
@@ -1255,7 +1322,9 @@ class Inventaire
 			foreach ($pieces as &$p) {
 				$q = Dec::parse($p['quantite'], Dec::QTE);
 				$t = Dec::parse($p['total'], Dec::TOTAL);
-				$p['cout_moyen'] = $q > 0 ? Dec::fmt(Dec::divRound($t * 100000, $q), Dec::COUT) : '0.0000';
+				$v7 = Dec::parse($p['valeur'], Dec::QTE + Dec::COUT);   // somme(quantité x coût) à l'échelle 7
+				$p['cout_moyen'] = $q > 0 ? Dec::fmt(Dec::divRound($v7, $q), Dec::COUT) : '0.0000';
+				unset($p['valeur']);
 				$tot += $t;
 			}
 			unset($p);

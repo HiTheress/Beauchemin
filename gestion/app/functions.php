@@ -149,7 +149,10 @@ function fmt_argent($s, $decimales = 2){
 	return fmt_nombre($s, $decimales) . "\xc2\xa0$";
 }
 
-/** Nombre décimal exact (chaîne) -> format fr-CA. $decimales null = enlève les zéros inutiles. */
+/**
+ * Nombre décimal exact (chaîne) -> format fr-CA ("1 234,56"), espace insécable comme séparateur de milliers.
+ * $decimales null = enlève les zéros inutiles ; sinon arrondi « demi vers le haut » (en valeur absolue), comme Dec.
+ */
 function fmt_nombre($s, $decimales = null){
 	if ($s === null || $s === '') {
 		return '';
@@ -159,15 +162,43 @@ function fmt_nombre($s, $decimales = null){
 	$s = ltrim($s, '+-');
 	$parts = explode('.', $s, 2);
 	$ent = ltrim($parts[0], '0');
-	$ent = $ent === '' ? '0' : $ent;
-	$frac = $parts[1] ?? '';
+	$frac = isset($parts[1]) ? $parts[1] : '';
 	if ($decimales === null) {
 		$frac = rtrim($frac, '0');
 	} else {
-		$frac = str_pad(substr($frac, 0, $decimales), $decimales, '0');
+		if (strlen($frac) > $decimales) {
+			$monter = ((int) $frac[$decimales] >= 5);
+			$frac = substr($frac, 0, $decimales);
+			if ($monter) {
+				$chiffres = ($ent === '' ? '0' : $ent) . $frac;           // ex. 1234,5678 -> "123457" après arrondi à 2
+				$chiffres = ltrim(bcadd_chaine($chiffres, '1'), '0');
+				$chiffres = str_pad($chiffres, $decimales + 1, '0', STR_PAD_LEFT);
+				$ent = $decimales > 0 ? substr($chiffres, 0, -$decimales) : $chiffres;
+				$frac = $decimales > 0 ? substr($chiffres, -$decimales) : '';
+				$ent = ltrim($ent, '0');
+			}
+		}
+		$frac = str_pad($frac, $decimales, '0');
 	}
-	$ent = strrev(implode("\xc2\xa0", str_split(strrev($ent), 3)));
-	return ($neg && trim($ent . $frac, '0') !== '' ? '-' : '') . $ent . ($frac !== '' ? ',' . $frac : '');
+	$ent = $ent === '' ? '0' : $ent;
+	$ent = preg_replace('/\B(?=(\d{3})+(?!\d))/', "\xc2\xa0", $ent);   // octets ASCII-sûrs : jamais de strrev sur de l'UTF-8
+	$vide = (trim($ent . $frac, "0\xc2\xa0") === '');
+	return (($neg && !$vide) ? '-' : '') . $ent . ($frac !== '' ? ',' . $frac : '');
+}
+
+/** +1 sur une chaîne de chiffres (sans extension bcmath). */
+function bcadd_chaine($chiffres, $un){
+	$i = strlen($chiffres) - 1;
+	while ($i >= 0) {
+		if ($chiffres[$i] === '9') {
+			$chiffres[$i] = '0';
+			$i--;
+		} else {
+			$chiffres[$i] = (string) ((int) $chiffres[$i] + 1);
+			return $chiffres;
+		}
+	}
+	return '1' . $chiffres;
 }
 
 function fmt_date($d){

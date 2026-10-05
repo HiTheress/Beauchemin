@@ -30,13 +30,14 @@ class DataTable
 		$where = isset($cfg['where']) ? $cfg['where'] : array();
 		$group = isset($cfg['group']) ? ' GROUP BY ' . $cfg['group'] : '';
 
-		// Tri : alias demandé par le navigateur, accepté seulement s'il est déclaré
+		// Tri : alias demandé par le navigateur, accepté seulement s'il est déclaré (et si les types sont ceux attendus)
 		list($triAlias, $triSens) = isset($cfg['tri_defaut']) ? $cfg['tri_defaut'] : array(key($colonnes), 'asc');
-		if (isset($req['order'][0]['column'], $req['columns'][(int) $req['order'][0]['column']]['data'])) {
-			$alias = (string) $req['columns'][(int) $req['order'][0]['column']]['data'];
+		$ord = isset($req['order'][0]) && is_array($req['order'][0]) ? $req['order'][0] : array();
+		if (isset($ord['column']) && is_scalar($ord['column']) && isset($req['columns'][(int) $ord['column']]['data']) && is_scalar($req['columns'][(int) $ord['column']]['data'])) {
+			$alias = (string) $req['columns'][(int) $ord['column']]['data'];
 			if (isset($colonnes[$alias])) {
 				$triAlias = $alias;
-				$triSens = (isset($req['order'][0]['dir']) && strtolower((string) $req['order'][0]['dir']) === 'desc') ? 'desc' : 'asc';
+				$triSens = (isset($ord['dir']) && is_string($ord['dir']) && strtolower($ord['dir']) === 'desc') ? 'desc' : 'asc';
 			}
 		}
 		$order = $colonnes[$triAlias] . ' ' . (strtolower($triSens) === 'desc' ? 'DESC' : 'ASC');
@@ -44,20 +45,24 @@ class DataTable
 			$order .= ', ' . reset($colonnes) . ' ASC';
 		}
 
-		// Recherche : chaque mot doit apparaître dans au moins une colonne
+		// Recherche : chaque mot doit apparaître dans au moins une colonne.
+		// Un paramètre nommé DISTINCT par mot ET par colonne (PDO natif interdit de répéter un même nom).
 		$wRech = array();
 		$pRech = array();
-		$terme = isset($req['search']['value']) ? trim((string) $req['search']['value']) : '';
+		$terme = (isset($req['search']['value']) && is_string($req['search']['value'])) ? trim($req['search']['value']) : '';
+		if ($terme !== '' && !mb_check_encoding($terme, 'UTF-8')) {
+			$terme = '';   // octets invalides : on ignore la recherche plutôt que de planter
+		}
 		if ($terme !== '' && !empty($cfg['recherche'])) {
-			$i = 0;
-			foreach (array_slice(preg_split('/\s+/u', $terme, -1, PREG_SPLIT_NO_EMPTY), 0, 6) as $mot) {
-				$ph = ':__r' . $i++;
+			$mots = preg_split('/\s+/u', $terme, -1, PREG_SPLIT_NO_EMPTY);
+			foreach (array_slice($mots === false ? array() : $mots, 0, 6) as $i => $mot) {
 				$ou = array();
-				foreach ($cfg['recherche'] as $col) {
+				foreach (array_values($cfg['recherche']) as $j => $col) {
+					$ph = ':__r' . $i . '_' . $j;
 					$ou[] = $col . ' LIKE ' . $ph;
+					$pRech[$ph] = '%' . Inventaire::likeEchapper($mot) . '%';
 				}
 				$wRech[] = '(' . implode(' OR ', $ou) . ')';
-				$pRech[$ph] = '%' . Inventaire::likeEchapper($mot) . '%';
 			}
 		}
 
@@ -76,8 +81,8 @@ class DataTable
 		$total = $compter($whereSql, $params);
 		$filtre = $wRech ? $compter($whereRechSql, $params + $pRech) : $total;
 
-		$debut = max(0, isset($req['start']) ? (int) $req['start'] : 0);
-		$long = isset($req['length']) ? (int) $req['length'] : 25;
+		$debut = max(0, (isset($req['start']) && is_scalar($req['start'])) ? (int) $req['start'] : 0);
+		$long = (isset($req['length']) && is_scalar($req['length'])) ? (int) $req['length'] : 25;
 		$long = ($long < 1 || $long > 500) ? 500 : $long;
 
 		$select = array();
@@ -102,7 +107,7 @@ class DataTable
 		header('Content-Type: application/json; charset=utf-8');
 		header('Cache-Control: no-store');
 		echo json_encode(array(
-			'draw' => isset($req['draw']) ? (int) $req['draw'] : 0,
+			'draw' => (isset($req['draw']) && is_scalar($req['draw'])) ? (int) $req['draw'] : 0,
 			'recordsTotal' => $total,
 			'recordsFiltered' => $filtre,
 			'data' => $data,

@@ -73,7 +73,8 @@ invariants('après transferts');
 groupe('Sorties');
 $s = $inv->sortir($emp, array('emplacement_id' => $E['CUBE'], 'motif' => 'service', 'reference' => 'BT-1', 'lignes' => array(L($P['T1'], '4'))));
 egal('11.000', stock($P['T1'], $E['CUBE']), 'stock du cube après sortie');
-egal('60.00', $s['total'], 'valeur de la sortie au coût moyen (4 x 15)');
+ok(!isset($s['total']), 'un employé ne reçoit pas la valeur (total) du document');
+egal('60.00', val('SELECT total FROM documents WHERE id = ?', array($s['id'])), 'valeur de la sortie au coût moyen (4 x 15)');
 refuse(function () use ($inv, $emp, $E, $P) { $inv->sortir($emp, array('emplacement_id' => $E['CUBE'], 'motif' => 'inconnu', 'lignes' => array(L($P['T1'], '1')))); }, 'motif', 'motif invalide');
 refuse(function () use ($inv, $emp, $E, $P) { $inv->sortir($emp, array('emplacement_id' => $E['CUBE'], 'motif' => 'service', 'lignes' => array(L($P['T1'], '11.001')))); }, 'Stock insuffisant', 'sortie de plus que le stock (décimal)');
 invariants('après sorties');
@@ -94,7 +95,7 @@ egal('3.1429', cout(2, $P['T2']), 'coût moyen de la destination = ((3@2.50 + 3@
 refuse(function () use ($inv, $gA, $E, $P) { $inv->factureInterne($gA, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 1, 'emplacement_dest_id' => $E['CUBE'], 'lignes' => array(L($P['T1'], '1')))); }, 'deux entreprises différentes', 'facture vers la même entreprise');
 refuse(function () use ($inv, $gA, $E, $P) { $inv->factureInterne($gA, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 2, 'emplacement_dest_id' => $E['BOUT'], 'lignes' => array(L($P['T1'], '100')))); }, 'Stock insuffisant', 'facture de plus que le stock');
 refuse(function () use ($inv, $emp, $E, $P) { $inv->factureInterne($emp, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 2, 'emplacement_dest_id' => $E['BOUT'], 'lignes' => array(L($P['T1'], '1')))); }, 'permission', 'un employé ne peut pas facturer');
-refuse(function () use ($inv, $gB, $E, $P) { $inv->factureInterne($gB, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 2, 'emplacement_dest_id' => $E['BOUT'], 'lignes' => array(L($P['T1'], '1')))); }, 'accès', 'facturer depuis une entreprise sans accès');
+refuse(function () use ($inv, $gB, $E, $P) { $inv->factureInterne($gB, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 2, 'emplacement_dest_id' => $E['BOUT'], 'lignes' => array(L($P['T1'], '1')))); }, 'introuvable', 'facturer depuis une entreprise sans accès');
 // pièce sans coût connu
 $pdo->exec("INSERT INTO pieces (code, nom) VALUES ('T5','Sans coût')"); $T5 = (int) $pdo->lastInsertId();
 $inv->ajuster($gA, array('emplacement_id' => $E['A1'], 'motif' => 'correction', 'lignes' => array(L($T5, '5'))));
@@ -173,9 +174,9 @@ invariants('après comptages');
 // ---- Droits et visibilité -----------------------------------------------------------
 groupe('Droits, entreprises et masquage des coûts');
 refuse(function () use ($inv, $U, $E, $P) { $inv->recevoir($U['emp'], array('emplacement_id' => $E['A1'], 'lignes' => array(L($P['T1'], '1', '1')))); }, 'permission', 'employé ne reçoit pas');
-refuse(function () use ($inv, $gB, $E, $P) { $inv->recevoir($gB, array('emplacement_id' => $E['A1'], 'lignes' => array(L($P['T1'], '1', '1')))); }, 'accès', 'gestionnaire B ne reçoit pas chez A');
+refuse(function () use ($inv, $gB, $E, $P) { $inv->recevoir($gB, array('emplacement_id' => $E['A1'], 'lignes' => array(L($P['T1'], '1', '1')))); }, 'introuvable', 'gestionnaire B ne reçoit pas chez A');
 refuse(function () use ($inv, $U, $E, $P) { $inv->transferer($U['off'], array('emplacement_id' => $E['A1'], 'emplacement_dest_id' => $E['CUBE'], 'lignes' => array(L($P['T1'], '1')))); }, 'désactivé', 'utilisateur désactivé');
-refuse(function () use ($inv, $emp, $E, $P) { $inv->transferer($emp, array('emplacement_id' => $E['B1'], 'emplacement_dest_id' => $E['BOUT'], 'lignes' => array(L($P['T1'], '1')))); }, 'accès', 'employé de A ne touche pas B');
+refuse(function () use ($inv, $emp, $E, $P) { $inv->transferer($emp, array('emplacement_id' => $E['B1'], 'emplacement_dest_id' => $E['BOUT'], 'lignes' => array(L($P['T1'], '1')))); }, 'introuvable', 'employé de A ne touche pas B');
 $pdo->exec("UPDATE emplacements SET actif = 0 WHERE id = {$E['B2']}");
 refuse(function () use ($inv, $gA, $E, $P) { $inv->factureInterne($gA, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 2, 'emplacement_dest_id' => $E['B2'], 'lignes' => array(L($P['T1'], '1')))); }, 'désactivé', 'emplacement désactivé');
 $pdo->exec("UPDATE emplacements SET actif = 1 WHERE id = {$E['B2']}");
@@ -247,6 +248,87 @@ egal('2.50', $b2['a_vers_b']['total'], 'le bilan du mois courant ignore la factu
 refuse(function () use ($inv, $emp, $an, $mois) { $inv->bilanMensuel($emp, $an, $mois, 1, 2); }, 'permission', 'employé : pas de bilan');
 $pdo->exec("INSERT INTO entreprises (id, code, nom) VALUES (9, 'XXX', 'Autre')");
 refuse(function () use ($inv, $gA, $an, $mois) { $inv->bilanMensuel($gA, $an, $mois, 1, 1); }, 'invalides', 'même entreprise des deux côtés');
+// ---- Corrections issues de la relecture -----------------------------------------------------
+groupe('Pièces désactivées, fuites d\'information, prix, formats');
+$pdo->exec("INSERT INTO pieces (code, nom) VALUES ('D1','À désactiver')"); $D1 = (int) $pdo->lastInsertId();
+$inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'lignes' => array(L($D1, '10', '3.00'))));
+$pdo->exec("UPDATE pieces SET actif = 0 WHERE id = $D1");
+$inv->transferer($emp, array('emplacement_id' => $E['A1'], 'emplacement_dest_id' => $E['CUBE'], 'lignes' => array(L($D1, '4'))));
+egal('4.000', stock($D1, $E['CUBE']), 'on peut transférer une pièce désactivée (vider son stock)');
+$inv->sortir($emp, array('emplacement_id' => $E['CUBE'], 'motif' => 'perte', 'lignes' => array(L($D1, '1'))));
+$inv->ajuster($gA, array('emplacement_id' => $E['A1'], 'motif' => 'bris', 'lignes' => array(L($D1, '-1'))));
+egal('5.000', stock($D1, $E['A1']), 'ajustement négatif permis sur une pièce désactivée');
+refuse(function () use ($inv, $gA, $E, $D1) { $inv->ajuster($gA, array('emplacement_id' => $E['A1'], 'motif' => 'correction', 'lignes' => array(L($D1, '1')))); }, 'désactivée', 'ajustement positif refusé');
+refuse(function () use ($inv, $gA, $E, $D1) { $inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'lignes' => array(L($D1, '1', '1')))); }, 'désactivée', 'réception refusée');
+refuse(function () use ($inv, $gA, $E, $D1) { $inv->factureInterne($gA, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 2, 'emplacement_dest_id' => $E['BOUT'], 'lignes' => array(L($D1, '1')))); }, 'désactivée', 'facture interne refusée');
+$cpD = $inv->creerComptage($emp, $E['A1']);
+$inv->comptageScanner($emp, $cpD['id'], $D1, '2', 'fixer');
+$dd = $inv->comptageDetail($emp, $cpD['id']);
+ok(count(array_filter($dd['lignes'], function ($l) use ($D1) { return (int) $l['piece_id'] === $D1 && (int) $l['actif'] === 0; })) === 1, 'comptage d\'une pièce désactivée possible, avec l\'indicateur « actif »');
+$inv->comptageAnnuler($emp, $cpD['id']);
+
+// pas de fuite d'emplacement d'une autre entreprise
+refuse(function () use ($inv, $gA, $E, $P) { $inv->transferer($gA, array('emplacement_id' => $E['B1'], 'emplacement_dest_id' => $E['BOUT'], 'lignes' => array(L($P['T1'], '1')))); }, 'introuvable', 'source d\'une autre entreprise : indistinguable d\'un emplacement inexistant');
+$pdo->exec("UPDATE emplacements SET actif = 0 WHERE id = {$E['BOUT']}");
+refuse(function () use ($inv, $emp, $E) { $inv->creerComptage($emp, $E['BOUT']); }, 'introuvable', 'emplacement désactivé d\'une autre entreprise : son nom n\'est pas révélé');
+$pdo->exec("UPDATE emplacements SET actif = 1 WHERE id = {$E['BOUT']}");
+$lf = $inv->factureInterne($gA, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 2, 'emplacement_dest_id' => $E['BOUT'], 'lignes' => array(L($P['T1'], '1'))));
+$dv = $inv->document($gB, $lf['id']);
+ok($dv['doc']['emplacement'] === null && $dv['doc']['emplacement_dest'] !== null, 'le destinataire voit son emplacement, pas celui de l\'émetteur');
+$dg = $inv->document($gA, $lf['id']);
+ok($dg['doc']['emplacement'] !== null && $dg['doc']['emplacement_dest'] === null, 'l\'émetteur voit le sien, pas celui du destinataire');
+egal(true, isset($lf['total']), 'le gestionnaire reçoit le total');
+$re = $inv->transferer($emp, array('emplacement_id' => $E['A1'], 'emplacement_dest_id' => $E['CUBE'], 'lignes' => array(L($P['T1'], '1'))));
+ok(!isset($re['total']) && isset($re['numero']), 'transfert par un employé : numéro oui, valeur non');
+$pdo->exec("UPDATE emplacements SET actif = 0 WHERE id = {$E['CUBE']}");
+$tr = $inv->trouverParCode($emp, 'EMP-B'); // BOUT (autre entreprise) invisible
+egal(null, $tr, 'emplacement d\'une autre entreprise toujours invisible');
+$pdo->exec("UPDATE emplacements SET code_barres = 'EMP-CUBE' WHERE id = {$E['CUBE']}");
+$tr = $inv->trouverParCode($emp, 'EMP-CUBE');
+ok($tr && $tr['emplacement']['actif'] == 0, 'trouverParCode indique si l\'emplacement est désactivé');
+$pdo->exec("UPDATE emplacements SET actif = 1 WHERE id = {$E['CUBE']}");
+
+// qui détient un code
+$u1 = $inv->codeUtilisePar('T1'); $u2 = $inv->codeUtilisePar('012345678905'); $u3 = $inv->codeUtilisePar('EMP-000001');
+ok($u1['type'] === 'piece' && $u2['type'] === 'alias' && $u3['type'] === 'emplacement' && $inv->codeUtilisePar('LIBRE-2') === null, 'codeUtilisePar : pièce, alias, emplacement, libre');
+egal(null, $inv->codeUtilisePar('T1', $P['T1']), 'codeUtilisePar : une pièce garde son propre code');
+
+// prix fournisseur : null = inchangé, chaîne vide = effacé ; pièce inconnue
+$inv->definirPrixFournisseur($gA, $P['T2'], 1, '5', 'NO-77', null, 'une note');
+$inv->definirPrixFournisseur($gA, $P['T2'], 1, '5.5');
+egal('NO-77', val('SELECT no_fournisseur FROM prix_fournisseurs WHERE piece_id = ? AND fournisseur_id = 1', array($P['T2'])), 'prix : numéro conservé quand il n\'est pas fourni');
+egal('une note', val('SELECT note FROM prix_fournisseurs WHERE piece_id = ? AND fournisseur_id = 1', array($P['T2'])), 'prix : note conservée quand elle n\'est pas fournie');
+$inv->definirPrixFournisseur($gA, $P['T2'], 1, '5.5', '', null, '');
+egal(null, val('SELECT no_fournisseur FROM prix_fournisseurs WHERE piece_id = ? AND fournisseur_id = 1', array($P['T2'])), 'prix : numéro effacé par une chaîne vide');
+egal(null, val('SELECT note FROM prix_fournisseurs WHERE piece_id = ? AND fournisseur_id = 1', array($P['T2'])), 'prix : note effacée par une chaîne vide');
+refuse(function () use ($inv, $gA) { $inv->definirPrixFournisseur($gA, 99999, 1, '1'); }, 'Pièce introuvable', 'prix : pièce inconnue');
+
+// bilan : coût moyen pondéré exact (12,5 x 4,85 = 60,625 -> 4,8500 et non 4,8504)
+$pdo->exec("INSERT INTO pieces (code, nom) VALUES ('B1','Pièce du bilan')"); $B1 = (int) $pdo->lastInsertId();
+$inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'lignes' => array(L($B1, '12,5', '4,85'))));
+$inv->factureInterne($gA, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 2, 'emplacement_dest_id' => $E['BOUT'], 'lignes' => array(L($B1, '12,5'))));
+$bb = $inv->bilanMensuel($gA, date('Y'), date('n'), 1, 2);
+$ligneB1 = array_values(array_filter($bb['a_vers_b']['pieces'], function ($p) use ($B1) { return (int) $p['piece_id'] === $B1; }));
+egal('4.8500', $ligneB1[0]['cout_moyen'], 'bilan : coût moyen pondéré exact (somme des q x coût / somme des q)');
+
+// valeur d'inventaire : un emplacement désactivé encore garni reste visible, la somme des lignes = le total
+$pdo->exec("UPDATE emplacements SET actif = 0 WHERE id = {$E['CUBE']}");
+$vi = $inv->valeurInventaire($gA);
+$somme = 0; foreach ($vi['emplacements'] as $le) { $somme += Dec::parse($le['valeur'], 2); }
+egal(Dec::parse($vi['entreprises'][0]['valeur'], 2), $somme, 'valeur d\'inventaire : somme des emplacements = total de l\'entreprise (désactivés garnis inclus)');
+ok(count(array_filter($vi['emplacements'], function ($le) use ($E) { return (int) $le['id'] === $E['CUBE'] && (int) $le['actif'] === 0; })) === 1, 'emplacement désactivé garni listé avec actif = 0');
+$pdo->exec("UPDATE emplacements SET actif = 1 WHERE id = {$E['CUBE']}");
+
+// formats d'affichage (espace insécable des milliers, arrondi)
+$nbsp = "\xc2\xa0";
+egal("1{$nbsp}234{$nbsp}567,50{$nbsp}$", fmt_argent('1234567.5'), 'fmt_argent : milliers avec espace insécable valide en UTF-8');
+ok(mb_check_encoding(fmt_argent('98765432.1'), 'UTF-8'), 'fmt_argent : UTF-8 valide');
+egal("1{$nbsp}234,57", fmt_nombre('1234.5678', 2), 'fmt_nombre : arrondi (et non troncature)');
+egal('1,00', fmt_nombre('0.995', 2), 'fmt_nombre : retenue');
+egal('-1,50', fmt_nombre('-1.5', 2), 'fmt_nombre : négatif');
+egal('0,00', fmt_nombre('-0.001', 2), 'fmt_nombre : pas de « -0,00 »');
+egal('12', fmt_nombre('12.000'), 'fmt_nombre : zéros inutiles retirés');
+
 invariants('fin des scénarios');
 
 echo "\n" . ($T_FAIL === 0 ? "OK" : "ÉCHECS") . " — $T_PASS vérifications réussies, $T_FAIL échec(s)\n";

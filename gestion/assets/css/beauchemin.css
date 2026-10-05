@@ -42,3 +42,24 @@ td.nombre, th.nombre, .nombre { text-align: right; font-variant-numeric: tabular
 .main-sidebar .nav-sidebar .nav-link:hover { background: rgba(255,255,255,.08) !important; }
 .main-sidebar .nav-sidebar .nav-link.active { background: #0b5ed7 !important; color: #fff !important; border-radius: .25rem; box-shadow: none !important; }
 .main-sidebar .nav-sidebar .nav-link.active p, .main-sidebar .nav-sidebar .nav-link.active .nav-icon { color: #fff !important; }
+
+/* ---- Corrections du thème hérité (largeur 285 px non compensée, boutons, impression) ---- */
+/* Boutons d'action destructrice : le thème d'origine avait commenté le style de .btn-danger. */
+.btn.btn-danger { color: #fff !important; background-color: #dc3545 !important; border-color: #dc3545 !important; font-size: 1rem !important; }
+.btn.btn-danger:hover, .btn.btn-danger:focus { background-color: #bd2130 !important; border-color: #b21f2d !important; }
+.btn.btn-danger:disabled, .btn.btn-danger.disabled { opacity: .65; }
+.btn.btn-sm.btn-danger { font-size: .875rem !important; }
+
+/* Menu replié sur tablette : la barre fait 285 px, on la décale d'autant (sinon une bande de 35 px reste visible). */
+@media (max-width: 991.98px) {
+  body .wrapper .main-sidebar, body .wrapper .main-sidebar::before { margin-left: -285px !important; }
+  body.sidebar-open .wrapper .main-sidebar, body.sidebar-open .wrapper .main-sidebar::before { margin-left: 0 !important; }
+}
+/* Libellés longs du menu : retour à la ligne plutôt que coupés. */
+.main-sidebar .nav-sidebar .nav-link p { white-space: normal; }
+
+/* Impression : le thème impose une page A3 et une largeur minimale de 992 px. */
+@page { size: letter portrait; margin: 12mm; }
+@media print {
+  html, body, .container, .container-fluid, .wrapper { min-width: 0 !important; }
+}

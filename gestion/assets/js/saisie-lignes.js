@@ -72,7 +72,9 @@
         var d = dispo(l.piece), q = num(l.quantite);
         if (l.celDispo) {
           l.celDispo.textContent = d === null ? '' : w.fmtQte(String(d));
-          l.celDispo.className = 'nombre' + ((d !== null && q !== null && q > d) ? ' text-danger font-weight-bold' : '');
+          // en mode signé (ajustement), seul un retrait supérieur au disponible est signalé
+          var depasse = (d !== null && q !== null) && (opts.signe ? (q < 0 && -q > d) : (q > d));
+          l.celDispo.className = 'nombre' + (depasse ? ' text-danger font-weight-bold' : '');
         }
         if (l.celTotal) { var t = totalLigne(l); l.celTotal.textContent = t === null ? '' : w.fmtArgent(String(t)); }
         if (l.inQte) { var qn = num(l.quantite); l.inQte.classList.toggle('is-invalid', qn === null || (!opts.signe && qn <= 0) || (!!opts.signe && qn === 0)); }   // booléen strict : toggle(x, undefined) inverserait l'état
@@ -130,7 +132,7 @@
     var api = {
       ajouterParCode: function (code) {
         return w.api.get('app/ajax/scan_code.php', { code: code }).then(function (r) {
-          if (!r.trouve) { throw new Error('Code inconnu : « ' + code + ' ». Cette pièce n\'existe pas dans le catalogue.'); }
+          if (!r.trouve) { throw new Error('Code inconnu : « ' + code + ' » (ce n\'est ni une pièce du catalogue, ni un emplacement).'); }
           if (r.type === 'emplacement') {
             if (opts.onEmplacement) { opts.onEmplacement(r.emplacement); return true; }
             throw new Error('« ' + r.emplacement.nom + ' » est un emplacement, pas une pièce.');
@@ -181,6 +183,16 @@
           data: function (p) { return { q: p.term || '' }; },
           processResults: function (d) { return { results: (d.pieces || []).map(function (p) { return { id: p.id, text: p.code + ' — ' + p.nom, code: p.code }; }) }; }
         }
+      });
+      // Select2 4.0.x ignore la première saisie qui suit un choix fait avec Entrée (drapeau interne _keyUpPrevented) : on le baisse à la fermeture.
+      $s.on('select2:close', function () {
+        setTimeout(function () {
+          try {
+            var inst = $s.data('select2');
+            if (!inst && $.fn.select2.amd) { inst = $.fn.select2.amd.require('select2/utils').GetData($s[0], 'select2'); }
+            if (inst && inst.dropdown) { inst.dropdown._keyUpPrevented = false; }
+          } catch (err) { /* autre version de Select2 */ }
+        }, 0);
       });
       $s.on('select2:select', function (e) {
         var code = e.params.data.code;

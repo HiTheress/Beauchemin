@@ -1,0 +1,43 @@
+<?php
+require __DIR__ . '/bootstrap.php';
+global $pdo, $T_PASS, $T_FAIL;
+echo "• DataTable (tri, recherche, échappement)\n";
+$pdo->exec("INSERT INTO categories (nom) VALUES ('Contrôles'), ('Brûleurs')");
+$cc = (int) val("SELECT id FROM categories WHERE nom = 'Contrôles'");
+$pdo->exec("INSERT INTO pieces (code, nom, categorie_id) VALUES ('DT-1','Thermocouple 36 po',$cc),('DT-2','Thermostat',$cc),('DT-3','<img src=x onerror=alert(1)>',NULL),('DT-4','Remise 50% pure',NULL),('DT-5','Gicleur 50_X',NULL)");
+function dt(array $post) {
+	$d = array(1 => array('pipe', 'w'), 2 => array('pipe', 'w'));
+	$p = proc_open(array(PHP_BINARY, __DIR__ . '/datatable_enfant.php', base64_encode(serialize($post))), $d, $pipes, null, array('DB_NAME' => getenv('DB_NAME'), 'PATH' => getenv('PATH')));
+	$out = stream_get_contents($pipes[1]); $err = stream_get_contents($pipes[2]); proc_close($p);
+	return array(json_decode($out, true), $err, $out);
+}
+$base = array('draw' => 3, 'start' => 0, 'length' => 25, 'order' => array(array('column' => 1, 'dir' => 'asc')), 'columns' => array(array('data' => 'id'), array('data' => 'code'), array('data' => 'nom'), array('data' => 'categorie')));
+list($r, $err) = dt($base);
+ok($r !== null && $err === '', 'requête simple valide, sans avertissement'); egal(5, $r['recordsTotal'], 'total'); egal(3, $r['draw'], 'draw renvoyé');
+list($r, $err) = dt($base + array('search' => array('value' => 'ther')));
+ok($err === '' && $r['recordsFiltered'] === 2, 'recherche sur plusieurs colonnes (HY093 corrigé) : ' . $err);
+list($r, $err) = dt($base + array('search' => array('value' => 'contrôles thermoc')));
+egal(1, $r['recordsFiltered'], 'deux mots = ET entre mots, OU entre colonnes (catégorie + nom)');
+list($r, $err) = dt($base + array('search' => array('value' => '%')));
+egal(1, $r['recordsFiltered'], 'le caractère % est cherché littéralement');
+list($r, $err) = dt($base + array('search' => array('value' => '_')));
+egal(1, $r['recordsFiltered'], 'le caractère _ est cherché littéralement');
+list($r, $err) = dt(array('columns' => array(array('data' => 'id; DROP TABLE pieces')), 'order' => array(array('column' => 0, 'dir' => 'desc; DROP'))));
+ok($r !== null && $err === '' && val('SELECT COUNT(*) FROM pieces') >= 5, 'colonne de tri falsifiée : ignorée, rien de cassé');
+list($r, $err) = dt(array_merge($base, array('search' => array('value' => array('a')), 'start' => array(1), 'length' => array(2), 'draw' => array(1))));
+ok($r !== null && $err === '', 'paramètres sous forme de tableaux : aucun avertissement ni erreur ' . $err);
+list($r, $err) = dt(array('search' => array('value' => 'a'), 'order' => array(array('column' => array(1), 'dir' => array('x'))), 'columns' => array(array('data' => array('x')))));
+ok($r !== null && $err === '', 'order/columns sous forme de tableaux : aucun avertissement ni erreur ' . $err);
+list($r, $err, $brut) = dt($base + array('search' => array('value' => "\xff\xfe")));
+ok($r !== null && $err === '', 'octets UTF-8 invalides : aucune erreur (' . substr($brut, 0, 60) . ')');
+list($r) = dt($base + array('search' => array('value' => 'onerror')));
+ok(strpos(json_encode($r), '<img') === false && strpos($r['data'][0]['nom'], '&lt;img') === 0, 'HTML des valeurs échappé dans la réponse');
+ok($r['data'][0]['lien'] === '<a>&lt;img src=x onerror=alert(1)&gt;</a>', 'formateur : le HTML du formateur est conservé, la valeur échappée par lui');
+list($r) = dt(array_merge($base, array('length' => -1, 'start' => -50)));
+egal(5, count($r['data']), 'length -1 et start négatif : bornés');
+list($r) = dt(array_merge($base, array('length' => 2, 'start' => 4)));
+egal(1, count($r['data']), 'pagination : dernière page');
+list($r) = dt(array('order' => array(array('column' => 1, 'dir' => 'desc')), 'columns' => array(array('data' => 'id'), array('data' => 'code'))));
+egal('DT-5', $r['data'][0]['code'], 'tri décroissant sur une colonne déclarée');
+echo "\n" . ($T_FAIL === 0 ? "OK" : "ÉCHECS") . " — $T_PASS vérifications réussies, $T_FAIL échec(s)\n";
+exit($T_FAIL === 0 ? 0 : 1);
