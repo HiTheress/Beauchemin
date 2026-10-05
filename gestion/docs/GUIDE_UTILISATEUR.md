@@ -9,7 +9,7 @@ quelle boutique ou quel **cube de service**, et combien il en reste.
 2. En haut à droite, le **sélecteur d'entreprise** montre ce que vous consultez : *Toutes les entreprises*, *Beauchemin* ou *Boutique Chaleur*
    (selon vos droits). Il filtre les listes et les rapports.
 3. Le **menu** à gauche s'adapte à votre rôle. Si une page n'y figure pas, c'est que votre rôle ne le permet pas.
-4. Changez votre mot de passe dans *Mon profil et mot de passe* (menu en haut à droite). Après 5 essais ratés, le compte est bloqué 15 minutes.
+4. Changez votre mot de passe dans *Mon profil et mot de passe* (menu en haut à droite) : vos **autres sessions ouvertes sont alors fermées**. Après 5 essais ratés, le compte est bloqué 15 minutes ; le message d'erreur est toujours le même (« Nom d'utilisateur ou mot de passe invalide »), qu'il s'agisse d'un compte inexistant, d'un mauvais mot de passe ou d'un compte bloqué.
 
 | Rôle | Ce qu'il peut faire |
 |---|---|
@@ -49,7 +49,7 @@ Choisissez le cube, le **motif** (service, installation, perte/bris, retour au f
 1. *Nouveau comptage* : choisissez l'emplacement (ou scannez son étiquette).
 2. **Scannez chaque pièce physiquement présente** : chaque scan compte 1. Vous pouvez aussi taper une quantité exacte pour une pièce.
    Par défaut le comptage est **à l'aveugle** (vous ne voyez pas le stock attendu).
-3. Un **gestionnaire** applique ensuite le comptage : l'aperçu montre chaque écart (compté − système). Case *Mettre à 0 les pièces non scannées* : à cocher
+3. Un **gestionnaire** applique ensuite le comptage : l'aperçu montre chaque écart (compté − système). **Si le stock ou le comptage change pendant que vous regardez l'aperçu, le logiciel refuse d'appliquer et demande de relire l'aperçu** (on n'applique que ce que vous avez vu). Case *Mettre à 0 les pièces non scannées* : à cocher
    seulement si vous avez compté **tout** l'emplacement. Cela crée un document d'**ajustement**.
    Un employé peut compter mais doit faire approuver par un gestionnaire.
 
@@ -78,6 +78,9 @@ Choisissez le mois : pour chaque sens (Beauchemin → Boutique Chaleur et l'inve
 ### Annuler un document
 Ouvrez-le (*Documents* → numéro) puis *Annuler*, avec un motif obligatoire. Le stock est remis comme avant. L'annulation est **refusée** si la marchandise n'est plus là
 (déjà utilisée ou déplacée). Un ajustement ne s'annule pas : faites un nouvel ajustement.
+**Seule l'entreprise qui a émis le document peut l'annuler.** Une facture interne se défait donc depuis l'entreprise qui l'a émise ; si la marchandise a déjà été utilisée par
+l'autre entreprise, l'annulation est refusée (le message n'en révèle pas le détail) — l'autre entreprise peut alors émettre une facture en sens inverse.
+Quand on annule une **réception** qui avait mis à jour les prix du fournisseur, le prix précédent est rétabli (sauf si quelqu'un l'a modifié entre-temps).
 
 ### Catalogue
 * **Pièces** : créer/modifier une pièce (code interne, nom, catégorie, unité, **codes-barres alias** du fabricant, **minimum** par entreprise). Un code déjà pris est refusé avec le nom de
