@@ -1,3 +1,7 @@
+<?php
+// Page d'essai du composant de saisie : disponible SEULEMENT sur les serveurs de test (tools/serveur.sh définit BEA_ENV=test).
+if (getenv('BEA_ENV') !== 'test') { include __DIR__ . '/error_page.php'; return; }
+?>
 <?php page_script('assets/js/saisie-lignes.js'); page_script('assets/js/_essai_lignes.js'); ?>
 <div class="content-wrapper"><?php page_titre('Essai composant'); ?>
 <section class="content"><div class="container-fluid"><div class="card"><div class="card-body">
