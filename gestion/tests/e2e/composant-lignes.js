@@ -37,8 +37,20 @@ const L = require('./lib.js');
   const qs = await p.$$eval('#lignes tbody tr', r => r.map(x => [x.querySelector('td').textContent, x.querySelector('td:nth-child(4) input').value]));
   const q1 = qs.filter(r => r[0] === 'P-0001').map(r => parseFloat(r[1].replace(',', '.')))[0];
   L.verifier(q1 === 40, 'rafale de 40 scans : 40 unités comptées (file d\'attente, aucune perte) — obtenu ' + q1);
+  // le lecteur « tape » dans l'élément qui a le focus : une liste déroulante ne doit pas avaler le code
+  const srcAvant = await p.$eval('#src', e => e.value);
+  await p.focus('#src'); await p.keyboard.type('P-0003'); await p.keyboard.press('Enter');
+  await p.waitForFunction(() => document.querySelector('#scan').getAttribute('data-attente') === '0', null, { timeout: 8000 });
+  L.verifier(await p.$eval('#src', e => e.value) === srcAvant, 'la liste déroulante focalisée n\'a pas changé de valeur sous la frappe du lecteur');
+  L.verifier((await p.$$eval('#lignes tbody tr td.code', e => e.map(x => x.textContent))).includes('P-0003'), 'le code scanné depuis une liste déroulante est quand même pris en compte');
+  // erreur de chargement d'un tableau : message français, jamais le texte technique de DataTables
+  await p.evaluate(() => { const t = document.createElement('table'); t.id = 'tt'; t.innerHTML = '<thead><tr><th>a</th></tr></thead>'; document.body.appendChild(t); $(t).DataTable({ serverSide: true, ajax: 'app/ajax/inexistant_zz.php', columns: [{ data: 'a' }] }); });
+  await p.waitForSelector('#toasts .alert-danger', { timeout: 8000 });
+  const txt = await p.textContent('#toasts');
+  L.verifier(/Impossible de charger le tableau/.test(txt) && !/DataTables|datatables\.net/i.test(txt), 'erreur de tableau en français : ' + txt.trim().slice(0, 80));
   L.verifier(await p.$$eval('#lignes input.is-invalid', e => e.length) === 0, 'aucune quantité valide marquée invalide');
-  L.verifier(p.erreurs.length === 0, 'aucune erreur console : ' + JSON.stringify(p.erreurs));
+  const vraies = p.erreurs.filter(e => !/404/.test(e));   // le 404 vient de notre faux tableau d'essai
+  L.verifier(vraies.length === 0, 'aucune erreur console : ' + JSON.stringify(vraies));
   await p.screenshot({ path: '/tmp/composant-lignes.png' });
   await b.close(); process.exit(L.bilan());
 })().catch(e => { console.error(e); process.exit(1); });

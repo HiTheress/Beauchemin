@@ -31,17 +31,19 @@
       return data;
     });
   }
+  // Réseau coupé / serveur injoignable : message en français (le navigateur dit « Failed to fetch »)
+  function reseauHS() { throw new Error('Connexion impossible au serveur. Vérifiez le réseau, puis réessayez.'); }
   w.api = {
     get: function (url, params) {
       var q = params ? '?' + $.param(params) : '';
-      return fetch(url + q, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } }).then(traiter);
+      return fetch(url + q, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } }).then(traiter, reseauHS);
     },
     post: function (url, obj) {
       return fetch(url, {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-Token': CSRF },
         body: JSON.stringify(obj || {})
-      }).then(traiter);
+      }).then(traiter, reseauHS);
     }
   };
 
@@ -137,7 +139,16 @@
   };
   if ($.fn.dataTable) {
     $.extend(true, $.fn.dataTable.defaults, { language: w.DT_LANG, pageLength: 25, lengthMenu: [10, 25, 50, 100], autoWidth: false });
-    $.fn.dataTable.ext.errMode = function (s, h, msg) { w.toast('Impossible de charger le tableau : ' + (msg || 'erreur serveur'), 'danger'); };
+    // Jamais de texte technique anglais : on distingue session expirée, accès refusé et erreur serveur.
+    $.fn.dataTable.ext.errMode = 'none';
+    $(document).on('error.dt', function (e, settings) {
+      var x = settings && settings.jqXHR;
+      if (x && x.status === 401) { w.location.href = 'login.php'; return; }
+      var m = 'Impossible de charger le tableau. Réessayez dans un instant.';
+      if (x && x.status === 403) { m = 'Accès refusé. Rechargez la page.'; }
+      else if (x && x.status === 0) { m = 'Connexion impossible au serveur. Vérifiez le réseau, puis réessayez.'; }
+      w.toast(m, 'danger');
+    });
   }
 
   // ---- Select2 en français ---------------------------------------------------------------------
@@ -148,6 +159,18 @@
     });
     $.fn.select2.defaults.set('width', '100%');
   }
+
+  // ---- Lecteur de codes-barres : il « tape » dans l'élément qui a le focus. Si ce n'est pas un champ de texte
+  //      (liste déroulante, bouton, page), on redonne le focus au champ de scan pour ne perdre aucun caractère.
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey || !e.key || e.key.length !== 1) { return; }
+    var t = e.target, tag = t && t.tagName;
+    if (!(tag === 'SELECT' || tag === 'BUTTON' || tag === 'A' || tag === 'BODY' || tag === 'HTML')) { return; }
+    if (t.closest && t.closest('.modal, .select2-container, .select2-dropdown, .dropdown-menu')) { return; }
+    var sc = document.querySelector('.scan-input');
+    if (!sc || sc.disabled || sc.offsetParent === null || document.querySelector('.modal.show')) { return; }
+    sc.focus();   // le caractère de cette frappe est alors saisi dans le champ de scan
+  }, true);
 
   // ---- Entreprise active (barre du haut) ---------------------------------------------------------
   $(function () {

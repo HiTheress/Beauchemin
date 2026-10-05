@@ -118,8 +118,10 @@ final class Dec
 			return $avg;
 		}
 		$num = $Q * $avg - $q * $c;
-		if ($num < 0) {
-			return 0;
+		if ($num <= 0) {
+			// Le lot retiré coûtait plus que ce que la moyenne actuelle peut « contenir » (d'autres sorties ont eu lieu depuis) :
+			// on garde la moyenne actuelle plutôt que de rendre les pièces restantes « sans coût ».
+			return $avg;
 		}
 		return self::divRound($num, $den);
 	}

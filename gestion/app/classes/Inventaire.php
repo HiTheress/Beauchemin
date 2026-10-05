@@ -756,7 +756,15 @@ class Inventaire
 						$this->bouger($doc['id'], $e1, $pid, $src, $q, 'entree', $c, true, $userId);
 						break;
 					case 'facture_interne':
-						$this->bouger($doc['id'], $e2, $pid, $dst, -$q, 'sortie_cout', $c, true, $userId);
+						try {
+							$this->bouger($doc['id'], $e2, $pid, $dst, -$q, 'sortie_cout', $c, true, $userId);
+						} catch (InventaireException $ex) {
+							// Si l'utilisateur n'a pas accès à l'entreprise destinataire, on ne lui montre ni ses emplacements ni ses quantités.
+							if (!in_array($e2, $this->utilisateur($userId)['entreprises'], true)) {
+								throw new InventaireException('Annulation impossible : la marchandise facturée n\'est plus entièrement disponible chez le destinataire.');
+							}
+							throw $ex;
+						}
 						$this->bouger($doc['id'], $e1, $pid, $src, $q, 'entree', $c, true, $userId);
 						break;
 				}
@@ -915,13 +923,19 @@ class Inventaire
 					}
 				}
 			}
-			$resultat = array('document_id' => null, 'numero' => null, 'ecarts' => count($lignesAj));
-			if ($lignesAj) {
+			$resultat = array('document_id' => null, 'numero' => null, 'ecarts' => count($lignesAj), 'documents' => array());
+			// Un ajustement est limité à MAX_LIGNES lignes : un grand comptage produit plusieurs ajustements (tout ou rien : même transaction).
+			$paquets = array_chunk($lignesAj, self::MAX_LIGNES);
+			foreach ($paquets as $i => $paquet) {
 				$doc = $this->ajusterInterne($userId, $emp, array(
-					'motif' => 'comptage', 'lignes' => $lignesAj, 'note' => 'Comptage ' . $c['numero'],
+					'motif' => 'comptage', 'lignes' => $paquet,
+					'note' => 'Comptage ' . $c['numero'] . (count($paquets) > 1 ? ' (partie ' . ($i + 1) . ' de ' . count($paquets) . ')' : ''),
 				));
-				$resultat['document_id'] = $doc['id'];
-				$resultat['numero'] = $doc['numero'];
+				$resultat['documents'][] = array('id' => $doc['id'], 'numero' => $doc['numero']);
+				if ($i === 0) {
+					$resultat['document_id'] = $doc['id'];
+					$resultat['numero'] = $doc['numero'];
+				}
 			}
 			$this->exec(
 				"UPDATE comptages SET statut = 'applique', applique_par = ?, applique_le = ?, document_id = ? WHERE id = ?",

@@ -126,7 +126,8 @@ refuse(function () use ($inv, $emp, $f2) { $inv->annuler($emp, $f2['id'], 'x'); 
 refuse(function () use ($inv, $gA, $f2) { $inv->annuler($gA, $f2['id'], ''); }, 'motif', 'motif d\'annulation requis');
 // annulation impossible si la destination a déjà sorti la marchandise
 $inv->sortir($gB, array('emplacement_id' => $E['B2'], 'motif' => 'service', 'lignes' => array(L($P['T2'], '1'))));
-refuse(function () use ($inv, $gA, $f2) { $inv->annuler($gA, $f2['id'], 'trop tard'); }, 'Stock insuffisant', 'annulation bloquée (marchandise déjà sortie)');
+refuse(function () use ($inv, $gA, $f2) { $inv->annuler($gA, $f2['id'], 'trop tard'); }, 'Annulation impossible', 'annulation bloquée (marchandise déjà sortie) : message sans détail de l\'autre entreprise');
+refuse(function () use ($inv, $gB, $f2) { $inv->annuler($gB, $f2['id'], 'trop tard'); }, 'Stock insuffisant', 'le destinataire voit le détail de SON stock');
 egal('valide', val('SELECT statut FROM documents WHERE id = ?', array($f2['id'])), 'document resté valide après refus');
 // annulation d'une réception : rétablit le coût moyen
 $c0 = cout(1, $P['T2']);
@@ -318,6 +319,22 @@ $somme = 0; foreach ($vi['emplacements'] as $le) { $somme += Dec::parse($le['val
 egal(Dec::parse($vi['entreprises'][0]['valeur'], 2), $somme, 'valeur d\'inventaire : somme des emplacements = total de l\'entreprise (désactivés garnis inclus)');
 ok(count(array_filter($vi['emplacements'], function ($le) use ($E) { return (int) $le['id'] === $E['CUBE'] && (int) $le['actif'] === 0; })) === 1, 'emplacement désactivé garni listé avec actif = 0');
 $pdo->exec("UPDATE emplacements SET actif = 1 WHERE id = {$E['CUBE']}");
+
+// coût moyen jamais remis à zéro par un retrait
+egal(10000, Dec::coutMoyenRetrait(10000, 10000, 5000, 30000), 'Dec : un retrait trop « cher » garde la moyenne actuelle (pas de 0)');
+egal(10000, Dec::coutMoyenRetrait(20000, 15000, 10000, 20000), 'Dec : retrait normal (20@1,50 moins 10@2,00 = 10@1,00)');
+
+// comptage de plus de MAX_LIGNES écarts : plusieurs ajustements, tout ou rien
+$pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type) VALUES (1,'Gros comptage','entrepot')"); $EG = (int) $pdo->lastInsertId();
+$ids = array();
+for ($i = 1; $i <= 650; $i++) { $pdo->exec("INSERT INTO pieces (code, nom) VALUES ('GC$i','Gros comptage $i')"); $ids[] = (int) $pdo->lastInsertId(); }
+$cg = $inv->creerComptage($gA, $EG);
+foreach ($ids as $pid) { $inv->comptageScanner($gA, $cg['id'], $pid, '2', 'fixer'); }
+$rg = $inv->comptageAppliquer($gA, $cg['id']);
+egal(650, $rg['ecarts'], 'comptage de 650 pièces : 650 écarts');
+egal(3, count($rg['documents']), '650 écarts = 3 ajustements (300 + 300 + 50)');
+egal('2.000', stock($ids[649], $EG), 'dernière pièce du comptage appliquée');
+egal(650, (int) val('SELECT COUNT(*) FROM stock WHERE emplacement_id = ? AND quantite = 2', array($EG)), 'toutes les pièces comptées sont en stock');
 
 // formats d'affichage (espace insécable des milliers, arrondi)
 $nbsp = "\xc2\xa0";

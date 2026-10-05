@@ -62,4 +62,5 @@ td.nombre, th.nombre, .nombre { text-align: right; font-variant-numeric: tabular
 @page { size: letter portrait; margin: 12mm; }
 @media print {
   html, body, .container, .container-fluid, .wrapper { min-width: 0 !important; }
+  #toasts { display: none !important; }
 }
