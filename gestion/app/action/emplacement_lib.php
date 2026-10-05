@@ -54,6 +54,9 @@ final class AdminEmplacement
 		$code = ($codeBrut === '') ? null : self::codeValide($codeBrut);       // null : proposé automatiquement à la création
 		$actif = array_key_exists('actif', $d) ? Admin::booleen($d['actif']) : null;
 
+		// Le code-barres d'un emplacement partage son espace de noms avec les codes de pièces et leurs alias : on prend le
+		// verrou global des codes AVANT la transaction (vérification « libre ? » puis écriture atomiques), comme le catalogue.
+		return inventaire()->avecVerrouCodes(function () use ($pdo, $acteur, $id, $eid, $nom, $type, $code, $actif) {
 		return inventaire()->transaction(function () use ($pdo, $acteur, $id, $eid, $nom, $type, $code, $actif) {
 			Admin::acteur($acteur);
 			$st = $pdo->prepare('SELECT id, nom, actif FROM entreprises WHERE id = ? FOR UPDATE');
@@ -128,6 +131,7 @@ final class AdminEmplacement
 				}
 				throw $ex;
 			}
+		});
 		});
 	}
 
