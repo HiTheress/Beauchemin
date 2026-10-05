@@ -509,30 +509,46 @@
       else if ($btn.hasAttribute('data-libelle')) { s.textContent = $btn.getAttribute('data-libelle'); i.className = 'fas fa-check mr-1'; }
     }
 
+    // Des scans peuvent encore être « en file » dans le champ de scan (rafale + clic sur Enregistrer) : on les attend (8 s au plus)
+    function attendreScans() {
+      var $scan = q('#scan');
+      return new Promise(function (ok) {
+        var t0 = Date.now();
+        (function boucle() {
+          var n = $scan ? parseInt($scan.getAttribute('data-attente') || '0', 10) : 0;
+          if (!n || Date.now() - t0 > 8000) { ok(); } else { setTimeout(boucle, 40); }
+        })();
+      });
+    }
+
     function enregistrer() {
       if (enCours) { return; }                         // double clic : un seul envoi
-      occupe(true);
+      enCours = true; $btn.disabled = true;            // verrou immédiat pendant l'attente de la file de scans
       effacerErreur();
       montrer($succes, false);
-      var e = valider();
-      if (e) { occupe(false); afficherErreur(e.m, e.champ, e.el); return; }
-      w.api.post(cfg.url, charge())
-        .then(function (r) {
-          w.bip(true);
-          afficherSucces(r);
-          remiseAZero();
-        })
-        .catch(function (err) {
-          if (err && err.champ === 'jeton') { jeton = nouveauJeton(); }      // saisie modifiée après un envoi déjà enregistré : le prochain clic crée un nouveau document
-          afficherErreurServeur(err);
-        })
-        .then(function () { occupe(false); });
+      attendreScans().then(function () {
+        occupe(true);                                  // le champ de scan est verrouillé seulement une fois la file vidée
+        var e = valider();
+        if (e) { occupe(false); afficherErreur(e.m, e.champ, e.el); return; }
+        return w.api.post(cfg.url, charge())
+          .then(function (r) {
+            w.bip(true);
+            afficherSucces(r);
+            remiseAZero();
+          })
+          .catch(function (err) {
+            if (err && err.champ === 'jeton') { jeton = nouveauJeton(); }      // saisie modifiée après un envoi déjà enregistré : le prochain clic crée un nouveau document
+            afficherErreurServeur(err);
+          })
+          .then(function () { occupe(false); });
+      });
     }
 
     // ---- démarrage ----------------------------------------------------------------------
     sl = w.SaisieLignes.creer({
       conteneur: '#lignes', scan: '#scan', recherche: '#recherche',
       coutColonne: cfg.cout, coutObligatoire: cfg.coutObligatoire, signe: cfg.signe,
+      inactivesOk: page !== 'reception',      // une pièce désactivée garde son stock : on peut le sortir, le transférer ou le diminuer
       emplacementSource: cfg.disponible ? function () { return $emp.value || null; } : undefined,
       coutParDefaut: page === 'reception' ? proposerCout : undefined,
       onEmplacement: emplacementScanne,

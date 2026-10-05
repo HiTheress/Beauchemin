@@ -8,6 +8,7 @@
  *     recherche: '#recherche',         // <select> pour la recherche par nom/code (optionnel, devient un select2)
  *     coutColonne: false,              // true : colonne « Coût unitaire » saisissable (réception)
  *     coutObligatoire: true,           // avec coutColonne : refuse une ligne sans coût
+ *     inactivesOk: false,              // true : accepte les pièces désactivées (sortie/transfert/ajustement : on doit pouvoir vider leur stock)
  *     signe: false,                    // true : quantités négatives permises (ajustement)
  *     emplacementSource: function () { return idEmplacementOuNull; },   // affiche « Disponible » et signale les dépassements
  *     coutParDefaut: function (piece) { return Promise.resolve('12.34'); },  // préremplit le coût (ou null)
@@ -88,6 +89,7 @@
       var tr = el('tr');
       tr.appendChild(el('td', { class: 'code' }, l.piece.code));
       var tdNom = el('td'); tdNom.appendChild(document.createTextNode(l.piece.nom));
+      if (!l.piece.actif) { tdNom.appendChild(el('span', { class: 'badge badge-warning ml-1' }, 'désactivée')); }
       if (l.piece.unite && l.piece.unite !== 'unité') { tdNom.appendChild(el('small', { class: 'text-muted ml-1' }, '(' + l.piece.unite + ')')); }
       tr.appendChild(tdNom);
       if (opts.emplacementSource) { l.celDispo = el('td', { class: 'nombre' }); tr.appendChild(l.celDispo); }
@@ -137,7 +139,7 @@
             if (opts.onEmplacement) { opts.onEmplacement(r.emplacement); return true; }
             throw new Error('« ' + r.emplacement.nom + ' » est un emplacement, pas une pièce.');
           }
-          if (!r.piece.actif) { throw new Error('La pièce « ' + r.piece.code + ' » est désactivée.'); }
+          if (!r.piece.actif && !opts.inactivesOk) { throw new Error('La pièce « ' + r.piece.code + ' » est désactivée.'); }
           cache[r.piece.code] = r.piece;
           ajouterPiece(r.piece, 1);
           return true;

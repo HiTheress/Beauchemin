@@ -1205,6 +1205,40 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   }
 
   // =====================================================================================================================
+  console.log('12b. Corrections : « Enregistrer » attend la file de scans ; pièce désactivée vidable');
+  // =====================================================================================================================
+  {
+    // rafale de 25 scans + clic IMMÉDIAT sur Enregistrer : toutes les unités doivent être dans le document
+    await L.aller(g, 'transfert'); await g.selectOption('#emplacement', '1');
+    await g.waitForFunction(() => document.querySelectorAll('#destination option').length > 1);
+    await g.selectOption('#destination', '3');
+    const avant1 = num(stock(1, 1)), avant3 = num(stock(1, 3));
+    await g.evaluate(() => {
+      const el = document.querySelector('#scan');
+      for (let i = 0; i < 6; i++) { el.value = 'P-0001'; el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
+      document.querySelector('#btn-enregistrer').click();
+    });
+    await succesSaisie(g);
+    L.verifier(num(stock(1, 1)) === avant1 - 6 && num(stock(1, 3)) === avant3 + 6, 'rafale de 6 scans puis Enregistrer tout de suite : les 6 unités sont transférées (stock 1 : ' + stock(1, 1) + ', cube : ' + stock(1, 3) + ')');
+
+    // pièce désactivée avec du stock : acceptée (et signalée) en sortie, refusée en réception
+    sql('UPDATE pieces SET actif = 0 WHERE id = 5');
+    const s5 = num(stock(5, 1));
+    await L.aller(g, 'sortie'); await g.selectOption('#emplacement', '1'); await g.selectOption('#motif', 'perte');
+    await scan(g, 'P-0005', 1);
+    L.verifier((await texteNorm(g, '#lignes')).includes('désactivée'), 'sortie : pièce désactivée acceptée et signalée par une mention');
+    await g.click('#btn-enregistrer'); await succesSaisie(g);
+    L.verifier(num(stock(5, 1)) === s5 - 1, 'sortie : le stock d\'une pièce désactivée diminue (' + s5 + ' -> ' + stock(5, 1) + ')');
+    await L.aller(g, 'sortie&piece_id=5&emplacement_id=1');
+    await attendreLignes(g, 1);
+    L.verifier((await lignes(g))[0][0] === 'P-0005', 'sortie : la pièce désactivée est préremplie par l\'adresse (piece_id)');
+    await L.aller(g, 'reception'); await g.selectOption('#emplacement', '1'); await viderToasts(g);
+    await L.scanner(g, '#scan', 'P-0005'); await attendreToast(g, 'désactivée');
+    L.verifier((await lignes(g)).length === 0, 'réception : une pièce désactivée est refusée');
+    sql('UPDATE pieces SET actif = 1 WHERE id = 5');
+  }
+
+  // =====================================================================================================================
   console.log('13. Intégrité, journal PHP, console');
   // =====================================================================================================================
   const ecart = sql('SELECT COUNT(*) FROM (SELECT s.piece_id, s.emplacement_id FROM stock s LEFT JOIN (SELECT piece_id, emplacement_id, SUM(quantite) q FROM mouvements GROUP BY piece_id, emplacement_id) m ON m.piece_id = s.piece_id AND m.emplacement_id = s.emplacement_id WHERE s.quantite <> COALESCE(m.q, 0)) t');

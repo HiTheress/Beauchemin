@@ -171,8 +171,10 @@
   document.addEventListener('keydown', function (e) {
     if (e.ctrlKey || e.metaKey || e.altKey || !e.key || e.key.length !== 1) { return; }
     var t = e.target, tag = t && t.tagName;
-    if (e.key === ' ' && (tag === 'BUTTON' || tag === 'SELECT' || tag === 'A')) { return; }   // la barre d'espace active un bouton / ouvre une liste : pas un caractère de code-barres
-    if (!(tag === 'SELECT' || tag === 'BUTTON' || tag === 'A' || tag === 'BODY' || tag === 'HTML')) { return; }
+    if (e.key === ' ' && (tag === 'BUTTON' || tag === 'SELECT' || tag === 'A' || (tag === 'INPUT' && /^(checkbox|radio|button|submit|reset)$/.test(t.type || '')))) { return; }   // la barre d'espace active un bouton / ouvre une liste : pas un caractère de code-barres
+    // cases à cocher, boutons radio, boutons d'envoi... : pas de saisie de texte possible, le code doit aller au champ de scan
+    var sansTexte = (tag === 'INPUT' && /^(checkbox|radio|button|submit|reset|range|color|file)$/.test(t.type || ''));
+    if (!(tag === 'SELECT' || tag === 'BUTTON' || tag === 'A' || tag === 'BODY' || tag === 'HTML' || sansTexte)) { return; }
     if (t.closest && t.closest('.modal, .select2-container, .select2-dropdown, .dropdown-menu')) { return; }
     var sc = document.querySelector('.scan-input');
     if (!sc || sc.disabled || sc.offsetParent === null || document.querySelector('.modal.show')) { return; }

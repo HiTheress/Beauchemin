@@ -300,7 +300,7 @@ final class Mouvements
 	 * Préremplissage par l'URL (contrat du §10) : &piece_id= (code de la pièce à ajouter, quantité 1) et &emplacement_id=.
 	 * @return array{piece_code:string, piece_avert:string, emplacement_id:string}
 	 */
-	public static function prefill()
+	public static function prefill($inactivesOk = false)
 	{
 		global $pdo;
 		$r = array('piece_code' => '', 'piece_avert' => '', 'emplacement_id' => '');
@@ -311,10 +311,10 @@ final class Mouvements
 			$row = $st->fetch();
 			if (!$row) {
 				$r['piece_avert'] = 'La pièce demandée n\'existe pas.';
-			} elseif (!$row['actif']) {
+			} elseif (!$row['actif'] && !$inactivesOk) {
 				$r['piece_avert'] = 'La pièce « ' . $row['code'] . ' » est désactivée : elle ne peut pas être ajoutée.';
 			} else {
-				$r['piece_code'] = $row['code'];
+				$r['piece_code'] = $row['code'];   // (une pièce désactivée est acceptée seulement pour vider son stock)
 			}
 		}
 		if (isset($_GET['emplacement_id']) && is_string($_GET['emplacement_id']) && ctype_digit($_GET['emplacement_id']) && strlen($_GET['emplacement_id']) < 10) {

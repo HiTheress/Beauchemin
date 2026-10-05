@@ -4,7 +4,7 @@ if (!acces_page('gestionnaire')) { return; }
 require_once __DIR__ . '/../app/action/document_lib.php';
 page_script('assets/js/saisie-lignes.js');
 page_script('assets/js/mouvements.js');
-$pre = Mouvements::prefill();
+$pre = Mouvements::prefill(true);
 ?>
 <link rel="stylesheet" href="assets/css/mouvements.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/mouvements.css'); ?>">
 <div class="content-wrapper" <?php echo Mouvements::attributsSaisie('ajustement', $pre); ?>>

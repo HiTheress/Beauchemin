@@ -43,6 +43,13 @@ const L = require('./lib.js');
   await p.waitForFunction(() => document.querySelector('#scan').getAttribute('data-attente') === '0', null, { timeout: 8000 });
   L.verifier(await p.$eval('#src', e => e.value) === srcAvant, 'la liste déroulante focalisée n\'a pas changé de valeur sous la frappe du lecteur');
   L.verifier((await p.$$eval('#lignes tbody tr td.code', e => e.map(x => x.textContent))).includes('P-0003'), 'le code scanné depuis une liste déroulante est quand même pris en compte');
+  // case à cocher qui garde le focus (ex. « Facturer à 0 $ ») : le code du lecteur doit quand même atteindre le champ de scan
+  const avantQ = await p.$$eval('#lignes tbody tr', r => { const x = r.find(t => t.querySelector('td').textContent === 'P-0003'); return x ? parseFloat(x.querySelector('td:nth-child(4) input').value.replace(',', '.')) : 0; });
+  await p.evaluate(() => { const c = document.createElement('input'); c.type = 'checkbox'; c.id = 'cb-essai'; document.querySelector('#lignes').parentElement.appendChild(c); });
+  await p.click('#cb-essai'); await p.keyboard.type('P-0003'); await p.keyboard.press('Enter');
+  await p.waitForFunction(() => document.querySelector('#scan').getAttribute('data-attente') === '0', null, { timeout: 8000 });
+  const apresQ = await p.$$eval('#lignes tbody tr', r => { const x = r.find(t => t.querySelector('td').textContent === 'P-0003'); return x ? parseFloat(x.querySelector('td:nth-child(4) input').value.replace(',', '.')) : 0; });
+  L.verifier(apresQ === avantQ + 1 && await p.$eval('#cb-essai', e => e.checked) === true, 'frappe tombée sur une case à cocher : code pris en compte (' + avantQ + ' -> ' + apresQ + ') sans modifier la case');
   // erreur de chargement d'un tableau : message français, jamais le texte technique de DataTables
   await p.evaluate(() => { const t = document.createElement('table'); t.id = 'tt'; t.innerHTML = '<thead><tr><th>a</th></tr></thead>'; document.body.appendChild(t); $(t).DataTable({ serverSide: true, ajax: 'app/ajax/inexistant_zz.php', columns: [{ data: 'a' }] }); });
   await p.waitForSelector('#toasts .alert-danger', { timeout: 8000 });
