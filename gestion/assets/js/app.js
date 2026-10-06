@@ -184,7 +184,8 @@
   // ---- Titre d'onglet : celui de l'écran (le serveur envoie le même titre partout)
   $(function () {
     var h = document.querySelector('.content-header h1');
-    if (h && h.textContent.trim()) { document.title = h.textContent.trim() + ' — Beauchemin'; }
+    // seulement si la page n'a pas déjà fixé un titre plus précis (ex. « Document REC-… », « Bilan février 2026 »)
+    if (h && h.textContent.trim() && /^Beauchemin — Gestion d.inventaire$/.test(document.title)) { document.title = h.textContent.trim() + ' — Beauchemin'; }
   });
 
   // ---- Entreprise active (barre du haut) ---------------------------------------------------------
