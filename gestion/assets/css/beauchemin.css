@@ -5,6 +5,7 @@
 /* Champ de scan : gros, lisible au comptoir et sur tablette */
 .scan-box { border: 2px solid #007bff; border-radius: .5rem; background: #fff; padding: .75rem 1rem; }
 .scan-box input.scan-input { font-size: 1.6rem; height: auto; padding: .5rem .75rem; letter-spacing: .05em; }
+@media (max-width: 575.98px) { .scan-box input.scan-input { font-size: 1.15rem; letter-spacing: 0; } }  /* le texte d'invite tient sur un téléphone */
 .scan-box.ok { border-color: #28a745; box-shadow: 0 0 0 .2rem rgba(40,167,69,.2); }
 .scan-box.erreur { border-color: #dc3545; box-shadow: 0 0 0 .2rem rgba(220,53,69,.2); }
 
@@ -55,6 +56,9 @@ td.nombre, th.nombre, .nombre { text-align: right; font-variant-numeric: tabular
   body .wrapper .main-sidebar, body .wrapper .main-sidebar::before { margin-left: -285px !important; }
   body.sidebar-open .wrapper .main-sidebar, body.sidebar-open .wrapper .main-sidebar::before { margin-left: 0 !important; }
 }
+/* Bandeau de marque : même largeur que la barre (285 px) quand elle est dépliée, sinon un coin blanc reste visible. */
+body:not(.sidebar-collapse) .main-sidebar .brand-link { width: 285px; }
+@media (min-width: 992px) { body.sidebar-collapse .main-sidebar:hover .brand-link { width: 285px; } }
 /* Libellés longs du menu : retour à la ligne plutôt que coupés. */
 .main-sidebar .nav-sidebar .nav-link p { white-space: normal; }
 

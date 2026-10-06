@@ -32,9 +32,10 @@ tools/serveur.sh stop 8080
 
 Tests : `tests/run.sh` (scénarios métier, test aléatoire comparé à un modèle indépendant, concurrence multi-processus).
 Tests de navigateur : `NODE_PATH=$(npm root -g) BASE_URL=http://127.0.0.1:8080 node tests/e2e/<module>.js`.
+Audit de sécurité automatique de tous les endpoints (sans session, sans jeton CSRF, rôles, charges malformées) : `tests/e2e/securite.js`.
 
 ## Sécurité en bref
 
-Connexion obligatoire sur chaque page et chaque action · jeton CSRF · mots de passe `password_hash` · verrouillage après 5 échecs ·
+Connexion obligatoire sur chaque page et chaque action · jeton CSRF · mots de passe `password_hash` · limitation des essais de connexion (par adresse et par compte) ·
 rôle **et** entreprise vérifiés côté serveur · requêtes préparées partout · tout affichage échappé · aucun compte par défaut ·
 sessions durcies · ressources chargées localement (aucun CDN) · code interne, configuration et schéma non servis par le web.
