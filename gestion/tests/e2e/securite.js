@@ -118,9 +118,12 @@ const CHARGES = [
     }
 
     // 2. POST sans jeton CSRF (session valide) : 403
+    // (login / logout sont exclus : un appel avec la session du gestionnaire la détruirait et fausserait la suite)
     const sg = sessions.gestionnaire;
-    const rc = await appeler(url, { methode: 'POST', session: sg, csrf: false, corps: '{}' });
-    if (!evite.has(ep.nom)) noter(rc.status === 403, ep.fichier + ' : POST sans jeton CSRF refusé (' + rc.status + ')');
+    if (!evite.has(ep.nom)) {
+      const rc = await appeler(url, { methode: 'POST', session: sg, csrf: false, corps: '{}' });
+      noter(rc.status === 403, ep.fichier + ' : POST sans jeton CSRF refusé (' + rc.status + ')');
+    }
 
     // 3. GET sur une écriture : jamais d'effet (405 attendu pour app/action)
     if (ep.dossier === 'action' && !evite.has(ep.nom)) {
