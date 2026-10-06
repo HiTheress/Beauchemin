@@ -11,5 +11,6 @@ sous votre nom ou votre marque. »
 Il est donc destiné ici à un **usage interne seulement**. Ne pas vendre ni redistribuer ce
 logiciel avant d'avoir obtenu l'autorisation de l'auteure ou confirmé sa licence.
 
-Les bibliothèques incluses conservent leurs propres licences : AdminLTE, Bootstrap, FPDF, mPDF
-et les modules du dossier `plugins/`.
+Les bibliothèques incluses conservent leurs propres licences (MIT pour la plupart) : AdminLTE, Bootstrap, jQuery,
+DataTables, Select2, Font Awesome Free, Chart.js, OverlayScrollbars — voir le dossier `plugins/` et `dist/`.
+Les pages, la logique métier, le schéma de base de données et les générateurs de codes-barres (Code 128) ont été réécrits pour ce projet.
