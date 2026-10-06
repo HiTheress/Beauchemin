@@ -1,6 +1,7 @@
 <?php
 // Outils du test d2.js (module D2) : prépare des situations que l'interface seule ne permet pas de créer facilement.
 // BASE DE DÉVELOPPEMENT SEULEMENT (DB_NAME=bea_*). Ligne de commande uniquement ; chaque commande écrit du JSON sur une ligne.
+//   php tests/e2e/d2-outils.php exact      pièces X-1 / X-10 / X-100 (codes qui se contiennent), un alias exact, une pièce sans stock
 //   php tests/e2e/d2-outils.php preparer   jeu de données de test (pièces piégées XSS / formules CSV, alias, zéro, désactivés,
 //                                          annulation, mouvement daté du passé, 2 utilisateurs) ; écrit les identifiants créés
 if (PHP_SAPI !== 'cli') { exit("Ligne de commande seulement.\n"); }
@@ -77,6 +78,21 @@ switch ($cmd) {
 
 		// Un mouvement du passé (pour le filtre de dates) : la réception de la pièce DEC-1 dans l'ancien cube
 		$pdo->exec("UPDATE mouvements SET date_mouvement = '2026-09-15 10:30:00' WHERE piece_id = " . (int) $r['dec'] . ' AND emplacement_id = ' . (int) $r['emp_ancien']);
+		echo json_encode($r), "\n";
+		break;
+	case 'exact':
+		// Codes qui se contiennent l'un l'autre (X-1, X-10, X-100), alias exact, pièce sans aucun stock ; une pièce sous son minimum
+		$r = array();
+		$r['x1'] = nouvellePiece($pdo, 'X-1', 'Vis courte', 'unité');
+		$r['x10'] = nouvellePiece($pdo, 'X-10', 'Vis moyenne', 'unité');
+		$r['x100'] = nouvellePiece($pdo, 'X-100', 'Vis longue', 'unité');
+		$r['sans_stock'] = nouvellePiece($pdo, 'SANS-STOCK-1', 'Pièce neuve sans stock', 'unité');
+		$pdo->prepare("INSERT INTO pieces_codes (piece_id, code, type) VALUES (?, '5551234567890', 'fabricant')")->execute(array($r['x1']));
+		$inv->recevoir($admin, array('emplacement_id' => 1, 'lignes' => array(
+			array('piece_id' => $r['x1'], 'quantite' => 5, 'cout_unitaire' => '1.00'),
+			array('piece_id' => $r['x10'], 'quantite' => 6, 'cout_unitaire' => '1.00'),
+			array('piece_id' => $r['x100'], 'quantite' => 7, 'cout_unitaire' => '1.00'),
+		)));
 		echo json_encode($r), "\n";
 		break;
 	default:

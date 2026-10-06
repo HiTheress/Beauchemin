@@ -1,6 +1,7 @@
 <?php
 // Emplacements (entrepôts, boutiques, cubes de service) : liste, création, modification, étiquette, désactivation. Administrateur seulement.
 if (!acces_page('admin')) { return; }
+require_once __DIR__ . '/../app/action/utilisateur_lib.php';
 page_script('assets/js/admin.js');
 $entreprises = $pdo->query('SELECT id, code, nom, actif FROM entreprises ORDER BY id')->fetchAll();
 ?>
@@ -8,11 +9,15 @@ $entreprises = $pdo->query('SELECT id, code, nom, actif FROM entreprises ORDER B
 <div class="content-wrapper" data-admin="emplacements">
   <?php page_titre('Emplacements', array('Administration')); ?>
   <section class="content"><div class="container-fluid">
+    <?php Admin::enteteImpression('Emplacements'); ?>
     <div class="card"><div class="card-body">
       <div class="row adm-filtres align-items-end">
         <div class="col-md-4 col-lg-3 form-group">
           <label for="f-recherche">Rechercher ou scanner</label>
-          <input id="f-recherche" type="search" class="form-control" maxlength="100" autocomplete="off" placeholder="Nom ou code-barres">
+          <div class="input-group">
+            <div class="input-group-prepend"><span class="input-group-text"><i class="fas fa-barcode" aria-hidden="true"></i></span></div>
+            <input id="f-recherche" type="search" class="form-control scan-input" maxlength="100" autocomplete="off" placeholder="Nom ou code-barres">
+          </div>
         </div>
         <div class="col-md-4 col-lg-2 form-group">
           <label for="f-entreprise">Entreprise</label>
@@ -45,7 +50,7 @@ $entreprises = $pdo->query('SELECT id, code, nom, actif FROM entreprises ORDER B
       <div class="table-responsive">
         <table id="table-emplacements" class="table table-striped adm-table w-100">
           <thead><tr>
-            <th scope="col">Entreprise</th><th scope="col">Nom</th><th scope="col">Type</th><th scope="col">Code-barres</th>
+            <th scope="col">Entreprise</th><th scope="col">Emplacement</th><th scope="col">Code-barres</th>
             <th scope="col" class="nombre">Pièces en stock</th><th scope="col">Statut</th><th scope="col" class="no-print"><span class="sr-only">Actions</span></th>
           </tr></thead>
           <tbody></tbody>
@@ -56,7 +61,7 @@ $entreprises = $pdo->query('SELECT id, code, nom, actif FROM entreprises ORDER B
     </div></div>
   </div></section>
 
-  <div class="modal fade" id="modal-emplacement" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-emplacement-titre">
+  <div class="modal fade" id="modal-emplacement" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-emplacement-titre" data-backdrop="static">
     <div class="modal-dialog modal-dialog-centered" role="document"><div class="modal-content">
       <form id="form-emplacement" novalidate autocomplete="off">
         <div class="modal-header"><h5 class="modal-title" id="modal-emplacement-titre">Emplacement</h5>
@@ -98,7 +103,7 @@ $entreprises = $pdo->query('SELECT id, code, nom, actif FROM entreprises ORDER B
               </div>
             </div>
             <small id="em-code-aide" class="form-text text-muted">Proposé automatiquement (EMP-000001, EMP-000002…) ; vous pouvez le modifier. Il doit être unique dans tout le système.</small>
-            <small id="em-code-avert" class="form-text text-warning" hidden>Si des étiquettes de cet emplacement sont déjà imprimées, elles ne fonctionneront plus avec un nouveau code.</small>
+            <small id="em-code-avert" class="form-text adm-avert" role="status" hidden>Si des étiquettes de cet emplacement sont déjà imprimées, elles ne fonctionneront plus avec un nouveau code.</small>
             <small class="text-danger" data-erreur-pour="code_barres" hidden></small>
           </div>
           <div class="form-group mb-0" id="em-actif-groupe" hidden>

@@ -8,7 +8,7 @@ $gest = $Ouser->aRole('gestionnaire');
 $aujourdhui = date('Y-m-d');
 ?>
 <link rel="stylesheet" href="assets/css/stock.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/stock.css'); ?>">
-<div class="content-wrapper sk-page" id="ds-racine" data-gest="<?php echo $gest ? '1' : '0'; ?>">
+<div class="content-wrapper sk-page" id="ds-racine" data-gest="<?php echo $gest ? '1' : '0'; ?>" data-entreprise="<?php echo (int) entreprise_courante(); ?>">
   <?php page_titre('Tableau de bord'); ?>
   <section class="content"><div class="container-fluid">
 
@@ -32,7 +32,7 @@ $aujourdhui = date('Y-m-d');
 
     <!-- Cartes -->
     <div class="row">
-      <div class="col-lg-<?php echo $gest ? '3' : '4'; ?> col-md-6">
+      <div class="<?php echo $gest ? 'col-xl-3' : 'col-lg-4'; ?> col-md-6">
         <div class="card ds-carte" aria-labelledby="ds-t-pieces">
           <div class="card-body">
             <h2 class="ds-titre" id="ds-t-pieces">Pièces actives</h2>
@@ -42,7 +42,7 @@ $aujourdhui = date('Y-m-d');
           </div>
         </div>
       </div>
-      <div class="col-lg-<?php echo $gest ? '3' : '4'; ?> col-md-6">
+      <div class="<?php echo $gest ? 'col-xl-3' : 'col-lg-4'; ?> col-md-6">
         <div class="card ds-carte" id="ds-carte-sous" aria-labelledby="ds-t-sous">
           <div class="card-body">
             <h2 class="ds-titre" id="ds-t-sous">Sous le minimum</h2>
@@ -52,7 +52,7 @@ $aujourdhui = date('Y-m-d');
           </div>
         </div>
       </div>
-      <div class="col-lg-<?php echo $gest ? '3' : '4'; ?> col-md-6">
+      <div class="<?php echo $gest ? 'col-xl-3' : 'col-lg-4'; ?> col-md-6">
         <div class="card ds-carte" aria-labelledby="ds-t-jour">
           <div class="card-body">
             <h2 class="ds-titre" id="ds-t-jour">Mouvements du jour</h2>
@@ -63,7 +63,7 @@ $aujourdhui = date('Y-m-d');
         </div>
       </div>
       <?php if ($gest) { ?>
-      <div class="col-lg-3 col-md-6">
+      <div class="col-xl-3 col-md-6">
         <div class="card ds-carte" aria-labelledby="ds-t-valeur">
           <div class="card-body">
             <h2 class="ds-titre" id="ds-t-valeur">Valeur de l'inventaire</h2>
@@ -88,18 +88,17 @@ $aujourdhui = date('Y-m-d');
     <?php } ?>
 
     <div class="row">
-      <div class="col-lg-7">
+      <div class="col-xl-7">
         <div class="card ds-carte" aria-labelledby="ds-t-docs">
           <div class="card-body">
             <h2 class="ds-titre" id="ds-t-docs">Derniers documents</h2>
             <p class="text-muted mb-0" id="ds-docs-vide" hidden>Aucun document pour le moment.</p>
             <div class="table-responsive" id="ds-docs-zone" hidden>
               <table class="table table-sm table-striped mb-0">
-                <caption class="sr-only">Les dix derniers documents</caption>
+                <caption class="sr-only">Les dix derniers documents (le type est écrit sous le numéro ; un document annulé est marqué « Annulé »)</caption>
                 <thead><tr>
-                  <th scope="col">Numéro</th><th scope="col">Type</th><th scope="col">Date</th><th scope="col">Emplacement</th>
+                  <th scope="col">Document</th><th scope="col">Date</th><th scope="col">Emplacement</th>
                   <?php if ($gest) { ?><th scope="col" class="nombre">Total</th><?php } ?>
-                  <th scope="col">Statut</th>
                 </tr></thead>
                 <tbody id="ds-docs"></tbody>
               </table>
@@ -108,7 +107,7 @@ $aujourdhui = date('Y-m-d');
           </div>
         </div>
       </div>
-      <div class="col-lg-5">
+      <div class="col-xl-5">
         <div class="card ds-carte" aria-labelledby="ds-t-bas">
           <div class="card-body">
             <h2 class="ds-titre" id="ds-t-bas">Pièces les plus sous le minimum</h2>

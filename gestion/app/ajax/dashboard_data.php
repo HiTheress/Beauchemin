@@ -1,6 +1,6 @@
 <?php
-// Données du tableau de bord (employé+), pour l'entreprise choisie dans la barre du haut (sinon toutes celles de l'utilisateur).
-// GET. Réponse : {ok:true, portee:{ids, noms, libelle}, montants:bool, aujourdhui:'AAAA-MM-JJ', role,
+// Données du tableau de bord (employé+), pour l'entreprise affichée par la page : GET entreprise_id = un numéro, ou 0 pour « toutes mes
+// entreprises » (403 si non permise) ; absent : l'entreprise choisie dans la barre du haut (sinon toutes celles de l'utilisateur). Réponse : {ok:true, portee:{ids, noms, libelle}, montants:bool, aujourdhui:'AAAA-MM-JJ', role,
 //   cartes:{pieces_actives, pieces_en_stock, sous_minimum, mouvements_jour, documents_jour},
 //   derniers_documents:[{id, numero, type, type_libelle, statut, date, entreprise, entreprise_dest, emplacement, emplacement_dest, utilisateur[, total]}],
 //   plus_bas:[{entreprise, piece_id, code, nom, unite, minimum, quantite, manque}]  (5 plus grands manques),
@@ -10,7 +10,7 @@ require_once __DIR__ . '/stock_lib.php';
 Suivi::executer(function ($ctx) {
 	global $pdo;
 	$uid = $ctx['uid'];
-	$ids = Suivi::entreprises($ctx, entreprise_courante() ?: null);
+	$ids = Suivi::portee($ctx, Suivi::requete());   // l'entreprise affichée par la page (explicite), sinon la barre du haut
 	$liste = Suivi::listeIds($ids);
 	$mes = Suivi::listeIds($ctx['entreprises']);
 	$un = function ($sql, array $p = array()) use ($pdo) {

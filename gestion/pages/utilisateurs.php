@@ -9,11 +9,12 @@ $entreprises = $pdo->query('SELECT id, code, nom, actif FROM entreprises ORDER B
 <div class="content-wrapper" data-admin="utilisateurs" data-moi="<?php echo (int) utilisateur_id(); ?>">
   <?php page_titre('Utilisateurs', array('Administration')); ?>
   <section class="content"><div class="container-fluid">
+    <?php Admin::enteteImpression('Utilisateurs'); ?>
     <div class="card"><div class="card-body">
       <div class="row adm-filtres align-items-end">
         <div class="col-md-4 col-lg-3 form-group">
           <label for="f-recherche">Rechercher</label>
-          <input id="f-recherche" type="search" class="form-control" maxlength="100" autocomplete="off" placeholder="Nom, nom d'utilisateur ou entreprise">
+          <input id="f-recherche" type="search" class="form-control" maxlength="100" autocomplete="off" placeholder="Nom ou entreprise">
         </div>
         <div class="col-md-3 col-lg-2 form-group">
           <label for="f-statut">Statut</label>
@@ -28,20 +29,20 @@ $entreprises = $pdo->query('SELECT id, code, nom, actif FROM entreprises ORDER B
       <div class="table-responsive">
         <table id="table-utilisateurs" class="table table-striped adm-table w-100">
           <thead><tr>
-            <th scope="col">Nom d'utilisateur</th><th scope="col">Nom complet</th><th scope="col">Rôle</th><th scope="col">Entreprises</th>
-            <th scope="col">Statut</th><th scope="col">Dernière connexion</th><th scope="col">Verrouillé ?</th>
+            <th scope="col">Utilisateur</th><th scope="col">Rôle et entreprises</th><th scope="col">État</th>
             <th scope="col" class="no-print"><span class="sr-only">Actions</span></th>
           </tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <p class="text-muted small mt-2 mb-0">Un compte désactivé ne peut plus se connecter ; ses connexions ouvertes sont coupées à la prochaine action. Son historique est conservé.
-        Un compte est verrouillé 15 minutes après 5 mots de passe erronés ; vous pouvez le déverrouiller tout de suite.</p>
+        Après 5 mots de passe erronés depuis un même poste, ce poste est refusé pendant 15 minutes ; après 20 échecs au total, le compte est verrouillé 15 minutes et s'affiche « Verrouillé ».
+        « Déverrouiller » remet le compteur d'échecs à zéro et lève le verrouillage du compte.</p>
     </div></div>
   </div></section>
 
   <!-- Créer / modifier -->
-  <div class="modal fade" id="modal-utilisateur" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-utilisateur-titre">
+  <div class="modal fade" id="modal-utilisateur" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-utilisateur-titre" data-backdrop="static">
     <div class="modal-dialog modal-dialog-centered modal-lg" role="document"><div class="modal-content">
       <form id="form-utilisateur" novalidate autocomplete="off">
         <div class="modal-header"><h5 class="modal-title" id="modal-utilisateur-titre">Utilisateur</h5>
@@ -96,7 +97,7 @@ $entreprises = $pdo->query('SELECT id, code, nom, actif FROM entreprises ORDER B
             <div class="input-group">
               <input id="u-mdp" name="mot_de_passe" type="password" class="form-control" maxlength="72" autocomplete="new-password" spellcheck="false" aria-describedby="u-mdp-aide">
               <div class="input-group-append">
-                <button type="button" class="btn btn-outline-secondary" id="u-mdp-voir" aria-pressed="false">Afficher</button>
+                <button type="button" class="btn btn-outline-secondary" id="u-mdp-voir" aria-label="Afficher le mot de passe">Afficher</button>
                 <button type="button" class="btn btn-outline-primary" id="u-mdp-gen"><i class="fas fa-random mr-1" aria-hidden="true"></i>Générer</button>
                 <button type="button" class="btn btn-outline-secondary" id="u-mdp-copier"><i class="far fa-copy mr-1" aria-hidden="true"></i>Copier</button>
               </div>
@@ -108,7 +109,7 @@ $entreprises = $pdo->query('SELECT id, code, nom, actif FROM entreprises ORDER B
           <div id="u-compte-bloc" class="adm-compte" hidden>
             <div class="small text-muted mb-2" id="u-connexion"></div>
             <button type="button" class="btn btn-outline-primary mr-2 mb-2" id="u-btn-mdp"><i class="fas fa-key mr-1" aria-hidden="true"></i>Réinitialiser le mot de passe…</button>
-            <button type="button" class="btn btn-outline-warning mb-2" id="u-btn-deverrouiller" hidden><i class="fas fa-unlock mr-1" aria-hidden="true"></i>Déverrouiller le compte</button>
+            <button type="button" class="btn adm-btn-attention mb-2" id="u-btn-deverrouiller" hidden><i class="fas fa-unlock mr-1" aria-hidden="true"></i>Déverrouiller le compte</button>
           </div>
         </div>
         <div class="modal-footer">

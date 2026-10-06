@@ -22,7 +22,7 @@ foreach (inventaire()->listeEntreprises(utilisateur_id()) as $en) { $noms_entrep
             <dt>Rôle</dt><dd id="profil-role"><?php echo e(ROLES_FR[$me['role']]); ?>
               <small class="d-block text-muted"><?php echo e(Admin::ROLES_AIDE[$me['role']]); ?></small></dd>
             <dt>Entreprises</dt><dd id="profil-entreprises"><?php echo $me['role'] === 'admin' ? 'Toutes les entreprises' : e($noms_entreprises ? implode(', ', $noms_entreprises) : 'Aucune entreprise active'); ?></dd>
-            <dt>Dernière connexion</dt><dd id="profil-connexion"><?php echo e($me['derniere_connexion'] ? $me['derniere_connexion'] : '—'); ?></dd>
+            <dt>Dernière connexion</dt><dd id="profil-connexion"><?php echo e($me['derniere_connexion'] ? substr($me['derniere_connexion'], 0, 16) : '—'); ?></dd>
           </dl>
         </div>
       </div>

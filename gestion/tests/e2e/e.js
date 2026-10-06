@@ -1,18 +1,30 @@
 // Test de bout en bout du module E — Administration (utilisateurs, entreprises, emplacements, journal, profil, sauvegarde).
 //   cd gestion && tools/serveur.sh start bea_e 8107 --neuf
-//   NODE_PATH=$(npm root -g) BASE_URL=http://127.0.0.1:8107 DB_NAME=bea_e node tests/e2e/e.js
+//   NODE_PATH=$(npm root -g) BASE_URL=http://127.0.0.1:8107 node tests/e2e/e.js        (DB_NAME facultatif : sinon lu dans l'environnement du serveur du port)
 // Le test remet d'abord la base de démonstration à zéro (tools/serveur.sh reset $DB_NAME), crée ses propres comptes et données,
-// et la remet à zéro à la fin. Il suppose donc un serveur de DÉVELOPPEMENT branché sur la base $DB_NAME (défaut bea_e) ;
+// et la remet à zéro à la fin. Il suppose donc un serveur de DÉVELOPPEMENT (tools/serveur.sh) : la base est celle de ce serveur ;
 // le journal PHP est lu dans /tmp/bea-<port>.log (port de BASE_URL). Une base « <DB_NAME>_restore » sert à essayer la restauration.
-const { execSync, spawnSync } = require('child_process');
+const { execSync, spawnSync, spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
+const zlib = require('zlib');
 const path = require('path');
 const L = require('./lib.js');
 
-const DB = process.env.DB_NAME || 'bea_e';
 const RACINE = path.resolve(__dirname, '..', '..');
 const PORT = new URL(L.BASE).port || '80';
+/** Base du serveur de développement qui écoute sur PORT : DB_NAME si fourni, sinon lue dans l'environnement du processus (tools/serveur.sh le démarre avec DB_NAME). */
+function baseDuServeur() {
+  if (process.env.DB_NAME) { return process.env.DB_NAME; }
+  try {
+    const pid = fs.readFileSync('/tmp/bea-' + PORT + '.pid', 'utf8').trim();
+    const m = fs.readFileSync('/proc/' + pid + '/environ', 'utf8').split('\0').find(x => x.indexOf('DB_NAME=') === 0);
+    if (m) { return m.slice(8); }
+  } catch (e) { /* pas de serveur de développement connu */ }
+  console.error('ERREUR : impossible de savoir quelle base utilise le serveur du port ' + PORT + '. Démarrez-le avec tools/serveur.sh start <base> ' + PORT + ' ou fournissez DB_NAME=<base>.');
+  process.exit(2);
+}
+const DB = baseDuServeur();
 const JOURNAL = '/tmp/bea-' + PORT + '.log';
 const MDP = 'Test-Beauchemin-1';
 const XSS1 = '<img src=x onerror=alert(1)>';
@@ -93,6 +105,10 @@ async function chercher(p, table, texte) {
   }, [table, texte], { timeout: 8000 });
   return p.locator(table + ' tbody tr').first();
 }
+/** Attend (au plus 4 s) qu'une condition de la page soit vraie ; retourne vrai/faux au lieu de planter (pour les vérifications de focus, qui suivent des transitions). */
+async function attendreVrai(p, fn, arg) { try { await p.waitForFunction(fn, arg, { timeout: 4000 }); return true; } catch (e) { return false; } }
+/** Fenêtre entièrement ouverte (animation terminée) : le focus est entré dans la fenêtre. */
+async function modalePrete(p, sel) { await p.waitForSelector(sel + '.show'); await p.waitForFunction(s => document.querySelector(s).contains(document.activeElement), sel); }
 async function lignesTable(p, table) { return p.$$eval(table + ' tbody tr', trs => trs.map(t => t.innerText.replace(/\s+/g, ' ').trim())); }
 const dernierJournal = (action) => sql("SELECT details FROM journal WHERE action = '" + action + "' ORDER BY id DESC LIMIT 1");
 const nbJournal = (action) => parseInt(sql("SELECT COUNT(*) FROM journal WHERE action = '" + action + "'"), 10);
@@ -126,7 +142,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   const ligneAdmin = rows.find(r => r.startsWith('admin'));
   L.verifier(/vous/.test(ligneAdmin) && /Administrateur/.test(ligneAdmin) && /Toutes/.test(ligneAdmin), 'ligne admin : « vous », rôle, toutes les entreprises (' + ligneAdmin + ')');
   const ligneG = rows.find(r => r.startsWith('gestionnaire1'));
-  L.verifier(/Gestionnaire/.test(ligneG) && /Beauchemin, Boutique Chaleur/.test(ligneG) && /Actif/.test(ligneG) && /Jamais|20\d\d-/.test(ligneG), 'ligne gestionnaire1 : rôle, entreprises, statut');
+  L.verifier(/Gestionnaire/.test(ligneG) && /Beauchemin, Boutique Chaleur/.test(ligneG) && /Actif/.test(ligneG) && /jamais|20\d\d-/.test(ligneG), 'ligne gestionnaire1 : rôle, entreprises, statut');
   const ligneSoi = a.locator('#table-utilisateurs tbody tr', { has: a.locator('.badge-info') });
   L.verifier(await ligneSoi.locator('button[data-action=desactiver]').count() === 0, 'pas de bouton « Désactiver » sur sa propre ligne');
   let brut = await liste(a, 'app/ajax/utilisateurs_data.php', { draw: '1', start: '0', length: '50' });
@@ -338,25 +354,36 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier((await connecterComme(a, 'admin', MDP)).ok, '« admin » se reconnecte');
 
   // =====================================================================================================================
-  console.log('5. Verrouillage après 5 échecs, déverrouillage');
+  console.log('5. Échecs de connexion, verrou du compte, déverrouillage');
   const v = await nouvelle();
+  const idVerrou1 = parseInt(sql("SELECT id FROM utilisateurs WHERE nom_utilisateur='verrou1'"), 10);
   for (let i = 0; i < 5; i++) {
     const rr = await connecterComme(v, 'verrou1', 'mauvais-mot-de-passe-' + i);
     L.verifier(!rr.ok && /invalide/.test(rr.erreur), 'échec de connexion ' + (i + 1) + ' : message générique');
   }
+  // Depuis le noyau, un seul message pour tous les cas (on ne révèle ni le verrou, ni l'existence du compte) : le bon mot de passe est refusé de la même façon
   let rr = await connecterComme(v, 'verrou1', MDP);
-  L.verifier(!rr.ok && /verrouillé/.test(rr.erreur), 'après 5 échecs, même le bon mot de passe est refusé (compte verrouillé)');
+  L.verifier(!rr.ok && /invalide/.test(rr.erreur) && !/verrouill/i.test(rr.erreur), 'après 5 échecs depuis la même adresse, même le bon mot de passe est refusé (message générique)');
+  L.verifier(sql("SELECT tentatives_echec FROM utilisateurs WHERE nom_utilisateur='verrou1'") === '5', 'le compteur d\'échecs du compte vaut 5');
   await L.aller(a, 'utilisateurs');
   lg = await chercher(a, '#table-utilisateurs', 'verrou1');
-  L.verifier(/Oui/.test(await lg.textContent()) && /jusqu'à \d\d:\d\d/.test(await lg.textContent()), 'liste : « Verrouillé ? » = Oui avec l\'heure de fin');
+  L.verifier(/5 échecs de connexion/.test(await lg.textContent()) && await lg.locator('button[data-action=deverrouiller]').count() === 1, 'liste : « 5 échecs de connexion » et bouton « Déverrouiller »');
+  // Le verrou du COMPTE (20 échecs au total, depuis plusieurs adresses) ne peut pas être atteint depuis une seule : on le pose en base
+  sql("UPDATE utilisateurs SET tentatives_echec = 0, verrouille_jusqua = DATE_ADD(NOW(), INTERVAL 10 MINUTE) WHERE nom_utilisateur='verrou1'");
+  await a.fill('#f-recherche', ''); await a.fill('#f-recherche', 'verrou1');
+  await a.waitForFunction(() => { const r = [...document.querySelectorAll('#table-utilisateurs tbody tr')].find(x => x.textContent.includes('verrou1')); return r && /Verrouillé/.test(r.textContent); });
+  lg = await chercher(a, '#table-utilisateurs', 'verrou1');
+  L.verifier(/Verrouillé/.test(await lg.textContent()) && /jusqu'à \d\d:\d\d/.test(await lg.textContent()), 'liste : « Verrouillé » avec l\'heure de fin');
   await lg.locator('button[data-action=deverrouiller]').click();
   await attendreToast(a, 'déverrouillé');
-  await a.waitForFunction(() => { const r = [...document.querySelectorAll('#table-utilisateurs tbody tr')].find(x => x.textContent.includes('verrou1')); return r && !/Oui/.test(r.textContent) && !r.querySelector('button[data-action=deverrouiller]'); });
+  await a.waitForFunction(() => { const r = [...document.querySelectorAll('#table-utilisateurs tbody tr')].find(x => x.textContent.includes('verrou1')); return r && !/Verrouillé/.test(r.textContent) && !r.querySelector('button[data-action=deverrouiller]'); });
   L.verifier(sql("SELECT CONCAT(tentatives_echec, '/', IFNULL(verrouille_jusqua,'null')) FROM utilisateurs WHERE nom_utilisateur='verrou1'") === '0/null', 'compteur et verrou remis à zéro');
   L.verifier(nbJournal('utilisateur.deverrouille') === 1, 'journal : utilisateur.deverrouille');
+  // Le refus « cette adresse sur ce compte » (5 échecs en 15 minutes) est lu dans le journal par User::login : on fait vieillir ces lignes pour simuler l'attente
+  sql("UPDATE journal SET date_action = DATE_SUB(date_action, INTERVAL 1 HOUR) WHERE action = 'connexion.echec' AND entite_id = " + idVerrou1);
   rr = await connecterComme(v, 'verrou1', MDP);
   L.verifier(rr.ok, 'le compte déverrouillé se connecte');
-  r = await appel(a, 'app/action/utilisateur_deverrouiller.php', { id: parseInt(sql("SELECT id FROM utilisateurs WHERE nom_utilisateur='verrou1'"), 10) });
+  r = await appel(a, 'app/action/utilisateur_deverrouiller.php', { id: idVerrou1 });
   L.verifier(r.status === 400 && /n'est pas verrouillé/.test(r.json.erreur), 'déverrouiller un compte non verrouillé : message clair');
   // échecs partiels visibles
   sql("UPDATE utilisateurs SET tentatives_echec = 3 WHERE nom_utilisateur='verrou1'");
@@ -578,8 +605,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await attendreTable(a, '#table-entreprises', 'Boutique Chaleur');
   rows = await lignesTable(a, '#table-entreprises');
   L.verifier(rows.length === 3, 'trois entreprises (dont celle de test XSS) : ' + rows.length);
-  const lBea = rows.find(x => x.startsWith('BEA'));
-  L.verifier(/^BEA Beauchemin\s+3\s+14\s+\d+\s+Active/.test(lBea), 'ligne BEA : code, nom, 3 emplacements, 14 pièces en stock, statut (' + lBea + ')');
+  const lBea = rows.find(x => x.startsWith('Beauchemin BEA'));
+  L.verifier(/^Beauchemin BEA\s+3 emplacements actifs\s+14 pièces en stock\s+\d+ utilisateurs?\s+Active/.test(lBea), 'ligne BEA : nom, code, 3 emplacements, 14 pièces en stock, utilisateurs, statut (' + lBea + ')');
   for (const col of ['code', 'nom', 'adresse', 'nb_emplacements', 'nb_pieces', 'nb_utilisateurs', 'actif']) {
     const i = ['code', 'nom', 'adresse', 'nb_emplacements', 'nb_pieces', 'nb_utilisateurs', 'actif'].indexOf(col);
     const rr2 = await liste(a, 'app/ajax/entreprises_data.php', { draw: '1', start: '0', length: '10', 'order[0][column]': String(i), 'order[0][dir]': 'desc', ['columns[' + i + '][data]']: col });
@@ -871,8 +898,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(true, 'filtre « Aucun (système ou inconnu) »');
   await a.selectOption('#f-utilisateur', '');
   await a.selectOption('#f-entite', 'utilisateurs');
-  await a.waitForFunction(() => { const t = document.querySelector('#table-journal tbody').textContent; return t.includes('Utilisateur n°') && !t.includes('Pièce n°'); });
-  L.verifier(true, 'filtre par élément');
+  await a.waitForFunction(() => { const t = document.querySelector('#table-journal tbody').textContent; return /Utilisateur \S/.test(t) && !/Pièce \S/.test(t); });
+  L.verifier(true, 'filtre par objet concerné');
   await a.selectOption('#f-entite', '');
   await a.fill('#f-du', '2020-01-01');
   await a.fill('#f-au', '2020-01-31');
@@ -915,9 +942,9 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(csv[0] === 0xEF && csv[1] === 0xBB && csv[2] === 0xBF, 'CSV en UTF-8 avec BOM');
   const txt = csv.toString('utf8').replace(/^\uFEFF/, '');
   const lignesCsv = txt.trim().split('\r\n');
-  L.verifier(lignesCsv[0] === "Date et heure;Utilisateur;Action;Code de l'action;Élément;N° de l'élément;Détails;Adresse IP", 'en-têtes en français séparés par « ; »');
+  L.verifier(lignesCsv[0] === "Date et heure;Utilisateur;Action;Code de l'action;Objet concerné;N° de l'objet;Détails;Adresse IP", 'en-têtes en français séparés par « ; »');
   L.verifier(lignesCsv.length === 2 && lignesCsv[1].includes("'=cmd|calc;'=cmd|calc") && lignesCsv[1].includes("'=1+1 pas du json"), 'formules neutralisées (apostrophe devant = + - @) : ' + lignesCsv[1]);
-  L.verifier(/;Pièce;3;/.test(lignesCsv[1]), 'élément en français dans le CSV');
+  L.verifier(/;Pièce P-0003;3;/.test(lignesCsv[1]), 'objet concerné en français dans le CSV, avec le code de la pièce');
   fs.unlinkSync(fichier);
   // export direct : en-têtes HTTP, filtres, erreurs
   r = await a.evaluate(async () => { const x = await fetch('app/ajax/journal_export.php?action=zzz.inconnue', { credentials: 'same-origin' }); return { s: x.status, d: x.headers.get('content-disposition'), t: x.headers.get('content-type'), b: await x.text() }; });
@@ -984,10 +1011,13 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   // essais répétés du mot de passe actuel : verrouillage
   const pm = await nouvelle();
   L.verifier((await connecterComme(pm, 'verrou1', MDP)).ok, 'verrou1 connecté pour l\'essai de force brute');
-  for (let i = 0; i < 5; i++) { r = await appel(pm, 'app/action/profil_mdp.php', { actuel: 'faux-faux-' + i, nouveau: 'Nouveau-Mot-2030', confirmation: 'Nouveau-Mot-2030' }); }
+  for (let i = 0; i < 4; i++) { r = await appel(pm, 'app/action/profil_mdp.php', { actuel: 'faux-faux-' + i, nouveau: 'Nouveau-Mot-2030', confirmation: 'Nouveau-Mot-2030' }); }
+  L.verifier(r.status === 400 && /actuel est incorrect/.test(r.json.erreur) && sql("SELECT tentatives_echec FROM utilisateurs WHERE nom_utilisateur='verrou1'") === '4', '4 mots de passe actuels faux : refusés, échecs comptés, pas encore de verrou');
+  sql("UPDATE utilisateurs SET tentatives_echec = 19 WHERE nom_utilisateur='verrou1'");      // le compte se verrouille au 20e échec (noyau : User::MAX_ECHECS)
+  r = await appel(pm, 'app/action/profil_mdp.php', { actuel: 'faux-faux-fin', nouveau: 'Nouveau-Mot-2030', confirmation: 'Nouveau-Mot-2030' });
   r = await appel(pm, 'app/action/profil_mdp.php', { actuel: MDP, nouveau: 'Nouveau-Mot-2030', confirmation: 'Nouveau-Mot-2030' });
-  L.verifier(r.status === 400 && /verrouillé/.test(r.json.erreur) && verifierHash(MDP, sql("SELECT mot_de_passe FROM utilisateurs WHERE nom_utilisateur='verrou1'")), 'après 5 mots de passe actuels faux : compte verrouillé, même le bon est refusé, mot de passe intact');
-  L.verifier(nbJournal('profil.mdp_echec') >= 6, 'journal : profil.mdp_echec');
+  L.verifier(r.status === 400 && /verrouillé/.test(r.json.erreur) && verifierHash(MDP, sql("SELECT mot_de_passe FROM utilisateurs WHERE nom_utilisateur='verrou1'")), 'au 20e mot de passe actuel faux : compte verrouillé, même le bon est refusé, mot de passe intact');
+  L.verifier(nbJournal('profil.mdp_echec') >= 5, 'journal : profil.mdp_echec');
   sql("UPDATE utilisateurs SET tentatives_echec = 0, verrouille_jusqua = NULL WHERE nom_utilisateur='verrou1'");
 
   // =====================================================================================================================
@@ -1012,28 +1042,42 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await a.click('#btn-tout-cocher');
   const dernier = sql("SELECT MAX(id) FROM journal");
   const [tel] = await Promise.all([a.waitForEvent('download'), a.click('#btn-sauvegarde')]);
-  const sauv = path.join(os.tmpdir(), 'sauvegarde-e2e.sql');
+  const sauv = path.join(os.tmpdir(), 'sauvegarde-e2e.sql.gz');
   await tel.saveAs(sauv);
-  const dump = fs.readFileSync(sauv, 'utf8');
-  L.verifier(/^sauvegarde_beauchemin_\d{4}-\d\d-\d\d_\d{6}\.sql$/.test(tel.suggestedFilename()), 'nom du fichier : ' + tel.suggestedFilename());
+  const dump = zlib.gunzipSync(fs.readFileSync(sauv)).toString('utf8');      // .sql.gz : le même format que la sauvegarde nocturne (tools/restaurer.sh)
+  L.verifier(/^sauvegarde_beauchemin_\d{4}-\d\d-\d\d_\d{6}\.sql\.gz$/.test(tel.suggestedFilename()), 'nom du fichier : ' + tel.suggestedFilename());
   L.verifier(dump.includes('CREATE TABLE `utilisateurs`') && /INSERT INTO `utilisateurs` \([^)]*`mot_de_passe`/.test(dump) && dump.includes("'gestionnaire1'"), 'la table des utilisateurs sort bien (structure et données)');
   L.verifier((dump.match(/\$2y\$/g) || []).length >= 10, 'les empreintes de mots de passe sont dans le fichier (d\'où l\'avertissement)');
-  L.verifier(dump.trimEnd().endsWith('-- Fin de la sauvegarde (complète)') && /^-- Sauvegarde Beauchemin/.test(dump) && /CONFIDENTIEL/.test(dump), 'en-tête confidentiel et marque de fin de fichier');
+  L.verifier(dump.trimEnd().endsWith('-- Fin de la sauvegarde (complète)') && /^-- Sauvegarde Beauchemin.*\(complète\)/.test(dump) && /CONFIDENTIEL/.test(dump) && /restaurer\.sh/.test(dump), 'en-tête confidentiel et marque de fin de fichier');
   L.verifier((dump.match(/^CREATE TABLE/gm) || []).length === nbTables, 'toutes les tables sont créées');
   L.verifier(dump.includes("'" + XSS1 + "'") || dump.includes(XSS1.replace(/'/g, "\\'")), 'les valeurs sont écrites entre apostrophes (échappées par PDO::quote), jamais interprétées');
   L.verifier(parseInt(sql("SELECT COUNT(*) FROM journal WHERE action='sauvegarde.telechargee' AND id > " + dernier), 10) === 1, 'journal : sauvegarde.telechargee');
   L.verifier(listerSql() === sqlAvant, 'aucun fichier de sauvegarde n\'a été écrit dans le dossier du site');
-  // jeton invalide / tables inconnues
-  r = await a.evaluate(async () => { const x = await fetch('index.php?page=backup_database', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'csrf_token=faux&table[]=utilisateurs' }); return { d: x.headers.get('content-disposition'), t: await x.text() }; });
+  // jeton invalide / tables inconnues (la réponse est lue en octets puis décompressée si c'est un .gz)
+  const posterSauvegarde = async (corps) => {
+    const x = await a.evaluate(async (corps) => {
+      const j = document.querySelector('meta[name=csrf-token]').content;
+      const rep = await fetch('index.php?page=backup_database', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: corps.replace('{JETON}', j) });
+      const buf = new Uint8Array(await rep.arrayBuffer()); let bin = ''; buf.forEach(v => { bin += String.fromCharCode(v); });
+      return { d: rep.headers.get('content-disposition'), t: rep.headers.get('content-type'), b64: btoa(bin) };
+    }, corps);
+    const brut = Buffer.from(x.b64, 'base64');
+    return { d: x.d, t: /gzip/.test(x.t || '') ? zlib.gunzipSync(brut).toString('utf8') : brut.toString('utf8') };
+  };
+  r = await posterSauvegarde('csrf_token=faux&table[]=utilisateurs');
   L.verifier(!r.d && /Jeton de sécurité invalide/.test(r.t) && !/INSERT INTO/.test(r.t), 'jeton CSRF invalide : refusé, aucun fichier');
-  r = await a.evaluate(async () => { const j = document.querySelector('meta[name=csrf-token]').content; const x = await fetch('index.php?page=backup_database', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'csrf_token=' + j + '&table[]=' + encodeURIComponent('mysql.user') + '&table[]=' + encodeURIComponent('utilisateurs`; DROP TABLE pieces; --') + '&table[]=information_schema.tables' }); return { d: x.headers.get('content-disposition'), t: await x.text() }; });
+  r = await posterSauvegarde('csrf_token[]=x&table[]=utilisateurs');
+  L.verifier(!r.d && /Jeton de sécurité invalide/.test(r.t) && !/INSERT INTO/.test(r.t), 'jeton CSRF envoyé sous forme de tableau : refusé proprement (aucun avertissement PHP, vérifié en fin de test)');
+  r = await posterSauvegarde('csrf_token={JETON}&table[]=' + encodeURIComponent('mysql.user') + '&table[]=' + encodeURIComponent('utilisateurs`; DROP TABLE pieces; --') + '&table[]=information_schema.tables');
   L.verifier(!r.d && /au moins une table/.test(r.t) && sql("SELECT COUNT(*) FROM pieces") === '14', 'noms de tables inconnus ou piégés : ignorés (liste blanche), rien n\'est exécuté');
-  r = await a.evaluate(async () => { const j = document.querySelector('meta[name=csrf-token]').content; const x = await fetch('index.php?page=backup_database', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'csrf_token=' + j + '&table[]=entreprises&table[]=mysql.user' }); return { d: x.headers.get('content-disposition'), t: await x.text() }; });
-  L.verifier(/attachment/.test(r.d) && /INSERT INTO `entreprises`/.test(r.t) && !/mysql|`user`/.test(r.t.replace(/Sauvegarde Beauchemin/, '')), 'seule la vraie table demandée est exportée (liste blanche)');
+  r = await posterSauvegarde('csrf_token={JETON}&table[]=entreprises&table[]=mysql.user');
+  L.verifier(/attachment/.test(r.d) && /sauvegarde_beauchemin_partielle_.*\.sql\.gz/.test(r.d) && /INSERT INTO `entreprises`/.test(r.t) && !/mysql|`user`/.test(r.t.replace(/Sauvegarde Beauchemin/, '')), 'seule la vraie table demandée est exportée (liste blanche), fichier marqué « partielle »');
+  L.verifier(r.t.trimEnd().endsWith('-- Fin de la sauvegarde (partielle : 1 table sur ' + nbTables + ')') && !/\(complète\)/.test(r.t), 'sauvegarde partielle : la dernière ligne dit « partielle » (et non « complète »)');
   // restauration complète dans une base vide
   const restore = DB + '_restore';
   execSync('mysql -uroot -e "DROP DATABASE IF EXISTS ' + restore + '; CREATE DATABASE ' + restore + ' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"', { cwd: RACINE });
-  execSync('mysql -uroot ' + restore + ' < ' + sauv, { cwd: RACINE, shell: '/bin/bash' });
+  const rest = spawnSync('tools/restaurer.sh', [sauv], { cwd: RACINE, env: Object.assign({}, process.env, { DB_NAME: restore, CONFIRMER: 'OUI' }) });      // l'outil de restauration documenté (accepte les .sql.gz)
+  L.verifier(rest.status === 0 && /Restauration terminée/.test(rest.stdout.toString()), 'tools/restaurer.sh restaure le fichier téléchargé dans une base vide');
   const tablesBase = sql("SELECT table_name FROM information_schema.tables WHERE table_schema='" + DB + "' AND table_type='BASE TABLE' ORDER BY table_name").split('\n');
   const tablesRest = sqlDb(restore, "SELECT table_name FROM information_schema.tables WHERE table_schema='" + restore + "' AND table_type='BASE TABLE' ORDER BY table_name").split('\n');
   L.verifier(JSON.stringify(tablesBase) === JSON.stringify(tablesRest), 'restauration : les ' + tablesRest.length + ' tables existent dans la base vide');
@@ -1071,7 +1115,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await tab.click('#btn-nouveau');
   await tab.waitForSelector('#modal-utilisateur.show');
   const hauteurs = await tab.evaluate(() => ['#u-nom', '#u-complet', '#u-role', '#utilisateur-enregistrer', '#u-mdp-gen'].map(s => document.querySelector(s).getBoundingClientRect().height));
-  L.verifier(hauteurs.every(h => h >= 38), 'tablette : champs et boutons du formulaire assez grands (' + hauteurs.map(Math.round).join('/') + ' px)');
+  L.verifier(hauteurs.every(h => h >= 43.5), 'tablette : champs et boutons du formulaire de 44 px au moins (' + hauteurs.map(Math.round).join('/') + ' px)');
   // clavier seulement : Tab dans le formulaire, Entrée soumet
   await tab.waitForFunction(() => document.activeElement && document.activeElement.id === 'u-nom');   // le champ reçoit le focus à l'ouverture
   await tab.keyboard.type('clavier.seul');
@@ -1088,7 +1132,442 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await tab.waitForSelector('#modal-mdp', { state: 'hidden' });
 
   // =====================================================================================================================
-  console.log('16. Mots de passe absents du journal, journal PHP propre, console propre');
+  console.log('16. Verrou global des codes : un emplacement et une pièce ne peuvent pas partager un code');
+  const nomVerrou = 'bea_codes_' + require('crypto').createHash('md5').update(DB).digest('hex').slice(0, 20);
+  const tenir = spawn('mysql', ['-uroot', DB, '-e', "SELECT GET_LOCK('" + nomVerrou + "', 20); SELECT SLEEP(4);"], { stdio: 'ignore' });
+  const verrouLibere = new Promise(res => tenir.on('exit', res));
+  await attendre(1200);
+  let t0 = Date.now();
+  r = await appel(a, 'app/action/emplacement_save.php', { entreprise_id: 1, nom: 'Verrou test', type: 'cube', code_barres: 'VERROU-1' });
+  const attente = Date.now() - t0;
+  L.verifier(r.status === 200 && attente >= 1500, 'emplacement_save attend le verrou global des codes tenu par une autre connexion (' + attente + ' ms)');
+  await verrouLibere;
+  const pcourse = suivre(await L.nouvellePage(b));      // page dédiée : 80 requêtes simultanées sur le serveur de développement (3 processus) peuvent faire signaler des connexions réinitialisées, refaites aussitôt par le navigateur
+  await L.connecter(pcourse, 'admin');
+  await L.aller(pcourse, 'utilisateurs');
+  const course = await pcourse.evaluate(async (n) => {
+    const jeton = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const poster = (url, corps) => fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-Token': jeton }, body: JSON.stringify(corps) }).then(x => x.status);
+    const tout = [];
+    for (let i = 0; i < n; i++) {
+      tout.push(poster('app/action/piece_save.php', { code: 'RC-' + i, nom: 'PieceRC ' + i, unite: 'unité', codes: [], seuils: [] }));
+      tout.push(poster('app/action/emplacement_save.php', { entreprise_id: 1, nom: 'EmpRC ' + i, type: 'cube', code_barres: 'RC-' + i }));
+    }
+    return Promise.all(tout);
+  }, 40);
+  L.verifier(course.every(s => s === 200 || s === 400) && course.filter(s => s === 200).length >= 40, 'course : 40 paires pièce + emplacement envoyées en parallèle avec le même code, chacune a au plus un gagnant (' + course.filter(s => s === 200).length + ' réussites)');
+  L.verifier(sql("SELECT COUNT(*) FROM pieces p JOIN emplacements e ON e.code_barres = p.code") === '0' && sql("SELECT COUNT(*) FROM pieces_codes c JOIN emplacements e ON e.code_barres = c.code") === '0', 'aucun code n\'appartient à la fois à une pièce (ou un alias) et à un emplacement');
+
+  // =====================================================================================================================
+  console.log('17. Sessions coupées après un changement ou une réinitialisation de mot de passe');
+  const idInv1 = creerCompte('inval1', 'employe', [1], 'Ancien-Mot-2028');
+  const sInv = await nouvelle();
+  L.verifier((await connecterComme(sInv, 'inval1', 'Ancien-Mot-2028')).ok, 'inval1 connecté');
+  r = await appel(sInv, 'app/ajax/scan_code.php?code=P-0001', null);
+  L.verifier(r.status === 200, 'sa session fonctionne');
+  secrets.push('Nouveau-Mot-2028');
+  r = await appel(a, 'app/action/utilisateur_mdp.php', { id: idInv1, mot_de_passe: 'Nouveau-Mot-2028' });
+  L.verifier(r.status === 200, 'l\'administrateur réinitialise son mot de passe');
+  r = await appel(sInv, 'app/ajax/scan_code.php?code=P-0001', null);
+  L.verifier(r.status === 401, 'la session ouverte avec l\'ancien mot de passe est coupée (401) à la requête suivante');
+  await sInv.goto(L.BASE + '/index.php?page=stock');
+  L.verifier(/login\.php/.test(sInv.url()), 'et la navigation renvoie à la page de connexion');
+  creerCompte('inval2', 'employe', [1], 'Ancien-Mot-2029');
+  const sA = await nouvelle(), sB = await nouvelle();
+  L.verifier((await connecterComme(sA, 'inval2', 'Ancien-Mot-2029')).ok && (await connecterComme(sB, 'inval2', 'Ancien-Mot-2029')).ok, 'inval2 connecté dans deux navigateurs');
+  secrets.push('Nouveau-Mot-2029');
+  r = await appel(sA, 'app/action/profil_mdp.php', { actuel: 'Ancien-Mot-2029', nouveau: 'Nouveau-Mot-2029', confirmation: 'Nouveau-Mot-2029' });
+  L.verifier(r.status === 200, 'inval2 change son mot de passe dans le premier navigateur');
+  r = await appel(sA, 'app/ajax/scan_code.php?code=P-0001', null);
+  L.verifier(r.status === 200, 'le navigateur qui a changé le mot de passe reste connecté');
+  r = await appel(sB, 'app/ajax/scan_code.php?code=P-0001', null);
+  L.verifier(r.status === 401, 'l\'autre navigateur (même compte) est déconnecté');
+  // compteur d'échecs atomique : trois essais ratés en parallèle comptent pour trois (noyau : constat déjà corrigé, on le prouve ici)
+  creerCompte('paral1', 'employe', [1]);
+  const echecs = await Promise.all([0, 1, 2].map(async i => {
+    const ctx = await b.newContext(); const rq = ctx.request;
+    const html = await (await rq.get(L.BASE + '/login.php')).text();
+    const jeton = (html.match(/name="csrf_token" value="([^"]+)"/) || [])[1];
+    const rep = await rq.post(L.BASE + '/app/action/login.php', { form: { csrf_token: jeton, username: 'paral1', password: 'faux-' + i, admin_login: '1' }, maxRedirects: 0 });
+    await ctx.close();
+    return rep.status();
+  }));
+  const nbParal = sql("SELECT tentatives_echec FROM utilisateurs WHERE nom_utilisateur='paral1'");
+  L.verifier(echecs.every(s => s === 302) && nbParal === '3', 'trois échecs de connexion simultanés : compteur = 3 (' + nbParal + ')');
+
+  // =====================================================================================================================
+  console.log('18. Fiche utilisateur modifiée ailleurs, entreprises désactivées, listes démesurées');
+  const idConc = creerCompte('conc1', 'employe', [1]);
+  r = await appel(a, 'app/ajax/utilisateur_detail.php?id=' + idConc, null);
+  const empr = r.json.utilisateur.empreinte;
+  L.verifier(r.status === 200 && /^[0-9a-f]{64}$/.test(empr), 'la fiche porte une empreinte (version)');
+  r = await appel(a, 'app/action/utilisateur_save.php', { id: idConc, nom_complet: 'Version 2', empreinte: empr });
+  L.verifier(r.status === 200, 'enregistrer avec l\'empreinte à jour : accepté');
+  r = await appel(a, 'app/action/utilisateur_save.php', { id: idConc, nom_complet: 'Version 3', empreinte: empr });
+  L.verifier(r.status === 400 && /modifiée entre-temps/.test(r.json.erreur) && sql("SELECT nom_complet FROM utilisateurs WHERE id=" + idConc) === 'Version 2', 'avec l\'ancienne empreinte : refusé, rien n\'est écrasé');
+  r = await appel(a, 'app/action/utilisateur_save.php', { id: idConc, nom_complet: 'Version 4', empreinte: '' });
+  L.verifier(r.status === 400, 'empreinte vide : refusée');
+  // deux onglets
+  const a3 = await nouvelle();
+  L.verifier((await connecterComme(a3, 'admin', MDP)).ok, 'second navigateur administrateur');
+  await L.aller(a, 'utilisateurs'); await L.aller(a3, 'utilisateurs');
+  lg = await chercher(a, '#table-utilisateurs', 'conc1'); const lg3 = await chercher(a3, '#table-utilisateurs', 'conc1');
+  await lg.locator('button[data-action=modifier]').click(); await a.waitForSelector('#modal-utilisateur.show');
+  await lg3.locator('button[data-action=modifier]').click(); await a3.waitForSelector('#modal-utilisateur.show');
+  await a.waitForFunction(() => document.querySelector('#u-complet').value === 'Version 2'); await a3.waitForFunction(() => document.querySelector('#u-complet').value === 'Version 2');
+  await a.fill('#u-complet', 'Nom onglet 1'); await a.click('#utilisateur-enregistrer'); await a.waitForSelector('#modal-utilisateur', { state: 'hidden' });
+  await a3.selectOption('#u-role', 'gestionnaire'); await a3.click('#utilisateur-enregistrer');
+  await a3.waitForFunction(() => !document.querySelector('#utilisateur-erreur').hidden);
+  L.verifier(/modifiée entre-temps/.test(await tx(a3, '#utilisateur-erreur')) && await a3.isVisible('#modal-utilisateur') && sql("SELECT CONCAT(nom_complet, '/', role) FROM utilisateurs WHERE id=" + idConc) === 'Nom onglet 1/employe', 'deuxième onglet : refus clair, la fenêtre reste ouverte, le premier enregistrement n\'est pas écrasé');
+  await a3.click('#modal-utilisateur .modal-footer [data-dismiss=modal]');
+  await a3.waitForSelector('#modal-utilisateur', { state: 'hidden' });
+  // entreprise désactivée
+  r = await appel(a, 'app/action/entreprise_save.php', { code: 'DIS', nom: 'Entreprise Dis' });
+  const idDis = r.json.id;
+  r = await appel(a, 'app/action/emplacement_save.php', { entreprise_id: idDis, nom: 'Dépôt Dis', type: 'entrepot', code_barres: '' });
+  const idEmpDis = r.json.id;
+  r = await appel(a, 'app/action/emplacement_activer.php', { id: idEmpDis, actif: false });
+  L.verifier(r.status === 200, 'emplacement vide désactivé');
+  r = await appel(a, 'app/action/entreprise_activer.php', { id: idDis, actif: false });
+  L.verifier(r.status === 200, 'entreprise vide désactivée');
+  r = await appel(a, 'app/action/emplacement_activer.php', { id: idEmpDis, actif: true });
+  L.verifier(r.status === 400 && /Réactivez d'abord l'entreprise/.test(r.json.erreur) && sql("SELECT actif FROM emplacements WHERE id=" + idEmpDis) === '0', 'réactiver un emplacement dont l\'entreprise est désactivée : refusé avec explication');
+  r = await appel(a, 'app/action/utilisateur_save.php', { nom_utilisateur: 'sansacces', nom_complet: 'Sans accès', role: 'employe', entreprise_ids: [idDis], mot_de_passe: 'Un-Bon-Mot-De-Passe-9' });
+  L.verifier(r.status === 400 && r.json.champ === 'entreprise_ids' && /toutes désactivées/.test(r.json.erreur) && sql("SELECT COUNT(*) FROM utilisateurs WHERE nom_utilisateur='sansacces'") === '0', 'créer un employé avec seulement une entreprise désactivée : refusé');
+  r = await appel(a, 'app/action/utilisateur_save.php', { nom_utilisateur: 'avecacces', nom_complet: 'Avec accès', role: 'employe', entreprise_ids: [idDis, 1], mot_de_passe: 'Un-Bon-Mot-De-Passe-9' });
+  L.verifier(r.status === 200, 'avec une entreprise active en plus : accepté');
+  secrets.push('Un-Bon-Mot-De-Passe-9');
+  r = await appel(a, 'app/action/utilisateur_save.php', { id: idConc, entreprise_ids: [idDis] });
+  L.verifier(r.status === 400 && /toutes désactivées/.test(r.json.erreur), 'modifier un compte pour ne lui laisser qu\'une entreprise désactivée : refusé');
+  r = await appel(a, 'app/action/entreprise_activer.php', { id: idDis, actif: true });
+  r = await appel(a, 'app/action/emplacement_activer.php', { id: idEmpDis, actif: true });
+  L.verifier(r.status === 200, 'entreprise réactivée : l\'emplacement se réactive');
+  // listes démesurées : refus en français, pas d'erreur serveur
+  r = await a.evaluate(async () => {
+    const jeton = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const x = await fetch('app/action/utilisateur_save.php', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': jeton }, body: JSON.stringify({ nom_utilisateur: 'bigids1', nom_complet: 'B', role: 'employe', entreprise_ids: Array.from({ length: 70000 }, (_, i) => i + 1), mot_de_passe: 'Abcdefghij1234' }) });
+    return { status: x.status, json: await x.json() };
+  });
+  L.verifier(r.status === 400 && /Liste d'entreprises invalide/.test(r.json.erreur) && sql("SELECT COUNT(*) FROM utilisateurs WHERE nom_utilisateur='bigids1'") === '0', '70 000 identifiants d\'entreprises : refusé (400 en français), pas d\'erreur 500');
+
+  // =====================================================================================================================
+  console.log('19. Journal : libellés, montants, noms, doublons, recherche par libellé, nom saisi');
+  const fr1 = sql("SELECT nom FROM fournisseurs WHERE id = 1");
+  const codeP14 = sql("SELECT code FROM pieces WHERE id = 14");
+  const ins = (action, ent, entId, details, userId, ip) => sql("INSERT INTO journal (date_action, utilisateur_id, action, entite, entite_id, details, ip) VALUES (NOW(), " + (userId || 'NULL') + ", '" + action + "', " + (ent ? "'" + ent + "'" : 'NULL') + ", " + (entId || 'NULL') + ", " + (details ? "'" + details.replace(/'/g, "''") + "'" : 'NULL') + ", '" + (ip || '10.9.9.19') + "')");
+  ins('utilisateur.verrouille', 'utilisateurs', 3, null, 3, '10.9.9.11');
+  ins('connexion.ip_bloquee', 'utilisateurs', null, null, null, '10.9.9.12');
+  ins('prix.maj', 'pieces', 14, '{"fournisseur_id":1,"prix":"27.3000"}', 1, '10.9.9.13');
+  ins('prix.maj', 'pieces', 14, '{"fournisseur_id":1,"prix":"0.0425"}', 1, '10.9.9.14');
+  ins('prix.restaure', 'pieces', 14, '{"fournisseur_id":1,"document":"REC-2026-00001"}', 1, '10.9.9.15');
+  ins('entreprise.modifie', 'entreprises', 1, '{"code":"BEA","nom":"Beauchemin 2","changements":{"nom":["Beauchemin","Beauchemin 2"]}}', 1, '10.9.9.16');
+  ins('export.bilan', 'entreprises', null, '{"periode":"2026-09","a":1,"b":2}', 1, '10.9.9.17');
+  ins('zzz.inconnue', null, null, '{"a":5,"b":"x"}', 1, '10.9.9.18');
+  ins('connexion.echec', 'utilisateurs', null, '{"nom":"Mon-Mot-De-Passe-Secret-9"}', null, '10.9.9.19');
+  ins('connexion.echec', 'utilisateurs', 3, '{"nom":"employe1"}', 3, '10.9.9.20');
+  await L.aller(a, 'journal');
+  await a.waitForSelector('#table-journal tbody tr');
+  const optionsAction = await a.$$eval('#f-action option', os => os.map(o => o.textContent.trim()));
+  L.verifier(optionsAction.includes('Compte verrouillé (trop d\'échecs de connexion)') && optionsAction.includes('Connexion bloquée (trop d\'échecs depuis cette adresse)') && optionsAction.includes('Prix fournisseur rétabli (annulation d\'une réception)'), 'la liste « Action » propose les libellés français des actions de sécurité (' + optionsAction.filter(o => /\./.test(o)).join(', ') + ' : codes bruts = aucun)');
+  L.verifier(!optionsAction.some(o => /^[a-z_]+\.[a-z_]+$/.test(o) && o !== 'zzz.inconnue'), 'aucun code d\'action brut dans la liste (sauf l\'action inconnue du test)');
+  const ligneJ = async (ip) => a.evaluate(i => { const t = [...document.querySelectorAll('#table-journal tbody tr')].find(x => x.textContent.includes(i)); return t ? t.textContent.replace(/\s+/g, ' ').trim() : ''; }, ip);
+  const vue = async (texte, ip) => { await a.fill('#f-recherche', ''); await a.fill('#f-recherche', ip); await a.waitForFunction(i => { const rows = [...document.querySelectorAll('#table-journal tbody tr')].filter(r => !r.querySelector('.dataTables_empty')); return rows.length === 1 && rows[0].textContent.includes(i); }, ip); return ligneJ(ip); };
+  let t = await vue('x', '10.9.9.11');
+  L.verifier(/Compte verrouillé \(trop d'échecs de connexion\)/.test(t), 'utilisateur.verrouille : libellé français (' + t.slice(0, 120) + ')');
+  t = await vue('x', '10.9.9.12');
+  L.verifier(/Connexion bloquée \(trop d'échecs depuis cette adresse\)/.test(t), 'connexion.ip_bloquee : libellé français');
+  t = await vue('x', '10.9.9.13');
+  L.verifier(/Fournisseur : /.test(t) && t.includes('Fournisseur : ' + fr1) && /Prix : 27,30\s\$/.test(t) && !/27\.3000/.test(t) && !/n°\)/.test(t) && t.includes('Pièce ' + codeP14), 'prix.maj : fournisseur par son nom, prix « 27,30 $ », pièce par son code (' + t.slice(0, 160) + ')');
+  t = await vue('x', '10.9.9.14');
+  L.verifier(/Prix : 0,0425\s\$/.test(t), 'un prix à 4 décimales utiles garde ses 4 décimales (' + t.slice(0, 120) + ')');
+  t = await vue('x', '10.9.9.15');
+  L.verifier(/Prix fournisseur rétabli/.test(t) && /Document : REC-2026-00001/.test(t) && t.includes('Fournisseur : ' + fr1), 'prix.restaure : libellé, document, fournisseur');
+  t = await vue('x', '10.9.9.16');
+  L.verifier((t.match(/Nom :/g) || []).length === 1 && /Nom : Beauchemin → Beauchemin 2/.test(t) && /Code : BEA/.test(t), 'entreprise.modifie : le nom n\'est pas répété (« ancien → nouveau » une seule fois) : ' + t.slice(0, 140));
+  t = await vue('x', '10.9.9.17');
+  L.verifier(/Entreprise A : Beauchemin/.test(t) && /Entreprise B : Boutique Chaleur/.test(t) && /Période : 2026-09/.test(t), 'export.bilan : entreprises A et B par leur nom');
+  t = await vue('x', '10.9.9.18');
+  L.verifier(/A : 5/.test(t) && !/Entreprise A/.test(t) && /B : x/.test(t), 'les clés « a » et « b » d\'une autre action ne sont pas traduites en entreprises');
+  t = await vue('x', '10.9.9.19');
+  L.verifier(/Nom saisi : \(compte inexistant\)/.test(t) && !/Secret-9/.test(t), 'échec sur un compte inexistant : le texte tapé n\'est pas affiché (« Nom saisi : (compte inexistant) »)');
+  t = await vue('x', '10.9.9.20');
+  L.verifier(/Nom saisi : employe1/.test(t), 'échec sur un compte existant : « Nom saisi » (et non « Nom »)');
+  const csvJ = await a.evaluate(async () => (await fetch('app/ajax/journal_export.php?du=2026-01-01', { credentials: 'same-origin' })).text());
+  L.verifier(!/Secret-9/.test(csvJ) && /compte inexistant/.test(csvJ) && /Prix : 27,30/.test(csvJ), 'export CSV : mêmes libellés, le texte tapé d\'un compte inexistant n\'y figure pas');
+  // recherche par ce qui est affiché
+  for (const [mot, attendu] of [['Échec de connexion', '10.9.9.20'], ['Compte verrouillé', '10.9.9.11'], ['Prix fournisseur', '10.9.9.13'], ['Mot de passe réinitialisé', null]]) {
+    await a.fill('#f-recherche', ''); await a.fill('#f-recherche', mot);
+    await a.waitForTimeout(1000);
+    const n = await a.evaluate(() => [...document.querySelectorAll('#table-journal tbody tr')].filter(r => !r.querySelector('.dataTables_empty')).length);
+    const contient = attendu ? (await a.innerText('#table-journal tbody')).includes(attendu) : true;
+    L.verifier(n > 0 && contient, 'recherche « ' + mot + ' » : trouve ce qui est affiché à l\'écran (' + n + ' ligne(s))');
+  }
+  L.verifier(/Action, nom, détail ou adresse IP/.test(await a.getAttribute('#f-recherche', 'placeholder')), 'placeholder de recherche sans jargon');
+  L.verifier(/Objet concerné/.test(await tx(a, '#table-journal thead')) && /Objet concerné/.test(await tx(a, 'label[for=f-entite]')), 'colonne et filtre « Objet concerné »');
+
+  // =====================================================================================================================
+  console.log('20. Emplacements : champ « Rechercher ou scanner »');
+  const e20 = await nouvelle();
+  await L.connecter(e20, 'admin');
+  await L.aller(e20, 'emplacements');
+  await attendreTable(e20, '#table-emplacements', 'EMP-000003');
+  L.verifier(await e20.evaluate(() => document.activeElement && document.activeElement.id === 'f-recherche'), 'le champ a le focus au chargement (un scan n\'est pas perdu)');
+  await e20.keyboard.type('EMP-000003');
+  await e20.keyboard.press('Enter');
+  await e20.waitForFunction(() => document.querySelectorAll('#table-emplacements tbody tr').length === 1 && /EMP-000003/.test(document.querySelector('#table-emplacements tbody').textContent));
+  L.verifier(await e20.evaluate(() => { const c = document.getElementById('f-recherche'); return c.selectionStart === 0 && c.selectionEnd === c.value.length && c.value.length > 0; }), 'après Entrée, le texte est sélectionné (le scan suivant le remplace)');
+  await e20.keyboard.type('EMP-000004');
+  await e20.keyboard.press('Enter');
+  await e20.waitForFunction(() => document.getElementById('f-recherche').value === 'EMP-000004' && document.querySelectorAll('#table-emplacements tbody tr').length === 1 && /EMP-000004/.test(document.querySelector('#table-emplacements tbody').textContent));
+  L.verifier(true, 'le scan suivant remplace le précédent (« EMP-000004 », pas « EMP-000003EMP-000004 ») et filtre');
+  await e20.keyboard.type('EMP-999999');
+  await e20.keyboard.press('Enter');
+  await attendreToast(e20, 'Aucun résultat pour');
+  L.verifier(true, 'code inconnu : message clair');
+  // une frappe tombée sur la page est redirigée vers le champ (lecteur de codes-barres)
+  await e20.click('#f-statut');
+  await e20.keyboard.press('Escape');
+  await e20.evaluate(() => { document.activeElement.blur(); });
+  await e20.keyboard.type('x');
+  L.verifier(await e20.evaluate(() => document.activeElement && document.activeElement.id === 'f-recherche'), 'une frappe tombée sur la page va au champ de recherche');
+  await e20.fill('#f-recherche', '');
+  await e20.keyboard.press('Tab');
+  L.verifier(await e20.evaluate(() => document.activeElement && document.activeElement.id !== 'f-recherche'), 'Tab quitte le champ (aucun piège au clavier)');
+
+  // =====================================================================================================================
+  console.log('21. Présentation : tablette, zones tactiles, contrastes, clavier, erreurs, impression');
+  const mesures = async (p, vp) => {
+    await p.setViewportSize(vp);
+    const out = {};
+    for (const route of ['utilisateurs', 'entreprises', 'emplacements', 'journal']) {
+      await L.aller(p, route);
+      await p.waitForSelector('.adm-table tbody tr');
+      await p.waitForTimeout(300);
+      out[route] = await p.evaluate(() => { const c = document.querySelector('.table-responsive'); return [c.scrollWidth, c.clientWidth]; });
+    }
+    return out;
+  };
+  const e21 = await nouvelle({ width: 768, height: 1024 });
+  await L.connecter(e21, 'admin');
+  for (const vp of [{ width: 768, height: 1024 }, { width: 1024, height: 768 }, { width: 1280, height: 800 }]) {
+    const m = await mesures(e21, vp);
+    for (const route of Object.keys(m)) { L.verifier(m[route][0] <= m[route][1], vp.width + ' px : le tableau « ' + route + ' » tient dans sa carte, colonne d\'actions comprise (' + m[route][0] + ' / ' + m[route][1] + ')'); }
+  }
+  await e21.setViewportSize({ width: 768, height: 1024 });
+  // actions visibles avec leur texte, au toucher aussi
+  await L.aller(e21, 'utilisateurs');
+  await e21.waitForSelector('#table-utilisateurs tbody tr');
+  const visibles = await e21.evaluate(() => { const c = document.querySelector('.table-responsive').getBoundingClientRect(); return [...document.querySelectorAll('#table-utilisateurs tbody button')].every(b => { const r = b.getBoundingClientRect(); return r.right <= c.right + 1 && r.left >= c.left - 1 && b.textContent.trim().length > 2; }); });
+  L.verifier(visibles, 'utilisateurs (768 px) : tous les boutons d\'action sont visibles dans la carte et portent un texte');
+  const petitsUsers = await e21.evaluate(() => [...document.querySelectorAll('[data-admin] .btn, [data-admin] .form-control, .dataTables_length select, .adm-lien-nombre')].filter(e => e.offsetParent !== null).map(e => [e.id || e.className, e.getBoundingClientRect().height]).filter(x => x[1] < 43.5));
+  L.verifier(petitsUsers.length === 0, 'utilisateurs (768 px) : boutons, champs et sélecteurs ≥ 44 px' + (petitsUsers.length ? ' : ' + JSON.stringify(petitsUsers) : ''));
+  await L.aller(e21, 'emplacements');
+  await e21.waitForSelector('#table-emplacements tbody tr');
+  const petitsEmp = await e21.evaluate(() => [...document.querySelectorAll('[data-admin] .btn, .adm-lien-nombre, #f-recherche')].filter(e => e.offsetParent !== null).map(e => [e.id || e.className, e.getBoundingClientRect().width, e.getBoundingClientRect().height]).filter(x => x[2] < 43.5 || x[1] < 43.5));
+  L.verifier(petitsEmp.length === 0, 'emplacements (768 px) : boutons, liens du nombre de pièces et champs ≥ 44 px' + (petitsEmp.length ? ' : ' + JSON.stringify(petitsEmp) : ''));
+  for (const route of ['profil', 'backup_database']) {
+    await L.aller(e21, route);
+    const pet = await e21.evaluate(() => [...document.querySelectorAll('[data-admin] .btn, [data-admin] .form-control, [data-admin] .custom-control-label')].filter(e => e.offsetParent !== null).map(e => [e.id || e.className, e.getBoundingClientRect().height]).filter(x => x[1] < 43.5));
+    L.verifier(pet.length === 0, route + ' (768 px) : champs, boutons et libellés de cases à cocher ≥ 44 px' + (pet.length ? ' : ' + JSON.stringify(pet) : ''));
+  }
+  await L.aller(e21, 'utilisateurs');
+  await e21.click('#btn-nouveau');
+  await modalePrete(e21, '#modal-utilisateur');
+  const petitsModal = await e21.evaluate(() => [...document.querySelectorAll('#modal-utilisateur .btn, #modal-utilisateur .form-control, #modal-utilisateur .custom-control-label')].filter(e => e.offsetParent !== null).map(e => [e.id || e.className, e.getBoundingClientRect().height]).filter(x => x[1] < 43.5));
+  L.verifier(petitsModal.length === 0, 'fenêtre utilisateur (768 px) : cases à cocher et boutons ≥ 44 px' + (petitsModal.length ? ' : ' + JSON.stringify(petitsModal) : ''));
+  // erreurs : toutes d'un coup, accessibles
+  await e21.click('#utilisateur-enregistrer');
+  await e21.waitForFunction(() => !document.querySelector('[data-erreur-pour="nom_utilisateur"]').hidden);
+  const visiblesErr = await e21.evaluate(() => ['nom_utilisateur', 'nom_complet', 'entreprise_ids', 'mot_de_passe'].map(c => { const e = document.querySelector('#form-utilisateur [data-erreur-pour="' + c + '"]'); return !e.hidden && e.textContent.length > 5; }));
+  L.verifier(visiblesErr.every(Boolean), 'formulaire vide : les quatre erreurs (nom, nom complet, entreprise, mot de passe) s\'affichent en une seule fois');
+  const aria = await e21.evaluate(() => { const f = document.getElementById('u-nom'); const m = document.getElementById(f.getAttribute('aria-describedby').split(/\s+/).pop()); return { invalide: f.getAttribute('aria-invalid'), role: m && m.getAttribute('role'), texte: m && m.textContent, focus: document.activeElement.id }; });
+  L.verifier(aria.invalide === 'true' && aria.role === 'alert' && /obligatoire/.test(aria.texte) && aria.focus === 'u-nom', 'champ fautif : aria-invalid, message relié (aria-describedby, role=alert), focus sur le premier champ en erreur');
+  await e21.fill('#u-nom', 'ok.nom');
+  await e21.click('#utilisateur-enregistrer');
+  await e21.waitForFunction(() => document.getElementById('u-nom').getAttribute('aria-invalid') === null);
+  L.verifier(true, 'une fois corrigé, aria-invalid est retiré');
+  L.verifier(await e21.getAttribute('#u-mdp-voir', 'aria-pressed') === null, 'bouton Afficher/Masquer : pas de aria-pressed en plus du libellé');
+  await e21.click('#u-mdp-gen');
+  L.verifier(/Masquer/.test(await tx(e21, '#u-mdp-voir')) && await e21.getAttribute('#u-mdp-voir', 'aria-pressed') === null, 'après « Générer » : libellé « Masquer » sans aria-pressed');
+  // un clic hors de la fenêtre ne la ferme pas et n'efface rien
+  await e21.fill('#u-complet', 'Ne pas perdre');
+  await e21.mouse.click(5, 500);
+  await e21.waitForTimeout(500);
+  L.verifier(await e21.isVisible('#modal-utilisateur') && await e21.inputValue('#u-complet') === 'Ne pas perdre', 'un clic à côté de la fenêtre ne la ferme pas (rien n\'est perdu)');
+  await e21.keyboard.press('Escape');
+  await e21.waitForSelector('#modal-utilisateur', { state: 'hidden' });
+  L.verifier(await attendreVrai(e21, () => document.activeElement && document.activeElement.id === 'btn-nouveau'), 'à la fermeture, le focus revient au bouton qui a ouvert la fenêtre');
+  for (const [route, ouvrir, modal] of [['entreprises', '#btn-nouveau', '#modal-entreprise'], ['emplacements', '#btn-nouveau', '#modal-emplacement']]) {
+    await L.aller(e21, route);
+    await e21.click(ouvrir);
+    await modalePrete(e21, modal);
+    await e21.mouse.click(5, 500);
+    await e21.waitForTimeout(400);
+    L.verifier(await e21.isVisible(modal), route + ' : un clic hors de la fenêtre ne la ferme pas');
+    await e21.keyboard.press('Escape');
+    await e21.waitForSelector(modal, { state: 'hidden' });
+  }
+  // formulaire entreprise vide : les deux erreurs d'un coup
+  await L.aller(e21, 'entreprises');
+  await e21.click('#btn-nouveau'); await modalePrete(e21, '#modal-entreprise');
+  await e21.click('#entreprise-enregistrer');
+  await e21.waitForFunction(() => !document.querySelector('#modal-entreprise [data-erreur-pour="code"]').hidden && !document.querySelector('#modal-entreprise [data-erreur-pour="nom"]').hidden);
+  L.verifier(true, 'entreprise vide : code et nom signalés ensemble');
+  await e21.keyboard.press('Escape'); await e21.waitForSelector('#modal-entreprise', { state: 'hidden' });
+  await L.aller(e21, 'emplacements');
+  await e21.click('#btn-nouveau'); await modalePrete(e21, '#modal-emplacement');
+  await e21.selectOption('#em-entreprise', ''); await e21.fill('#em-nom', '');
+  await e21.click('#emplacement-enregistrer');
+  await e21.waitForFunction(() => !document.querySelector('#modal-emplacement [data-erreur-pour="entreprise_id"]').hidden && !document.querySelector('#modal-emplacement [data-erreur-pour="nom"]').hidden);
+  L.verifier(true, 'emplacement vide : entreprise et nom signalés ensemble');
+  await e21.keyboard.press('Escape'); await e21.waitForSelector('#modal-emplacement', { state: 'hidden' });
+
+  // focus clavier et contrastes
+  await L.aller(e21, 'utilisateurs');
+  await e21.click('#btn-nouveau'); await modalePrete(e21, '#modal-utilisateur');
+  await e21.focus('#u-complet');
+  const ring = await e21.evaluate(() => { const s = getComputedStyle(document.getElementById('u-complet')); return [s.outlineStyle, parseFloat(s.outlineWidth)]; });
+  L.verifier(ring[0] !== 'none' && ring[1] >= 2, 'champ au clavier : anneau de focus visible (' + ring.join(' ') + ')');
+  await e21.focus('#u-ent-1');
+  const ringCase = await e21.evaluate(() => { const s = getComputedStyle(document.querySelector('label[for=u-ent-1]'), '::before'); return [s.outlineStyle, parseFloat(s.outlineWidth)]; });
+  L.verifier(ringCase[0] !== 'none' && ringCase[1] >= 2, 'case à cocher au clavier : anneau de focus visible (' + ringCase.join(' ') + ')');
+  await e21.keyboard.press('Escape'); await e21.waitForSelector('#modal-utilisateur', { state: 'hidden' });
+  const contraste = await e21.evaluate(() => {
+    const lum = c => { const m = c.match(/[\d.]+/g).map(Number); const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(m[0]) + 0.7152 * f(m[1]) + 0.0722 * f(m[2]); };
+    const ratio = (fg, bg) => { const a = lum(fg), b = lum(bg); return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); };
+    const el = (html) => { const d = document.createElement('div'); d.innerHTML = html; d.style.cssText = 'position:absolute;left:0;top:0'; document.querySelector('[data-admin]').appendChild(d); return d.firstElementChild; };
+    const out = {};
+    const bs = el('<span class="badge badge-success">Actif</span>'), bi = el('<span class="badge badge-info">vous</span>'), av = el('<small class="adm-avert">Avertissement</small>'), bt = el('<button class="btn btn-sm adm-btn-attention">x</button>'), jc = el('<span class="jr-cle">Nom</span>');
+    out.succes = ratio(getComputedStyle(bs).color, getComputedStyle(bs).backgroundColor);
+    out.info = ratio(getComputedStyle(bi).color, getComputedStyle(bi).backgroundColor);
+    out.avert = ratio(getComputedStyle(av).color, 'rgb(255,255,255)');
+    out.attention = ratio(getComputedStyle(bt).color, getComputedStyle(bt).backgroundColor);
+    out.cle = ratio(getComputedStyle(jc).color, 'rgb(255,255,255)');
+    return out;
+  });
+  L.verifier(Object.values(contraste).every(v => v >= 4.5), 'contrastes ≥ 4,5 : ' + JSON.stringify(Object.fromEntries(Object.entries(contraste).map(([k, v]) => [k, Math.round(v * 10) / 10]))));
+  // avertissement de changement de code d'emplacement : lisible
+  await L.aller(e21, 'emplacements');
+  lg = await chercher(e21, '#table-emplacements', 'EMP-000003');
+  await lg.locator('button[data-action=modifier]').click(); await modalePrete(e21, '#modal-emplacement');
+  await e21.waitForFunction(() => document.getElementById('em-code').value === 'EMP-000003');
+  await e21.fill('#em-code', 'EMP-009999');
+  const couleurAvert = await e21.evaluate(() => getComputedStyle(document.getElementById('em-code-avert')).color);
+  L.verifier(await e21.isVisible('#em-code-avert') && couleurAvert !== 'rgb(255, 193, 7)', 'avertissement « étiquettes déjà imprimées » visible et d\'une couleur lisible (' + couleurAvert + ')');
+  await e21.keyboard.press('Escape'); await e21.waitForSelector('#modal-emplacement', { state: 'hidden' });
+  L.verifier(await attendreVrai(e21, () => document.activeElement && document.activeElement.getAttribute('data-action') === 'modifier'), 'après la fenêtre de modification, le focus revient sur « Modifier » de la ligne');
+
+  // focus après des actions qui font disparaître le bouton
+  await L.aller(e21, 'utilisateurs');
+  sql("UPDATE utilisateurs SET tentatives_echec = 0, verrouille_jusqua = DATE_ADD(NOW(), INTERVAL 10 MINUTE) WHERE nom_utilisateur='conc1'");
+  lg = await chercher(e21, '#table-utilisateurs', 'conc1');
+  await lg.locator('button[data-action=modifier]').click(); await modalePrete(e21, '#modal-utilisateur');
+  await e21.waitForFunction(() => !document.getElementById('u-btn-deverrouiller').hidden);
+  await e21.focus('#u-btn-deverrouiller');
+  await e21.keyboard.press('Enter');
+  await attendreToast(e21, 'déverrouillé');
+  await e21.waitForFunction(() => document.getElementById('u-btn-deverrouiller').hidden);
+  L.verifier(await attendreVrai(e21, () => document.activeElement && document.activeElement.id === 'utilisateur-enregistrer'), '« Déverrouiller » disparaît : le focus passe à « Enregistrer » (et non à la page)');
+  await e21.keyboard.press('Escape');
+  await e21.waitForSelector('#modal-utilisateur', { state: 'hidden' });
+  L.verifier(true, 'Échap ferme la fenêtre après le déverrouillage');
+  lg = await chercher(e21, '#table-utilisateurs', 'conc1');
+  await lg.locator('button[data-action=mdp]').click(); await e21.waitForSelector('#modal-mdp.show');
+  await e21.waitForFunction(() => document.activeElement && document.activeElement.id === 'mdp-champ');
+  await e21.click('#mdp-valider');
+  await e21.waitForFunction(() => /réinitialisé/.test(document.querySelector('#modal-mdp-titre').textContent));
+  await e21.waitForFunction(() => document.activeElement && document.activeElement.id === 'mdp-copier');
+  L.verifier(true, 'après « Réinitialiser » : le focus passe à « Copier » dans la fenêtre résultat');
+  secrets.push(await e21.inputValue('#mdp-champ'));
+  await e21.click('#mdp-fermer');
+  await e21.waitForSelector('#modal-mdp', { state: 'hidden' });
+  L.verifier(await attendreVrai(e21, () => document.activeElement && document.activeElement.tagName === 'BUTTON' && !!document.activeElement.getAttribute('data-id')), 'fermeture de la fenêtre du mot de passe : le focus revient sur un bouton de la ligne');
+  // désactiver : le bouton est remplacé ; le focus reste dans la ligne
+  lg = await chercher(e21, '#table-utilisateurs', 'conc1');
+  await lg.locator('button[data-action=desactiver]').click();
+  await e21.waitForSelector('#modal-confirmer.show');
+  await e21.click('#modal-confirmer-oui');
+  await attendreToast(e21, 'désactivé');
+  await e21.waitForFunction(() => { const a = document.activeElement; return a && a.tagName === 'BUTTON' && a.closest('#table-utilisateurs'); });
+  L.verifier(true, 'après « Désactiver » : le focus reste sur un bouton de la ligne (le bouton « Réactiver » qui le remplace)');
+  // chargement impossible : un seul message, et le tableau le dit
+  await e21.route('**/app/ajax/utilisateurs_data.php', ro => ro.fulfill({ status: 500, contentType: 'application/json', body: '{"ok":false,"erreur":"Erreur inattendue. Réessayez ou contactez l\'administrateur."}' }));
+  await viderToasts(e21);
+  await e21.fill('#f-recherche', 'zzz');
+  await e21.waitForFunction(() => /Chargement impossible/.test(document.querySelector('#table-utilisateurs tbody').textContent));
+  await e21.waitForTimeout(600);
+  const nbToasts = await e21.evaluate(() => document.querySelectorAll('#toasts .alert').length);
+  L.verifier(nbToasts === 1, 'chargement du tableau impossible : une seule notification (' + nbToasts + ') et le tableau n\'affiche plus d\'anciennes lignes');
+  await e21.unroute('**/app/ajax/utilisateurs_data.php');
+  // message d'erreur serveur (500) adapté à l'administrateur
+  await e21.route('**/app/action/utilisateur_deverrouiller.php', ro => ro.fulfill({ status: 500, contentType: 'application/json', body: '{"ok":false,"erreur":"Erreur inattendue. Réessayez ou contactez l\'administrateur."}' }));
+  sql("UPDATE utilisateurs SET tentatives_echec = 2 WHERE nom_utilisateur='verrou1'");
+  await e21.fill('#f-recherche', '');
+  lg = await chercher(e21, '#table-utilisateurs', 'verrou1');
+  await viderToasts(e21);
+  await lg.locator('button[data-action=deverrouiller]').click();
+  await e21.waitForFunction(() => /Erreur inattendue/.test((document.getElementById('toasts') || { textContent: '' }).textContent));
+  L.verifier(!/contactez l'administrateur/.test(await toastTexte(e21)) && /journal d'erreurs du serveur/.test(await toastTexte(e21)), 'message d\'erreur 500 : on ne demande pas à l\'administrateur de s\'adresser à lui-même');
+  await e21.unroute('**/app/action/utilisateur_deverrouiller.php');
+  e21.erreurs = e21.erreurs.filter(x => !/status of 500/.test(x));      // les deux 500 ont été simulés par le test (page.route)
+  sql("UPDATE utilisateurs SET tentatives_echec = 0 WHERE nom_utilisateur='verrou1'");
+
+  // finitions de langue
+  await L.aller(e21, 'utilisateurs');
+  L.verifier(await e21.getAttribute('#f-recherche', 'placeholder') === 'Nom ou entreprise', 'placeholder de recherche : « Nom ou entreprise » (non tronqué)');
+  await L.aller(e21, 'backup_database');
+  const etiquettes = await e21.$$eval('label.custom-control-label', ls => ls.map(l => l.textContent.trim()));
+  L.verifier(!etiquettes.some(x => /_/.test(x)) && etiquettes.includes('Historique des prix des fournisseurs') && etiquettes.includes('Accès des utilisateurs aux entreprises'), 'sauvegarde : tables nommées en français, sans noms techniques (' + etiquettes.slice(0, 4).join(' / ') + '…)');
+  await L.aller(e21, 'profil');
+  L.verifier(/^\d{4}-\d\d-\d\d \d\d:\d\d$/.test(await tx(e21, '#profil-connexion')), 'profil : dernière connexion sans les secondes (' + await tx(e21, '#profil-connexion') + ')');
+  // un seul message de succès au changement du mot de passe
+  const pg = await nouvelle();
+  creerCompte('mdpmsg', 'employe', [1], 'Ancien-Mot-2031');
+  await connecterComme(pg, 'mdpmsg', 'Ancien-Mot-2031');
+  await L.aller(pg, 'profil');
+  await pg.fill('#p-actuel', 'Ancien-Mot-2031'); await pg.fill('#p-nouveau', 'Nouveau-Mot-2031'); await pg.fill('#p-confirmation', 'Nouveau-Mot-2031');
+  secrets.push('Nouveau-Mot-2031');
+  await viderToasts(pg);
+  await pg.click('#profil-enregistrer');
+  await pg.waitForFunction(() => !document.querySelector('#profil-succes').hidden);
+  await pg.waitForTimeout(500);
+  L.verifier((await toastTexte(pg)).trim() === '', 'changement de mot de passe : un seul message de succès (le bandeau), pas de notification en double');
+  // boutons d'action avec texte visible aux autres pages
+  await L.aller(e21, 'entreprises'); await e21.waitForSelector('#table-entreprises tbody button');
+  L.verifier((await e21.$$eval('#table-entreprises tbody button', bs => bs.map(x => x.textContent.trim()))).every(x => x.length > 3), 'entreprises : boutons avec texte visible');
+  await L.aller(e21, 'emplacements'); await e21.waitForSelector('#table-emplacements tbody a.btn');
+  L.verifier((await e21.$$eval('#table-emplacements tbody .btn', bs => bs.map(x => x.textContent.trim()))).every(x => x.length > 3) && /Étiquette/.test(await tx(e21, '#table-emplacements tbody a.btn')), 'emplacements : boutons (dont « Étiquette ») avec texte visible');
+
+  // titres d'onglet distincts
+  const titres = [];
+  for (const route of ['utilisateurs', 'entreprises', 'emplacements', 'journal', 'profil', 'backup_database']) {
+    await L.aller(e21, route);
+    titres.push(await e21.title());
+  }
+  L.verifier(new Set(titres).size === titres.length && titres.every(x => /^.+ — Beauchemin$/.test(x)), 'titres d\'onglet distincts pour chaque écran d\'administration : ' + titres.join(' | '));
+  // impression
+  for (const route of ['utilisateurs', 'journal', 'emplacements', 'entreprises']) {
+    await L.aller(e21, route);
+    await e21.waitForSelector('.adm-table tbody tr');
+    await e21.emulateMedia({ media: 'print' });
+    const imp = await e21.evaluate(() => { const h = document.querySelector('.adm-entete-impression'); const tb = document.querySelector('.adm-table').getBoundingClientRect(); const c = document.querySelector('.table-responsive'); return { entete: h && getComputedStyle(h).display !== 'none' ? h.textContent : '', debord: c.scrollWidth - c.clientWidth, droite: Math.round(tb.right), largeur: window.innerWidth }; });
+    L.verifier(/imprimé le \d{4}-\d\d-\d\d par admin/.test(imp.entete) && imp.debord <= 1, 'impression « ' + route + ' » : titre, date et auteur présents, tableau complet (' + imp.entete + ' ; débord ' + imp.debord + ')');
+    await e21.emulateMedia({ media: 'screen' });
+  }
+  await L.aller(e21, 'journal');
+  await e21.waitForSelector('#table-journal tbody tr');
+  const pdf = path.join(os.tmpdir(), 'journal-e2e.pdf');
+  await e21.emulateMedia({ media: 'print' });      // (après un emulateMedia « screen », page.pdf() garderait le média écran)
+  await e21.pdf({ path: pdf, format: 'Letter', margin: { top: '12mm', bottom: '12mm', left: '12mm', right: '12mm' } });
+  const txtPdf = spawnSync('pdftotext', ['-layout', pdf, '-']).stdout.toString();
+  L.verifier(/Adresse/.test(txtPdf) && /\bIP\b/.test(txtPdf) && /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/.test(txtPdf), 'PDF lettre du journal : colonne « Adresse IP » complète (valeurs visibles) : ' + txtPdf.slice(0, 200).replace(/\s+/g, ' '));
+  L.verifier(/Détails/.test(txtPdf) && /Journal d'activité — imprimé le/.test(txtPdf), 'PDF lettre du journal : colonne Détails et en-tête (titre, date) présents');
+  L.verifier(!/↑↓/.test(txtPdf), 'PDF lettre du journal : sans flèches de tri');
+  await e21.emulateMedia({ media: 'screen' });
+  fs.unlinkSync(pdf);
+
+  // =====================================================================================================================
+  console.log('22. Mots de passe absents du journal, journal PHP propre, console propre');
   const toutJournal = sql("SELECT IFNULL(GROUP_CONCAT(IFNULL(details,'') SEPARATOR ' '), '') FROM journal");
   const fuites = secrets.filter(s => toutJournal.includes(s));
   L.verifier(fuites.length === 0, 'aucun des ' + secrets.length + ' mots de passe utilisés ne figure dans le journal d\'audit' + (fuites.length ? ' : ' + fuites.join(', ') : ''));

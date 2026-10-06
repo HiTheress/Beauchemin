@@ -20,6 +20,7 @@ $aujourdhui = date('Y-m-d');
 <div class="content-wrapper" data-admin="journal" data-aujourdhui="<?php echo e($aujourdhui); ?>">
   <?php page_titre('Journal d\'activité', array('Administration')); ?>
   <section class="content"><div class="container-fluid">
+    <?php Admin::enteteImpression('Journal d\'activité'); ?>
     <div class="card"><div class="card-body">
       <div class="row adm-filtres">
         <div class="col-md-6 col-lg-3 form-group">
@@ -42,7 +43,7 @@ $aujourdhui = date('Y-m-d');
           </select>
         </div>
         <div class="col-md-4 col-lg-2 form-group">
-          <label for="f-entite">Élément</label>
+          <label for="f-entite">Objet concerné</label>
           <select id="f-entite" class="form-control">
             <option value="">Tous</option>
             <?php foreach ($entites as $code => $lib) { ?>
@@ -62,7 +63,7 @@ $aujourdhui = date('Y-m-d');
       <div class="row adm-filtres align-items-end">
         <div class="col-md-6 col-lg-4 form-group">
           <label for="f-recherche">Rechercher dans le journal</label>
-          <input id="f-recherche" type="search" class="form-control" maxlength="100" autocomplete="off" placeholder="Nom, code d'action, détail, adresse IP…">
+          <input id="f-recherche" type="search" class="form-control" maxlength="100" autocomplete="off" placeholder="Action, nom, détail ou adresse IP">
         </div>
         <div class="col-md-6 col-lg-8 form-group text-md-right adm-actions no-print">
           <button type="button" class="btn btn-outline-secondary mr-2" id="btn-reinitialiser"><i class="fas fa-undo mr-1" aria-hidden="true"></i> Réinitialiser les filtres</button>
@@ -72,7 +73,7 @@ $aujourdhui = date('Y-m-d');
       <div class="table-responsive">
         <table id="table-journal" class="table table-striped table-sm adm-table w-100">
           <thead><tr>
-            <th scope="col">Date et heure</th><th scope="col">Utilisateur</th><th scope="col">Action</th><th scope="col">Élément</th>
+            <th scope="col">Date et heure</th><th scope="col">Utilisateur</th><th scope="col">Action</th><th scope="col">Objet concerné</th>
             <th scope="col">Détails</th><th scope="col">Adresse IP</th>
           </tr></thead>
           <tbody></tbody>

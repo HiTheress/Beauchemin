@@ -31,9 +31,16 @@ Suivi::executerExport(function ($ctx) {
 		$entetes[] = 'Coût moyen ($)';
 		$entetes[] = 'Valeur ($)';
 	}
-	Suivi::journalExport($ctx, 'export.stock', array('vue' => $f['vue'], 'entreprises' => $f['entreprises'], 'filtres' => array_filter(array(
-		'emplacement' => $f['emplacement'], 'categorie' => $f['categorie'], 'zero' => $f['zero'] ? 1 : null, 'q' => $f['q'] !== '' ? $f['q'] : null,
-	))));
+	Suivi::journalExport($ctx, 'export.stock', array(
+		'mode' => $piece ? 'par pièce (totaux par entreprise)' : 'par emplacement',
+		'entreprises' => Suivi::nomsEntreprises($f['entreprises']),
+		'filtres' => array_filter(array(
+			'emplacement' => Suivi::nomDe('emplacement', $f['emplacement']),
+			'categorie' => Suivi::nomDe('categorie', $f['categorie']),
+			'recherche' => $f['q'] !== '' ? $f['q'] : null,
+			'quantités à zéro incluses' => $f['zero'] ? 'oui' : null,
+		)),
+	));
 	Suivi::csvDebut('stock-' . date('Y-m-d') . '.csv', $entetes);
 	while ($l = $st->fetch()) {
 		$ligne = array(

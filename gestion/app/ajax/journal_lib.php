@@ -17,6 +17,7 @@ final class JournalFr
 		'connexion' => 'Connexion',
 		'connexion.echec' => 'Échec de connexion',
 		'connexion.verrouille' => 'Connexion refusée (compte verrouillé)',
+		'connexion.ip_bloquee' => 'Connexion bloquée (trop d\'échecs depuis cette adresse)',
 		'deconnexion' => 'Déconnexion',
 		'utilisateur.cree' => 'Utilisateur créé',
 		'utilisateur.modifie' => 'Utilisateur modifié',
@@ -24,6 +25,7 @@ final class JournalFr
 		'utilisateur.reactive' => 'Utilisateur réactivé',
 		'utilisateur.mdp_reinitialise' => 'Mot de passe réinitialisé',
 		'utilisateur.deverrouille' => 'Compte déverrouillé',
+		'utilisateur.verrouille' => 'Compte verrouillé (trop d\'échecs de connexion)',
 		'profil.mdp_change' => 'Mot de passe changé (profil)',
 		'profil.mdp_echec' => 'Mot de passe actuel refusé (profil)',
 		'entreprise.cree' => 'Entreprise créée',
@@ -51,6 +53,7 @@ final class JournalFr
 		'prix.maj' => 'Prix fournisseur mis à jour',
 		'prix.modifie' => 'Prix fournisseur modifié',
 		'prix.supprime' => 'Prix fournisseur retiré',
+		'prix.restaure' => 'Prix fournisseur rétabli (annulation d\'une réception)',
 		'import.catalogue' => 'Import du catalogue',
 		'document.annule' => 'Document annulé',
 		'comptage.applique' => 'Comptage appliqué',
@@ -76,7 +79,7 @@ final class JournalFr
 		'sauvegarde' => 'Sauvegarde',
 	);
 
-	/** Page où ouvrir l'élément concerné (routes du §2 de la spécification), si elle existe. */
+	/** Page où ouvrir l'objet concerné (routes du §2 de la spécification), si elle existe. */
 	const PAGES = array('pieces' => 'piece_voir', 'documents' => 'document_voir', 'comptages' => 'comptage_voir');
 
 	const CLES = array(
@@ -85,15 +88,31 @@ final class JournalFr
 		'code' => 'Code', 'code_barres' => 'Code-barres', 'type' => 'Type', 'adresse' => 'Adresse',
 		'numero' => 'Numéro', 'motif' => 'Motif', 'total' => 'Total', 'de' => 'De', 'vers' => 'Vers',
 		'periode' => 'Période', 'source' => 'Source', 'champs' => 'Champs modifiés', 'fournisseur' => 'Fournisseur',
-		'fournisseur_id' => 'Fournisseur (n°)', 'no_fournisseur' => 'N° du fournisseur', 'prix' => 'Prix', 'date' => 'Date',
-		'document_id' => 'Document (n°)', 'ecarts' => 'Écarts', 'non_scannees_a_zero' => 'Pièces non comptées mises à zéro',
+		'fournisseur_id' => 'Fournisseur', 'no_fournisseur' => 'N° du fournisseur', 'prix' => 'Prix', 'date' => 'Date',
+		'document_id' => 'Document', 'document' => 'Document', 'ecarts' => 'Écarts', 'non_scannees_a_zero' => 'Pièces non comptées mises à zéro',
 		'mode' => 'Mode', 'filtres' => 'Filtres', 'piece' => 'Pièce', 'emplacement' => 'Emplacement',
-		'utilisateur' => 'Utilisateur', 'utilisateur_id' => 'Utilisateur (n°)', 'du' => 'Du', 'au' => 'Au', 'a' => 'Entreprise A', 'b' => 'Entreprise B',
+		'utilisateur' => 'Utilisateur', 'utilisateur_id' => 'Utilisateur (n°)', 'du' => 'Du', 'au' => 'Au',
 		'deverrouille' => 'Compte déverrouillé', 'etait_verrouille' => 'Le compte était verrouillé',
-		'tables' => 'Tables', 'nb_tables' => 'Nombre de tables', 'lignes' => 'Lignes', 'nb_lignes' => 'Nombre de lignes',
-		'action' => 'Action', 'entite' => 'Élément', 'recherche' => 'Recherche', 'statut' => 'Statut', 'note' => 'Note',
+		'tables' => 'Tables', 'nb_tables' => 'Nombre de tables', 'complete' => 'Sauvegarde complète', 'lignes' => 'Lignes', 'nb_lignes' => 'Nombre de lignes',
+		'action' => 'Action', 'entite' => 'Objet concerné', 'recherche' => 'Recherche', 'statut' => 'Statut', 'note' => 'Note',
 		'reference' => 'Référence', 'quantite' => 'Quantité', 'unite' => 'Unité', 'categorie' => 'Catégorie',
 		'description' => 'Description', 'telephone' => 'Téléphone', 'courriel' => 'Courriel', 'contact' => 'Contact',
+	);
+
+	/** Clés dont la valeur est un montant (affichée « 27,30 $ »). */
+	const MONTANTS = array('prix', 'total', 'montant', 'cout', 'cout_unitaire');
+
+	/** Clés qui renvoient à un objet par son numéro : libellé affiché => table (le nom lisible est cherché dans la base). */
+	const REFERENCES = array(
+		'fournisseur_id' => array('Fournisseur', 'fournisseurs'), 'document_id' => array('Document', 'documents'),
+		'entreprise_id' => array('Entreprise', 'entreprises'), 'utilisateur_id' => array('Utilisateur', 'utilisateurs'),
+		'piece_id' => array('Pièce', 'pieces'), 'emplacement_id' => array('Emplacement', 'emplacements'),
+	);
+
+	/** Colonne donnant le nom lisible d'un objet, par table (liste blanche : jamais issue du navigateur). */
+	const NOM_OBJET = array(
+		'utilisateurs' => 'nom_utilisateur', 'entreprises' => 'nom', 'emplacements' => 'nom', 'pieces' => 'code',
+		'fournisseurs' => 'nom', 'categories' => 'nom', 'documents' => 'numero', 'comptages' => 'numero',
 	);
 
 	/** Clés dont la valeur 0/1 se lit « Oui » / « Non ». */
@@ -128,6 +147,32 @@ final class JournalFr
 		return mb_strlen($s) > self::MAX_TEXTE ? mb_substr($s, 0, self::MAX_TEXTE) . '…' : $s;
 	}
 
+	/** Nom lisible d'un objet (code de la pièce, numéro du document, nom de l'utilisateur…) ; null s'il n'existe plus ou n'a pas de nom. */
+	public static function nomObjet($table, $id)
+	{
+		global $pdo;
+		static $memo = array();
+		if (!isset(self::NOM_OBJET[$table]) || $id === null || $id === '' || !preg_match('/^[0-9]{1,10}\z/', (string) $id)) {
+			return null;
+		}
+		$k = $table . '#' . (int) $id;
+		if (!array_key_exists($k, $memo)) {
+			$st = $pdo->prepare('SELECT ' . self::NOM_OBJET[$table] . ' FROM ' . $table . ' WHERE id = ?');
+			$st->execute(array((int) $id));
+			$v = $st->fetchColumn();
+			$memo[$k] = ($v === false || $v === null || $v === '') ? null : (string) $v;
+		}
+		return $memo[$k];
+	}
+
+	/** Montant lisible : « 27,30 $ » ; 4 décimales seulement si elles servent (prix unitaire à 0,0425 $). */
+	private static function montant($v)
+	{
+		$t = (string) $v;
+		$frac = strpos($t, '.') !== false ? rtrim(substr($t, strpos($t, '.') + 1), '0') : '';
+		return fmt_argent($t, strlen($frac) > 2 ? 4 : 2);
+	}
+
 	/** Valeur scalaire lisible. */
 	private static function valeur($cle, $v)
 	{
@@ -139,6 +184,9 @@ final class JournalFr
 		}
 		if (in_array($cle, self::BOOLEENNES, true) && ($v === 0 || $v === 1 || $v === '0' || $v === '1')) {
 			return ((string) $v === '1') ? 'Oui' : 'Non';
+		}
+		if (in_array($cle, self::MONTANTS, true) && (is_string($v) || is_int($v) || is_float($v)) && preg_match('/^-?[0-9]+(\.[0-9]+)?\z/', (string) $v)) {
+			return self::montant($v);
 		}
 		if (is_string($v)) {
 			if ($cle === 'role' && isset(ROLES_FR[$v])) {
@@ -182,8 +230,11 @@ final class JournalFr
 		return $liste ? implode(', ', $parts) : ('(' . implode(' ; ', $parts) . ')');
 	}
 
-	/** Lignes « libellé / valeur » à partir du JSON des détails. null si ce n'est pas un JSON objet (texte libre). */
-	public static function lignes($json)
+	/**
+	 * Lignes « libellé / valeur / modification ? » à partir du JSON des détails. null si ce n'est pas un JSON objet (texte libre).
+	 * $action et $entiteId servent au contexte : « Nom saisi » d'un échec de connexion, entreprises A et B d'un bilan.
+	 */
+	public static function lignes($json, $action = '', $entiteId = null)
 	{
 		if ($json === null || trim((string) $json) === '') {
 			return array();
@@ -193,6 +244,7 @@ final class JournalFr
 			return null;
 		}
 		$out = array();
+		$changes = (isset($d['changements']) && is_array($d['changements'])) ? $d['changements'] : array();
 		foreach ($d as $k => $v) {
 			if ($k === 'changements' && is_array($v)) {
 				foreach ($v as $champ => $paire) {
@@ -204,15 +256,33 @@ final class JournalFr
 				}
 				continue;
 			}
+			if (array_key_exists($k, $changes)) {
+				continue;       // déjà montré sous forme « ancien → nouveau » : pas deux fois la même information
+			}
+			if ($action === 'connexion.echec' && $k === 'nom') {
+				// Le nom tapé n'est montré que s'il correspond à un compte : une personne qui tape son mot de passe dans ce champ par erreur ne doit pas le laisser lisible.
+				$out[] = array('Nom saisi', ($entiteId !== null && $entiteId !== '') ? self::court((string) $v) : '(compte inexistant)', false);
+				continue;
+			}
+			if ($action === 'export.bilan' && ($k === 'a' || $k === 'b') && is_scalar($v)) {
+				$nom = self::nomObjet('entreprises', $v);
+				$out[] = array('Entreprise ' . strtoupper($k), $nom !== null ? $nom : (string) $v, false);
+				continue;
+			}
+			if (isset(self::REFERENCES[$k]) && is_scalar($v) && preg_match('/^[0-9]{1,10}\z/', (string) $v)) {
+				$nom = self::nomObjet(self::REFERENCES[$k][1], $v);
+				$out[] = array(self::REFERENCES[$k][0], $nom !== null ? $nom : 'n° ' . (int) $v, false);
+				continue;
+			}
 			$out[] = array(self::cle($k), self::valeurComplexe($k, $v, 0), false);
 		}
 		return $out;
 	}
 
 	/** Détails pour l'affichage (HTML déjà échappé). */
-	public static function detailsHtml($json)
+	public static function detailsHtml($json, $action = '', $entiteId = null)
 	{
-		$l = self::lignes($json);
+		$l = self::lignes($json, $action, $entiteId);
 		if ($l === null) {
 			return e(self::court((string) $json));
 		}
@@ -224,9 +294,9 @@ final class JournalFr
 	}
 
 	/** Détails en texte brut (export CSV) : « Libellé : valeur | Libellé : valeur ». */
-	public static function detailsTexte($json)
+	public static function detailsTexte($json, $action = '', $entiteId = null)
 	{
-		$l = self::lignes($json);
+		$l = self::lignes($json, $action, $entiteId);
 		if ($l === null) {
 			return self::court((string) $json);
 		}
@@ -237,17 +307,52 @@ final class JournalFr
 		return implode(' | ', $t);
 	}
 
-	/** Lien vers l'élément concerné (HTML), ou texte simple. */
+	/** Objet concerné en texte : « Pièce P-0014 », « Utilisateur employe1 », « Pièce n° 14 » si son nom est introuvable. */
+	public static function objetTexte($entite, $id)
+	{
+		if ($entite === null || $entite === '') {
+			return '';
+		}
+		$txt = self::entite($entite);
+		if ($id === null || $id === '') {
+			return $txt;
+		}
+		$nom = self::nomObjet((string) $entite, $id);
+		return $txt . ' ' . ($nom !== null ? $nom : 'n° ' . (int) $id);
+	}
+
+	/** Objet concerné pour l'affichage (HTML déjà échappé), avec un lien vers lui s'il a une page. */
 	public static function elementHtml($entite, $id)
 	{
 		if ($entite === null || $entite === '') {
 			return '';
 		}
-		$txt = e(self::entite($entite)) . ($id !== null && $id !== '' ? ' n° ' . (int) $id : '');
+		$txt = e(self::objetTexte($entite, $id));
 		if ($id !== null && $id !== '' && isset(self::PAGES[$entite])) {
 			return '<a href="index.php?page=' . self::PAGES[$entite] . '&amp;id=' . (int) $id . '">' . $txt . '</a>';
 		}
 		return $txt;
+	}
+
+	/**
+	 * Expression SQL de recherche libre : le code d'action ET son libellé français, l'objet et son libellé, l'utilisateur, les détails, l'adresse IP.
+	 * (L'administrateur tape ce qu'il lit à l'écran : « Échec de connexion », « Mot de passe »…) Les libellés viennent des constantes ci-dessus.
+	 */
+	public static function expressionRecherche()
+	{
+		global $pdo;
+		static $expr = null;
+		if ($expr === null) {
+			$cas = function ($col, array $libelles) use ($pdo) {
+				$w = '';
+				foreach ($libelles as $code => $lib) {
+					$w .= ' WHEN ' . $pdo->quote((string) $code) . ' THEN ' . $pdo->quote($lib);
+				}
+				return 'CASE ' . $col . $w . " ELSE '' END";
+			};
+			$expr = "CONCAT_WS(' ', j.action, " . $cas('j.action', self::ACTIONS) . ', u.nom_utilisateur, j.entite, ' . $cas('j.entite', self::ENTITES) . ', j.details, j.ip)';
+		}
+		return $expr;
 	}
 
 	/**
@@ -287,7 +392,7 @@ final class JournalFr
 		$en = $txt('entite');
 		if ($en !== '') {
 			if (mb_strlen($en) > 40) {
-				throw new InventaireException('Élément invalide.', 'entite');
+				throw new InventaireException('Objet concerné invalide.', 'entite');
 			}
 			$where[] = 'j.entite = :f_entite';
 			$params[':f_entite'] = $en;

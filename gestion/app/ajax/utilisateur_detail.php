@@ -1,6 +1,6 @@
 <?php
 // Fiche d'un utilisateur pour le formulaire de modification (administrateur). GET : id.
-// Réponse : {utilisateur:{id, nom_utilisateur, nom_complet, role, actif, verrouille, tentatives, verrouille_jusqua, derniere_connexion, entreprise_ids[], soi}}
+// Réponse : {utilisateur:{id, nom_utilisateur, nom_complet, role, actif, verrouille, tentatives, verrouille_jusqua, derniere_connexion, entreprise_ids[], empreinte, soi}}
 // (valeurs brutes : le JavaScript les place dans des champs, jamais dans du HTML). Jamais de mot de passe.
 require_once __DIR__ . '/../action/utilisateur_lib.php';
 $acteur = Admin::exiger();
@@ -16,6 +16,7 @@ endpoint(function () use ($acteur) {
 	}
 	$st = $pdo->prepare('SELECT entreprise_id FROM utilisateur_entreprises WHERE utilisateur_id = ? ORDER BY entreprise_id');
 	$st->execute(array($id));
+	$ent = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
 	return array('utilisateur' => array(
 		'id' => (int) $u['id'],
 		'nom_utilisateur' => $u['nom_utilisateur'],
@@ -26,7 +27,8 @@ endpoint(function () use ($acteur) {
 		'tentatives' => (int) $u['tentatives_echec'],
 		'verrouille_jusqua' => $u['verrouille_jusqua'],
 		'derniere_connexion' => $u['derniere_connexion'],
-		'entreprise_ids' => array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN)),
+		'entreprise_ids' => $ent,
+		'empreinte' => AdminUtilisateur::empreinte($u, $ent),      // version de la fiche : renvoyée à l'enregistrement pour détecter une modification simultanée
 		'soi' => ((int) $u['id'] === (int) $acteur),
 	));
 });

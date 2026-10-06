@@ -170,6 +170,23 @@ final class Suivi
 		return array((int) $demande);
 	}
 
+	/**
+	 * Entreprises visées par une page qui affiche « l'entreprise de la barre du haut » (sous le minimum, tableau de bord).
+	 * La page envoie l'entreprise qu'elle affichait au moment de son chargement : `entreprise_id` = un numéro, ou 0 pour « toutes mes
+	 * entreprises ». Si le paramètre est absent (ancien lien), on retombe sur l'entreprise de la session. Ainsi, un onglet resté ouvert
+	 * après un changement d'entreprise dans un autre onglet affiche, actualise et exporte la MÊME chose que ce qu'il annonçait.
+	 * Toujours rapproché des droits de l'utilisateur (403 si l'entreprise n'est pas permise).
+	 * @return int[]
+	 */
+	public static function portee(array $ctx, array $req)
+	{
+		$brut = self::texte($req, 'entreprise_id', 20);
+		if ($brut === '') {
+			return self::entreprises($ctx, entreprise_courante() ?: null);
+		}
+		return self::entreprises($ctx, self::entier($req, 'entreprise_id', 'Entreprise'));   // '0' = null = toutes mes entreprises
+	}
+
 	/** Emplacement (actif ou non) d'une entreprise permise ; même refus qu'il n'existe pas ou qu'il soit d'une autre entreprise. */
 	public static function emplacement(array $ctx, $id)
 	{
@@ -202,7 +219,9 @@ final class Suivi
 
 	/**
 	 * Filtres validés du stock à partir de la requête du navigateur.
-	 * @return array{vue:string,entreprises:int[],emplacement:?int,categorie:?string,zero:bool,q:string}
+	 * `exact` (envoyé par le lecteur de codes-barres, c'est-à-dire après Entrée) : si le texte est EXACTEMENT le code interne ou un code-barres
+	 * (alias) d'une pièce, seule cette pièce est listée (scanner « X-1 » ne ramène pas « X-10 »). Sinon : recherche par mots, comme à la frappe.
+	 * @return array{vue:string,entreprises:int[],emplacement:?int,categorie:?string,zero:bool,q:string,exact:bool}
 	 */
 	public static function filtresStock(array $ctx, array $req)
 	{
@@ -226,7 +245,20 @@ final class Suivi
 			'categorie' => $cat === '' ? null : $cat,
 			'zero' => self::booleen($req, 'zero'),
 			'q' => self::texte($req, 'q', self::MAX_RECHERCHE),
+			'exact' => self::booleen($req, 'exact'),
 		);
+	}
+
+	/** Identifiants des pièces dont le code interne ou un alias est exactement $code (le plus souvent une seule). @return int[] */
+	public static function piecesParCodeExact($code)
+	{
+		global $pdo;
+		if ($code === '') {
+			return array();
+		}
+		$st = $pdo->prepare('SELECT id FROM pieces WHERE code = :c1 UNION SELECT piece_id FROM pieces_codes WHERE code = :c2');
+		$st->execute(array(':c1' => $code, ':c2' => $code));
+		return array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
 	}
 
 	/**
@@ -326,8 +358,13 @@ final class Suivi
 				$params[':cat'] = (int) $f['categorie'];
 			}
 		}
+		// Scan (exact) : un code interne ou un alias qui correspond exactement désigne UNE pièce
+		$exactes = !empty($f['exact']) ? self::piecesParCodeExact($f['q']) : array();
+		if ($exactes) {
+			$where[] = 'p.id IN (' . self::listeIds($exactes) . ')';
+		}
 		// Recherche : chaque mot doit se trouver dans le code, le nom ou un code-barres (alias) de la pièce
-		foreach (self::mots($f['q']) as $i => $mot) {
+		foreach ($exactes ? array() : self::mots($f['q']) as $i => $mot) {
 			$like = '%' . Inventaire::likeEchapper($mot) . '%';
 			$where[] = '(p.code LIKE :qa' . $i . ' OR p.nom LIKE :qb' . $i . ' OR EXISTS (SELECT 1 FROM pieces_codes pc WHERE pc.piece_id = p.id AND pc.code LIKE :qc' . $i . '))';
 			$params[':qa' . $i] = $like;
@@ -337,9 +374,16 @@ final class Suivi
 		return array('from' => $from, 'colonnes' => $colonnes, 'where' => $where, 'params' => $params);
 	}
 
-	/** Vrai si la ligne de stock est sous le minimum de son entreprise (comparaison décimale exacte). */
+	/**
+	 * Vrai si la ligne de stock est sous le minimum de son entreprise (comparaison décimale exacte).
+	 * Une pièce désactivée n'est jamais « sous le minimum » : même règle que Inventaire::sousMinimum (page « Pièces sous le minimum »,
+	 * tableau de bord), pour que les écrans ne se contredisent pas.
+	 */
 	public static function sousMinimumLigne(array $l)
 	{
+		if (isset($l['actif']) && !(int) $l['actif']) {
+			return false;
+		}
 		if (!isset($l['minimum']) || $l['minimum'] === null) {
 			return false;
 		}
@@ -574,10 +618,46 @@ final class Suivi
 		echo implode(';', array_map(array(__CLASS__, 'csvCellule'), $cellules)) . "\r\n";
 	}
 
-	/** Écrit une action d'export dans le journal (qui a exporté quoi). */
+	/** Écrit une action d'export dans le journal (qui a exporté quoi). Les détails sont lisibles tels quels : des noms, jamais des numéros. */
 	public static function journalExport(array $ctx, $action, array $details = array())
 	{
 		global $pdo;
 		Journal::ecrire($pdo, $ctx['uid'], $action, null, null, $details);
+	}
+
+	/** Noms des entreprises visées (pour le journal). @return string[] */
+	public static function nomsEntreprises(array $ids)
+	{
+		global $pdo;
+		$st = $pdo->query('SELECT nom FROM entreprises WHERE id IN (' . self::listeIds($ids) . ') ORDER BY id');
+		return array_map('strval', $st->fetchAll(PDO::FETCH_COLUMN));
+	}
+
+	/**
+	 * Nom lisible d'un élément filtré, pour le journal : « piece » (code — nom), « emplacement », « utilisateur », « categorie ».
+	 * Si l'élément n'existe plus, le numéro tient lieu de nom. Requêtes fixes : seul l'identifiant (entier) est lié.
+	 */
+	public static function nomDe($sorte, $id)
+	{
+		global $pdo;
+		if ($id === null || $id === '') {
+			return null;
+		}
+		if ($sorte === 'categorie' && $id === 'aucune') {
+			return 'Sans catégorie';
+		}
+		$sql = array(
+			'piece' => "SELECT CONCAT(code, ' — ', nom) FROM pieces WHERE id = ?",
+			'emplacement' => 'SELECT nom FROM emplacements WHERE id = ?',
+			'utilisateur' => "SELECT COALESCE(NULLIF(nom_complet, ''), nom_utilisateur) FROM utilisateurs WHERE id = ?",
+			'categorie' => 'SELECT nom FROM categories WHERE id = ?',
+		);
+		if (!isset($sql[$sorte])) {
+			return (string) $id;
+		}
+		$st = $pdo->prepare($sql[$sorte]);
+		$st->execute(array((int) $id));
+		$nom = $st->fetchColumn();
+		return $nom === false ? '(n° ' . (int) $id . ')' : (string) $nom;
 	}
 }

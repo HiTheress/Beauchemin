@@ -1,6 +1,7 @@
 <?php
 // Sauvegarde de la base de données — réservée à l'administrateur.
-// Le fichier .sql est produit à la volée et envoyé au navigateur : rien n'est jamais écrit dans le dossier du site.
+// Le fichier .sql.gz (SQL compressé, le même format que la sauvegarde nocturne : tools/restaurer.sh le restaure) est produit à la volée
+// et envoyé au navigateur : rien n'est jamais écrit dans le dossier du site.
 // Sécurité : rôle administrateur, jeton CSRF (POST), tables choisies parmi la liste blanche des vraies tables de la base,
 // valeurs SQL échappées par PDO::quote().
 if (!acces_page('admin')) { return; }
@@ -9,9 +10,22 @@ page_script('assets/js/admin.js');
 $tables = $pdo->query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")->fetchAll(PDO::FETCH_COLUMN);
 $selectError = null;
 
+// Nom des tables en français (le nom technique reste en infobulle) ; une table inconnue garde son nom.
+$libellesTables = array(
+  'categories' => 'Catégories', 'comptage_lignes' => 'Lignes des comptages', 'comptages' => 'Comptages',
+  'document_lignes' => 'Lignes des documents', 'documents' => 'Documents (réceptions, transferts, sorties…)',
+  'emplacements' => 'Emplacements', 'entreprises' => 'Entreprises', 'fournisseurs' => 'Fournisseurs',
+  'journal' => 'Journal d\'activité', 'mouvements' => 'Mouvements de stock', 'pieces' => 'Pièces',
+  'pieces_codes' => 'Codes-barres supplémentaires des pièces', 'prix_fournisseurs' => 'Prix des fournisseurs',
+  'prix_fournisseurs_hist' => 'Historique des prix des fournisseurs', 'sequences' => 'Compteurs de numéros de documents',
+  'seuils' => 'Seuils minimums', 'stock' => 'Stock', 'stock_couts' => 'Coûts moyens',
+  'utilisateur_entreprises' => 'Accès des utilisateurs aux entreprises', 'utilisateurs' => 'Utilisateurs (comptes et mots de passe chiffrés)',
+);
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
   $choisies = (isset($_POST['table']) && is_array($_POST['table'])) ? $_POST['table'] : array();
-  if (!hash_equals($_SESSION['csrf_token'], (string) ($_POST['csrf_token'] ?? ''))) {
+  $jeton = isset($_POST['csrf_token']) ? $_POST['csrf_token'] : '';
+  if (!is_string($jeton) || !hash_equals((string) $_SESSION['csrf_token'], $jeton)) {
     $selectError = 'Jeton de sécurité invalide. Rechargez la page, puis réessayez.';
   } else {
     $aExporter = array();
@@ -23,7 +37,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
   if ($selectError === null) {
     $ident = function ($nom) { return '`' . str_replace('`', '``', $nom) . '`'; };
-    Journal::ecrire($pdo, utilisateur_id(), 'sauvegarde.telechargee', 'sauvegarde', null, array('nb_tables' => count($aExporter)));
+    $complete = (count($aExporter) === count($tables));
+    $etat = $complete ? 'complète' : ('partielle : ' . count($aExporter) . (count($aExporter) > 1 ? ' tables' : ' table') . ' sur ' . count($tables));
+    Journal::ecrire($pdo, utilisateur_id(), 'sauvegarde.telechargee', 'sauvegarde', null, array('nb_tables' => count($aExporter), 'complete' => $complete));
 
     @set_time_limit(0);
     $pdo->exec("SET time_zone = '+00:00'");        // les colonnes TIMESTAMP sortent en UTC et sont restaurées en UTC
@@ -35,25 +51,30 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
       $creations[$t] = $pdo->query('SHOW CREATE TABLE ' . $ident($t))->fetch(PDO::FETCH_NUM)[1];
     }
 
+    // Compression au fil de l'eau (gzip) : un gros fichier n'est jamais gardé en mémoire. Sans l'extension zlib : SQL en clair.
+    $gz = function_exists('deflate_init') ? deflate_init(ZLIB_ENCODING_GZIP, array('level' => 6)) : false;
+    $sortie = function ($texte) use ($gz) {
+      if ($gz) { $o = deflate_add($gz, $texte, ZLIB_NO_FLUSH); if ($o !== '') { echo $o; } } else { echo $texte; }
+    };
     while (ob_get_level()) { ob_end_clean(); }
-    header('Content-Type: application/octet-stream');
-    header('Content-Disposition: attachment; filename="sauvegarde_beauchemin_' . date('Y-m-d_His') . '.sql"');
+    header('Content-Type: ' . ($gz ? 'application/gzip' : 'application/octet-stream'));
+    header('Content-Disposition: attachment; filename="sauvegarde_beauchemin_' . ($complete ? '' : 'partielle_') . date('Y-m-d_His') . ($gz ? '.sql.gz' : '.sql') . '"');
     header('Cache-Control: no-store');
     header('X-Content-Type-Options: nosniff');
 
-    echo "-- Sauvegarde Beauchemin / Boutique Chaleur — " . date('Y-m-d H:i:s') . "\n";
-    echo "-- CONFIDENTIEL : ce fichier contient toutes les données, y compris les empreintes des mots de passe. Conservez-le en lieu sûr.\n";
-    echo "-- Restauration : voir docs/DEPLOIEMENT.md (section « Sauvegardes »).\n";
-    echo "SET NAMES utf8mb4;\nSET TIME_ZONE = '+00:00';\nSET FOREIGN_KEY_CHECKS = 0;\nSET UNIQUE_CHECKS = 0;\nSET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';\n";
+    $sortie("-- Sauvegarde Beauchemin / Boutique Chaleur — " . date('Y-m-d H:i:s') . " (" . $etat . ")\n");
+    $sortie("-- CONFIDENTIEL : ce fichier contient toutes les données, y compris les empreintes des mots de passe. Conservez-le en lieu sûr.\n");
+    $sortie("-- Restauration (sur le serveur) : tools/restaurer.sh <ce fichier>.sql.gz — voir docs/DEPLOIEMENT.md, section « Sauvegardes ».\n");
+    $sortie("SET NAMES utf8mb4;\nSET TIME_ZONE = '+00:00';\nSET FOREIGN_KEY_CHECKS = 0;\nSET UNIQUE_CHECKS = 0;\nSET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';\n");
     try {
       foreach ($aExporter as $t) {
-        echo "\n-- Table " . $t . "\nDROP TABLE IF EXISTS " . $ident($t) . ";\n" . $creations[$t] . ";\n";
+        $sortie("\n-- Table " . $t . "\nDROP TABLE IF EXISTS " . $ident($t) . ";\n" . $creations[$t] . ";\n");
         $st = $pdo->query('SELECT * FROM ' . $ident($t), PDO::FETCH_ASSOC);
         $entete = null;
         $lot = array();
         $taille = 0;
-        $vider = function () use (&$lot, &$taille, &$entete, $t, $ident) {
-          if ($lot) { echo 'INSERT INTO ' . $ident($t) . ' (' . $entete . ") VALUES\n" . implode(",\n", $lot) . ";\n"; }
+        $vider = function () use (&$lot, &$taille, &$entete, $t, $ident, $sortie) {
+          if ($lot) { $sortie('INSERT INTO ' . $ident($t) . ' (' . $entete . ") VALUES\n" . implode(",\n", $lot) . ";\n"); }
           $lot = array();
           $taille = 0;
         };
@@ -69,11 +90,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $vider();
         $st->closeCursor();
       }
-      echo "\nSET FOREIGN_KEY_CHECKS = 1;\nSET UNIQUE_CHECKS = 1;\n-- Fin de la sauvegarde (complète)\n";
+      $sortie("\nSET FOREIGN_KEY_CHECKS = 1;\nSET UNIQUE_CHECKS = 1;\n-- Fin de la sauvegarde (" . $etat . ")\n");
     } catch (Throwable $ex) {
       error_log('Sauvegarde : ' . $ex->getMessage());
-      echo "\n-- ERREUR : la sauvegarde est INCOMPLÈTE. Ne l'utilisez pas ; recommencez.\n";
+      $sortie("\n-- ERREUR : la sauvegarde est INCOMPLÈTE. Ne l'utilisez pas ; recommencez.\n");
     }
+    if ($gz) { echo deflate_add($gz, '', ZLIB_FINISH); }
     exit;
   }
 }
@@ -103,10 +125,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             </div>
             <div class="row">
               <?php foreach ($tables as $i => $table) { ?>
-                <div class="col-sm-6 col-md-4 col-lg-3">
+                <div class="col-sm-6 col-lg-4">
                   <div class="custom-control custom-checkbox adm-case">
                     <input type="checkbox" class="custom-control-input checkbox_table" id="table-<?php echo (int) $i; ?>" name="table[]" value="<?php echo e($table); ?>" checked>
-                    <label class="custom-control-label" for="table-<?php echo (int) $i; ?>"><?php echo e($table); ?></label>
+                    <label class="custom-control-label" for="table-<?php echo (int) $i; ?>" title="Table « <?php echo e($table); ?> »"><?php echo e(isset($libellesTables[$table]) ? $libellesTables[$table] : $table); ?></label>
                   </div>
                 </div>
               <?php } ?>
@@ -123,9 +145,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
       <div class="card-header"><h2 class="card-title h5 mb-0">À savoir</h2></div>
       <div class="card-body small">
         <ul class="mb-2">
-          <li>Le fichier se termine par la ligne « Fin de la sauvegarde (complète) ». S'il ne la contient pas, la sauvegarde est incomplète : recommencez.</li>
-          <li>Une sauvegarde automatique chaque nuit est prévue sur le serveur (guide de déploiement, section « Sauvegardes »). Copiez aussi vos sauvegardes hors du serveur.</li>
-          <li>La restauration remplace toutes les données actuelles : elle se fait sur le serveur, par la personne qui l'administre, et il vaut mieux l'essayer d'abord dans une base de test.</li>
+          <li>Le fichier téléchargé est compressé (<code>.sql.gz</code>), comme la sauvegarde automatique de la nuit. Il se termine par la ligne « Fin de la sauvegarde (complète) » ; s'il ne la contient pas, la sauvegarde est incomplète : recommencez.</li>
+          <li>Une sauvegarde partielle (certaines tables décochées) ne suffit pas pour restaurer le système : gardez toujours des sauvegardes complètes.</li>
+          <li>Une sauvegarde automatique chaque nuit est prévue sur le serveur (guide de déploiement, section « Sauvegardes »). Copiez aussi vos sauvegardes hors du serveur, dans un endroit à accès restreint.</li>
+          <li>La restauration remplace toutes les données actuelles : elle se fait sur le serveur, par la personne qui l'administre, avec <code>tools/restaurer.sh fichier.sql.gz</code>. Essayez-la d'abord dans une base de test.</li>
         </ul>
       </div>
     </div>

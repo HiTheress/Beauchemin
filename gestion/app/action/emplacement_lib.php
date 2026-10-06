@@ -141,7 +141,7 @@ final class AdminEmplacement
 		global $pdo;
 		return inventaire()->transaction(function () use ($pdo, $acteur, $id, $actif) {
 			Admin::acteur($acteur);
-			$st = $pdo->prepare('SELECT id, nom, actif FROM emplacements WHERE id = ? FOR UPDATE');
+			$st = $pdo->prepare('SELECT em.id, em.nom, em.actif, en.nom AS entreprise, en.actif AS entreprise_actif FROM emplacements em JOIN entreprises en ON en.id = em.entreprise_id WHERE em.id = ? FOR UPDATE');
 			$st->execute(array($id));
 			$e = $st->fetch();
 			if (!$e) {
@@ -149,6 +149,9 @@ final class AdminEmplacement
 			}
 			if ((bool) $e['actif'] === (bool) $actif) {
 				return array('id' => $id, 'actif' => (bool) $actif, 'inchange' => true);
+			}
+			if ($actif && !$e['entreprise_actif']) {
+				throw new InventaireException('Impossible de réactiver « ' . $e['nom'] . ' » : l\'entreprise « ' . $e['entreprise'] . ' » est désactivée. Réactivez d\'abord l\'entreprise.', 'entreprise_id');
 			}
 			if (!$actif) {
 				$st = $pdo->prepare('SELECT piece_id FROM stock WHERE emplacement_id = ? AND quantite > 0 FOR UPDATE');

@@ -2,33 +2,73 @@
 .adm-actions .btn, .adm-filtres .form-control, .adm-filtres .btn { min-height: 44px; }
 .adm-filtres label { margin-bottom: .2rem; font-size: .85rem; color: #495057; }
 .adm-table td, .adm-table th { vertical-align: middle; }
+.adm-table th { white-space: normal; }
+table.adm-table td, table.adm-table th { padding-left: .4rem; padding-right: .4rem; }          /* colonnes plus serrées : le tableau tient dans une tablette */
+table.adm-table thead th { padding-right: 1.3rem; }          /* place des flèches de tri */          /* les titres de colonnes passent à la ligne (le thème les garde sur une seule ligne) */
 .adm-table tbody tr td { padding-top: .6rem; padding-bottom: .6rem; }          /* lignes ≥ 44 px (tablette) */
-.adm-table .btn-sm { min-height: 40px; min-width: 40px; }
-.adm-table td.adm-boutons { white-space: nowrap; text-align: right; }
 .adm-table tr.adm-inactif td { color: #6c757d; background: #f8f9fa; }
 .adm-table .code, .adm-code, .adm-mdp-champ { font-family: SFMono-Regular, Menlo, Consolas, monospace; }
+.adm-table .code { white-space: nowrap; }          /* un code-barres ne se coupe pas au tiret */
 .adm-mdp-champ { font-size: 1.15rem; letter-spacing: .04em; }
 .adm-legende { font-size: 1rem; font-weight: 600; margin-bottom: .4rem; width: auto; }
-.adm-case { min-height: 44px; padding-top: .35rem; }
-.adm-case .custom-control-label { padding-top: .1rem; cursor: pointer; }
 .adm-compte { border-top: 1px solid #dee2e6; padding-top: 1rem; }
-.modal .btn, .adm-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; min-height: 44px; }
-.modal .form-control { min-height: 44px; }
+
+/* Actions d'une ligne : texte visible, zones ≥ 44 px, retour à la ligne (le tableau doit tenir dans une tablette de 768 px) */
+.adm-table td.adm-boutons { white-space: normal; text-align: right; }
+.adm-actions-ligne { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; max-width: 16rem; margin-left: auto; }
+.adm-btn-ligne { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-height: 44px; min-width: 44px; white-space: nowrap; padding-left: .5rem; padding-right: .5rem; }
+.adm-lien-nombre { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 44px; min-height: 44px; }
+.adm-table td small.d-block { line-height: 1.3; }
+
+/* Zones cliquables ≥ 44 px (SPEC §8) : boutons, champs, cases à cocher, sélecteur « Afficher N lignes » */
+[data-admin] .btn, .modal .btn { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; min-height: 44px; }
+[data-admin] .form-control, .modal .form-control, [data-admin] .custom-select, .dataTables_length select { min-height: 44px; }
 .modal .input-group-append .btn { min-height: 44px; }
+.adm-case { min-height: 44px; }
+.adm-case .custom-control-label { display: block; min-height: 44px; padding-top: 10px; cursor: pointer; }
+.adm-case .custom-control-label::before, .adm-case .custom-control-label::after { top: 14px; }
+
 .adm-infos dt { color: #6c757d; font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; margin-top: .75rem; }
 .adm-infos dt:first-child { margin-top: 0; }
 .adm-infos dd { margin: 0; overflow-wrap: anywhere; }
 /* Journal : détails lisibles, une information par ligne */
 .jr-ligne { display: block; line-height: 1.35; }
-.jr-cle { color: #6c757d; }
+.jr-cle { color: #495057; }
 .jr-chg { font-weight: 500; }
 #table-journal td { vertical-align: top; }
-#table-journal td:nth-child(1) { white-space: nowrap; }
+#table-journal .code { white-space: normal; word-break: break-all; }          /* adresse IP (IPv6 : longue) */
 .table-responsive { position: relative; }
 .dataTables_wrapper .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
 /* Le thème du projet redéfinit .btn-danger (texte rouge seulement) : bouton d'action destructrice explicite */
 .adm-btn-danger { background: #dc3545; border-color: #dc3545; color: #fff; font-size: 1rem; }
 .adm-btn-danger:hover, .adm-btn-danger:focus { background: #bd2130; border-color: #b21f2d; color: #fff; }
 .content-wrapper h1, .alert, dd { overflow-wrap: anywhere; }
-.adm-table td { overflow-wrap: break-word; }   /* coupe les très longs noms sans écraser les colonnes */
-@media print { .adm-actions, .adm-filtres { display: none !important; } }
+.adm-table td { overflow-wrap: anywhere; }   /* coupe les très longs noms (même sans espace) au lieu d'élargir le tableau */
+
+/* Contrastes (WCAG AA, 4,5 : 1) : le jaune sur blanc est illisible ; pastilles blanches sur vert et sur bleu-vert assombries */
+.adm-avert { color: #7a5c00; font-weight: 600; }
+.adm-btn-attention { color: #7a5c00; border: 1px solid #b58105; background: #fff; }
+.adm-btn-attention:hover, .adm-btn-attention:focus { color: #5c4500; background: #fff3cd; border-color: #8a6100; }
+[data-admin] .badge-success { background-color: #1e7e34; }
+[data-admin] .badge-info { background-color: #117a8b; }
+
+/* Focus clavier bien visible (la bordure bleu pâle de Bootstrap ne se voit presque pas) */
+[data-admin] .form-control:focus, [data-admin] .custom-select:focus, .modal .form-control:focus {
+  border-color: #0056b3; box-shadow: none; outline: 3px solid #0056b3; outline-offset: 1px;
+}
+[data-admin] .custom-control-input:focus ~ .custom-control-label::before, .modal .custom-control-input:focus ~ .custom-control-label::before {
+  border-color: #0056b3; box-shadow: none; outline: 3px solid #0056b3; outline-offset: 2px;
+}
+[data-admin] .btn:focus-visible, .modal .btn:focus-visible, [data-admin] a:focus-visible { outline: 3px solid #0056b3; outline-offset: 2px; box-shadow: none; }
+
+/* Impression (lettre, marges de 12 mm) : le tableau occupe toute la largeur, rien n'est coupé */
+@media print {
+  .adm-actions, .adm-filtres, .dataTables_length, .dataTables_paginate, .dataTables_processing { display: none !important; }
+  .adm-entete-impression { display: block !important; font-size: 12pt; margin: 0 0 .5rem; }
+  .table-responsive { overflow: visible !important; }
+  .adm-table { width: 100% !important; table-layout: auto; font-size: 9pt; }
+  .adm-table th, .adm-table td { white-space: normal !important; overflow-wrap: break-word !important; word-break: normal !important; }
+  .adm-table thead th::before, .adm-table thead th::after { display: none !important; }          /* flèches de tri : inutiles sur papier */
+  table.adm-table thead th { padding-right: .4rem; }
+  .adm-table tr { page-break-inside: avoid; }
+}

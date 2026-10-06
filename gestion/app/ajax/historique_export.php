@@ -21,10 +21,18 @@ Suivi::executerExport(function ($ctx) {
 		$entetes[] = 'Coût unitaire ($)';
 		$entetes[] = 'Valeur ($)';
 	}
-	Suivi::journalExport($ctx, 'export.historique', array('entreprises' => $f['entreprises'], 'filtres' => array_filter(array(
-		'piece' => $f['piece'], 'emplacement' => $f['emplacement'], 'type' => $f['type'] !== '' ? $f['type'] : null,
-		'du' => $f['du'], 'au' => $f['au'], 'utilisateur' => $f['utilisateur'], 'numero' => $f['numero'] !== '' ? $f['numero'] : null,
-	))));
+	Suivi::journalExport($ctx, 'export.historique', array(
+		'entreprises' => Suivi::nomsEntreprises($f['entreprises']),
+		'filtres' => array_filter(array(
+			'piece' => Suivi::nomDe('piece', $f['piece']),
+			'emplacement' => Suivi::nomDe('emplacement', $f['emplacement']),
+			'type' => $f['type'] !== '' ? TYPES_DOCUMENT_FR[$f['type']] : null,
+			'du' => $f['du'],
+			'au' => $f['au'],
+			'utilisateur' => Suivi::nomDe('utilisateur', $f['utilisateur']),
+			'numero' => $f['numero'] !== '' ? $f['numero'] : null,
+		)),
+	));
 	Suivi::csvDebut('historique-' . date('Y-m-d') . '.csv', $entetes);
 	while ($l = $st->fetch()) {
 		$mention = $l['annulation'] ? 'Annulation' : ($l['doc_statut'] === 'annule' ? 'Document annulé' : '');

@@ -1,7 +1,7 @@
 <?php
 // Changement de SON mot de passe (tout utilisateur connecté). POST JSON : actuel, nouveau, confirmation.
 // Le mot de passe actuel est vérifié côté serveur ; après trop d'essais ratés (même règle que la connexion) le compte est verrouillé
-// temporairement. Au succès : identifiant de session régénéré. Aucun mot de passe n'est journalisé ni renvoyé.
+// temporairement. Au succès : identifiant de session régénéré et autres sessions du compte invalidées (User::invaliderSessions). Aucun mot de passe n'est journalisé ni renvoyé.
 require_once __DIR__ . '/utilisateur_lib.php';
 exiger_post();
 endpoint(function () {
@@ -62,8 +62,12 @@ endpoint(function () {
 	}
 
 	// Étape 2 : changement
-	$pdo->prepare('UPDATE utilisateurs SET mot_de_passe = ?, tentatives_echec = 0, verrouille_jusqua = NULL WHERE id = ?')->execute(array($hash, $uid));
-	Journal::ecrire($pdo, $uid, 'profil.mdp_change', 'utilisateurs', $uid);
+	inventaire()->transaction(function () use ($pdo, $Ouser, $uid, $hash) {
+		$pdo->prepare('UPDATE utilisateurs SET mot_de_passe = ?, tentatives_echec = 0, verrouille_jusqua = NULL WHERE id = ?')->execute(array($hash, $uid));
+		Journal::ecrire($pdo, $uid, 'profil.mdp_change', 'utilisateurs', $uid);
+		// Toutes les AUTRES connexions de ce compte sont coupées ; celle-ci reste ouverte.
+		$Ouser->invaliderSessions($uid, true);
+	});
 	session_regenerate_id(true);
 	return array('message' => 'Votre mot de passe a été changé.');
 });

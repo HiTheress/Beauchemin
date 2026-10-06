@@ -24,7 +24,7 @@ try {
 		$i = 0;
 		foreach (array_slice(preg_split('/\s+/u', $recherche, -1, PREG_SPLIT_NO_EMPTY), 0, 6) as $mot) {
 			$ph = ':r' . $i++;      // un seul paramètre par mot (le même nom ne peut pas être répété), sur une expression unique
-			$where[] = "CONCAT_WS(' ', j.action, u.nom_utilisateur, j.entite, j.details, j.ip) LIKE " . $ph;
+			$where[] = JournalFr::expressionRecherche() . ' LIKE ' . $ph;
 			$params[$ph] = '%' . Inventaire::likeEchapper($mot) . '%';
 		}
 		$filtres['recherche'] = mb_substr($recherche, 0, 100);
@@ -54,16 +54,16 @@ header('Content-Disposition: attachment; filename="journal-' . date('Y-m-d') . '
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 echo "\xEF\xBB\xBF";
-echo implode(';', array('Date et heure', 'Utilisateur', 'Action', 'Code de l\'action', 'Élément', 'N° de l\'élément', 'Détails', 'Adresse IP')) . "\r\n";
+echo implode(';', array('Date et heure', 'Utilisateur', 'Action', 'Code de l\'action', 'Objet concerné', 'N° de l\'objet', 'Détails', 'Adresse IP')) . "\r\n";
 while ($l = $st->fetch()) {
 	echo implode(';', array_map('jr_cellule', array(
 		$l['date_action'],
 		$l['utilisateur'],
 		JournalFr::action($l['action']),
 		$l['action'],
-		($l['entite'] === null || $l['entite'] === '') ? '' : JournalFr::entite($l['entite']),
+		JournalFr::objetTexte($l['entite'], $l['entite_id']),
 		$l['entite_id'] === null ? '' : $l['entite_id'],
-		JournalFr::detailsTexte($l['details']),
+		JournalFr::detailsTexte($l['details'], $l['action'], $l['entite_id']),
 		$l['ip'],
 	))) . "\r\n";
 }

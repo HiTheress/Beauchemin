@@ -17,20 +17,32 @@
 .sk-aide { margin: -.25rem 0 .75rem; }
 .sk-actions .btn { white-space: nowrap; }
 
-/* Tableaux */
-.sk-table { margin-bottom: 0; }
-.sk-table th { white-space: nowrap; }
-.sk-table th, .sk-table td { padding: .5rem .6rem; }
+/* Tableaux : le texte passe à la ligne (seuls les nombres, dates et codes restent sur une ligne) pour que le tableau tienne dans la carte */
+.sk-table { margin-bottom: 0; font-size: .9rem; }
+table.dataTable.sk-table > thead > tr > th { white-space: normal; vertical-align: bottom; padding: .5rem 1.3rem .5rem .45rem; }
+table.dataTable.sk-table > thead > tr > th::before, table.dataTable.sk-table > thead > tr > th::after { right: .35rem; }
+.sk-table td { padding: .45rem .45rem; vertical-align: middle; overflow-wrap: break-word; }
+@media (max-width: 1199.98px) {   /* tablette : un peu plus serré, pour que les colonnes de coût tiennent aussi */
+  .sk-table { font-size: .85rem; }
+  table.dataTable.sk-table > thead > tr > th { padding: .4rem 1.15rem .4rem .3rem; }
+  .sk-table td { padding: .4rem .3rem; }
+}
 .sk-table td.sk-date { white-space: nowrap; }
 .sk-table td.nombre { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sk-table tbody tr.sk-bas, .sk-table tbody tr.sk-bas > td { background-color: #fde8e8; }
 .sk-table tbody tr.sk-bas > td:first-child { box-shadow: inset 4px 0 0 #dc3545; }
 .sk-table tbody tr.sk-annulation > td { color: #6c757d; }
-.sk-table a { text-decoration: underline; text-decoration-color: rgba(11,94,215,.35); }
+.sk-table a { text-decoration: underline; text-decoration-color: rgba(11,94,215,.35); overflow-wrap: anywhere; }   /* un nom sans espace (très long) se coupe plutôt que d'élargir le tableau */
 .sk-table a:focus, .sk-carte a:focus, .ds-carte a:focus { outline: 2px solid #0b5ed7; outline-offset: 2px; }
-.sk-btn-recevoir { text-decoration: none !important; }
+.sk-btn-recevoir { text-decoration: none !important; white-space: nowrap; }
 .sk-pos { color: #1e7e34; }
 .sk-neg { color: #bd2130; }
+
+/* Tablette et écrans tactiles : les liens des tableaux et des cartes sont des zones d'au moins 44 px de haut (§8 de la spécification) */
+.ds-lien { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+@media (max-width: 1199.98px), (pointer: coarse) {
+  .sk-table td a, .ds-carte td a { display: inline-flex; flex-direction: column; justify-content: center; min-height: 44px; }
+}
 
 /* État vide (rien sous le minimum) */
 .sk-vide { text-align: center; padding: 2.5rem 1rem; }
@@ -45,9 +57,9 @@
 .ds-detail { margin: .25rem 0 .5rem; color: #495057; min-height: 1.5rem; }
 .ds-alerte .ds-nombre { color: #bd2130; }
 .ds-alerte { border-left: 4px solid #dc3545; }
-.ds-lien { display: inline-block; padding: .5rem 0; font-weight: 600; }
 .ds-lien-sep { color: #6c757d; margin: 0 .5rem; }
-.ds-ligne { display: flex; justify-content: space-between; gap: .75rem; padding: .35rem 0; border-bottom: 1px solid #e9ecef; }
+.ds-ligne { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem .75rem; padding: .35rem 0; border-bottom: 1px solid #e9ecef; }
+.ds-ligne > strong { margin-left: auto; }
 .ds-ligne:last-child { border-bottom: 0; }
 .ds-ligne-factures { display: grid; grid-template-columns: minmax(9rem, 1.1fr) repeat(3, 1fr); gap: .25rem 1rem; align-items: baseline; }
 .ds-ligne-factures .ds-ent { font-weight: 700; }
@@ -55,6 +67,27 @@
   .ds-ligne-factures { grid-template-columns: 1fr; }
 }
 
-.ds-carte td .code { white-space: nowrap; }
+
+.ds-carte td .code, .sk-table td .code { white-space: nowrap; }
 .ds-carte td.ds-date { white-space: nowrap; }
-.sk-table td .code { white-space: nowrap; }
+.ds-carte .table td, .ds-carte .table th { padding: .45rem .5rem; vertical-align: middle; }
+.ds-carte .table td { overflow-wrap: anywhere; }
+.ds-carte .table td.nombre { overflow-wrap: normal; }
+
+/* Impression (lettre, portrait) : les filtres ne s'impriment pas (un résumé les remplace), le tableau tient sur la largeur de la page,
+   l'en-tête se répète sur chaque page et aucune ligne n'est coupée en deux */
+.sk-resume-impression { font-weight: 700; margin: 0 0 .5rem; }
+@media print {
+  .sk-page .card-body { padding: 0 !important; }
+  .sk-page .table-responsive { overflow: visible !important; display: block; width: 100%; }
+  .sk-table { font-size: 8.5pt; width: 100% !important; table-layout: auto; }
+  .sk-table th, .sk-table td { padding: .2rem .3rem !important; white-space: normal !important; overflow-wrap: break-word; }
+  .sk-table td.nombre, .sk-table td.sk-date, .sk-table td .code { white-space: nowrap !important; }
+  .sk-table thead { display: table-header-group; }
+  .sk-table tr { page-break-inside: avoid; }
+  .sk-table th::before, .sk-table th::after { display: none !important; }
+  .sk-table a { text-decoration: none; color: #000; }
+  .sk-table tbody tr.sk-bas, .sk-table tbody tr.sk-bas > td { background-color: #fde8e8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .sk-pos, .sk-neg { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .ds-carte { page-break-inside: avoid; }
+}

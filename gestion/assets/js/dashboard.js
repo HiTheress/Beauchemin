@@ -10,6 +10,9 @@
   var racine = document.getElementById('ds-racine');
   if (!racine) { return; }
   var gest = racine.getAttribute('data-gest') === '1';
+  // L'entreprise AFFICHÉE par la page (0 = toutes) est envoyée au serveur : les chiffres actualisés restent fidèles à l'en-tête, même si
+  // l'entreprise de la barre du haut a été changée dans un autre onglet.
+  var entreprise = String(parseInt(racine.getAttribute('data-entreprise'), 10) || 0);
 
   function q(id) { return document.getElementById(id); }
   function msg(err) {
@@ -73,12 +76,12 @@
       var emp = (d.emplacement ? w.esc(d.emplacement) : '') + (d.emplacement_dest ? (d.emplacement ? ' → ' : '→ ') + w.esc(d.emplacement_dest) : '');
       if (d.entreprise_dest) { emp = '<span class="text-muted">' + w.esc(d.entreprise) + ' → ' + w.esc(d.entreprise_dest) + '</span>' + (emp ? '<br>' + emp : ''); }
       return '<tr>' +
-        '<td><a class="code font-weight-bold" href="index.php?page=document_voir&amp;id=' + entier(d.id) + '">' + w.esc(d.numero) + '</a></td>' +
-        '<td>' + w.esc(d.type_libelle) + '</td>' +
+        '<td><a class="code font-weight-bold" href="index.php?page=document_voir&amp;id=' + entier(d.id) + '">' + w.esc(d.numero) + '</a>' +
+          '<br><small class="text-muted">' + w.esc(d.type_libelle) + '</small>' +
+          (d.statut === 'annule' ? '<br><span class="badge badge-danger">Annulé</span>' : '') + '</td>' +
         '<td class="ds-date">' + w.esc(d.date) + '</td>' +
         '<td>' + emp + '</td>' +
         (gest ? '<td class="nombre">' + w.esc(w.fmtArgent(d.total)) + '</td>' : '') +
-        '<td>' + (d.statut === 'annule' ? '<span class="badge badge-danger">Annulé</span>' : '<span class="badge badge-success">Valide</span>') + '</td>' +
         '</tr>';
     }).join('');
 
@@ -99,7 +102,7 @@
     var no = ++chargement;
     var bouton = q('ds-actualiser');
     bouton.disabled = true;
-    return w.api.get('app/ajax/dashboard_data.php').then(function (r) {
+    return w.api.get('app/ajax/dashboard_data.php', { entreprise_id: entreprise }).then(function (r) {
       if (no !== chargement) { return; }
       q('ds-erreur').hidden = true;
       dessiner(r);
@@ -115,6 +118,23 @@
 
   q('ds-actualiser').addEventListener('click', function () { charger(); });
   charger();
-  // Rafraîchissement automatique toutes les deux minutes (onglet visible seulement)
-  setInterval(function () { if (!document.hidden) { charger(); } }, 120000);
+
+  // Rafraîchissement automatique toutes les deux minutes, mais SEULEMENT tant que quelqu'un est là : chaque appel au serveur renouvelle
+  // la session. Sans cette garde, un poste laissé ouvert sur le tableau de bord ne se déconnecterait jamais (politique : 8 h d'inactivité).
+  // Après 15 minutes sans souris, clavier, toucher ni défilement, on cesse de rafraîchir ; au retour de l'utilisateur, on recharge aussitôt.
+  var DELAI_INACTIVITE = 15 * 60 * 1000;
+  var derniereActivite = Date.now();
+  function activite() {
+    var maintenant = Date.now();
+    var inactif = (maintenant - derniereActivite) >= DELAI_INACTIVITE;
+    derniereActivite = maintenant;
+    if (inactif && !document.hidden) { charger(); }   // retour après une longue pause : chiffres à jour tout de suite
+  }
+  ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel', 'scroll'].forEach(function (ev) {
+    document.addEventListener(ev, activite, { passive: true, capture: true });
+  });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { activite(); } });
+  setInterval(function () {
+    if (!document.hidden && (Date.now() - derniereActivite) < DELAI_INACTIVITE) { charger(); }
+  }, 120000);
 })(window, jQuery);

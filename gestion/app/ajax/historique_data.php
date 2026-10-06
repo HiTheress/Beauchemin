@@ -4,7 +4,7 @@
 // POST (ou GET) : paramètres DataTables + entreprise_id (403 si non permise), piece_id, emplacement_id (403 si non permis), type
 // (reception|transfert|sortie|ajustement|facture_interne), du / au (AAAA-MM-JJ, inclusifs), utilisateur_id, numero (numéro de document, partiel).
 // Tri de départ : le plus récent d'abord, par identifiant (chronologique) donc sans tri coûteux ; « date » trie aussi par identifiant.
-// Colonnes (alias, identiques à columns[].data côté JS) : ordre, date, doc_id, numero, type, doc_statut, piece_id, code, nom, unite, entreprise,
+// Colonnes (alias, identiques à columns[].data côté JS) : ordre, date, doc_id, numero, type, doc_statut, piece_id, code (lien : code + nom), nom, unite, entreprise,
 //   emplacement, quantite (signée), utilisateur, annulation (0/1), mention ; + cout_unitaire et valeur pour un gestionnaire+ SEULEMENT.
 require_once __DIR__ . '/stock_lib.php';
 Suivi::executer(function ($ctx) {
@@ -22,11 +22,9 @@ Suivi::executer(function ($ctx) {
 		'type' => function ($l) {
 			return e(isset(TYPES_DOCUMENT_FR[$l['type']]) ? TYPES_DOCUMENT_FR[$l['type']] : $l['type']);
 		},
+		// code et nom dans UN SEUL lien (une seule zone à toucher sur tablette) ; le nom est échappé comme le code
 		'code' => function ($l) {
-			return '<a class="code font-weight-bold" href="index.php?page=piece_voir&amp;id=' . (int) $l['piece_id'] . '">' . e($l['code']) . '</a>';
-		},
-		'nom' => function ($l) {
-			return '<a href="index.php?page=piece_voir&amp;id=' . (int) $l['piece_id'] . '">' . e($l['nom']) . '</a>';
+			return '<a href="index.php?page=piece_voir&amp;id=' . (int) $l['piece_id'] . '"><span class="code font-weight-bold">' . e($l['code']) . '</span><br><small>' . e($l['nom']) . '</small></a>';
 		},
 		'mention' => function ($l) {
 			if ($l['annulation']) {

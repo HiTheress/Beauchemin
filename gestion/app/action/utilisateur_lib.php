@@ -20,6 +20,7 @@ final class Admin
 {
 	const MDP_MIN = 10;
 	const MDP_MAX_OCTETS = 72;      // limite de bcrypt : au-delà, le mot de passe serait tronqué en silence
+	const MAX_ENTREPRISES = 100;    // borne d'une liste d'entreprises envoyée par le navigateur (une requête ne doit pas pouvoir en contenir des milliers)
 
 	/** Ce que chaque rôle permet (affiché dans le formulaire d'utilisateur et dans le profil). */
 	const ROLES_AIDE = array(
@@ -204,7 +205,7 @@ final class Admin
 		if ($brut === null || $brut === '') {
 			return array();
 		}
-		if (!is_array($brut)) {
+		if (!is_array($brut) || count($brut) > self::MAX_ENTREPRISES) {
 			throw new InventaireException('Liste d\'entreprises invalide.', 'entreprise_ids');
 		}
 		$ids = array();
@@ -222,6 +223,32 @@ final class Admin
 			}
 		}
 		return $ids;
+	}
+
+	/**
+	 * Un gestionnaire ou un employé actif doit pouvoir travailler quelque part : au moins une de ses entreprises doit être active
+	 * (sinon toutes ses pages sont vides). $ids = entreprises choisies.
+	 */
+	public static function exigerEntrepriseActive(array $ids)
+	{
+		global $pdo;
+		if (!$ids) {
+			return;
+		}
+		$in = implode(',', array_fill(0, count($ids), '?'));
+		$st = $pdo->prepare("SELECT COUNT(*) FROM entreprises WHERE actif = 1 AND id IN ($in)");
+		$st->execute(array_values($ids));
+		if ((int) $st->fetchColumn() === 0) {
+			throw new InventaireException('Les entreprises de ce compte sont toutes désactivées : il n\'aurait accès à rien. Ajoutez-lui une entreprise active (bouton « Modifier ») ou réactivez une entreprise dans « Entreprises ».', 'entreprise_ids');
+		}
+	}
+
+	/** En-tête visible seulement à l'impression (le titre de la page est masqué par la coquille) : titre, date et personne qui imprime. */
+	public static function enteteImpression($titre)
+	{
+		global $Ouser;
+		$moi = $Ouser->courant();
+		echo '<p class="d-none d-print-block adm-entete-impression"><strong>' . e($titre) . '</strong> — imprimé le ' . e(date('Y-m-d')) . ' par ' . e($moi ? $moi['nom_utilisateur'] : '') . '</p>';
 	}
 
 	/** Vrai si l'exception est une violation d'unicité (doublon) ; $cle = nom de l'index fautif s'il est donné. */
@@ -261,6 +288,9 @@ final class AdminUtilisateur
 			$entreprises = Admin::entreprisesIds(isset($d['entreprise_ids']) ? $d['entreprise_ids'] : null);
 			if (!$entreprises) {
 				throw new InventaireException('Un gestionnaire ou un employé doit avoir accès à au moins une entreprise.', 'entreprise_ids');
+			}
+			if ($actif) {
+				Admin::exigerEntrepriseActive($entreprises);
 			}
 		}
 		$mdp = Admin::motDePasse(isset($d['mot_de_passe']) ? $d['mot_de_passe'] : null, $nom);
@@ -314,8 +344,16 @@ final class AdminUtilisateur
 			$nouveau['actif'] = Admin::booleen($d['actif']);
 		}
 		$demandees = array_key_exists('entreprise_ids', $d) ? Admin::entreprisesIds($d['entreprise_ids']) : null;
+		// Version de la fiche vue par l'administrateur (facultative pour les appels partiels, envoyée par le formulaire)
+		$empreinte = null;
+		if (array_key_exists('empreinte', $d)) {
+			if (!is_string($d['empreinte']) || $d['empreinte'] === '') {
+				throw new InventaireException('La version de la fiche est invalide : fermez-la, puis rouvrez-la.', 'empreinte');
+			}
+			$empreinte = $d['empreinte'];
+		}
 
-		return inventaire()->transaction(function () use ($pdo, $acteur, $id, $nouveau, $demandees) {
+		return inventaire()->transaction(function () use ($pdo, $acteur, $id, $nouveau, $demandees, $empreinte) {
 			$admins = Admin::verrouillerAdmins($acteur);
 			$st = $pdo->prepare('SELECT id, nom_utilisateur, nom_complet, role, actif FROM utilisateurs WHERE id = ? FOR UPDATE');
 			$st->execute(array($id));
@@ -341,12 +379,19 @@ final class AdminUtilisateur
 			$st = $pdo->prepare('SELECT entreprise_id FROM utilisateur_entreprises WHERE utilisateur_id = ? ORDER BY entreprise_id');
 			$st->execute(array($id));
 			$anciennes = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+			if ($empreinte !== null && !hash_equals(self::empreinte($u, $anciennes), $empreinte)) {
+				throw new InventaireException('Cette fiche a été modifiée entre-temps (par un autre administrateur ou dans un autre onglet). Fermez-la, puis rouvrez-la pour voir les changements avant de recommencer.', 'empreinte');
+			}
 			if ($apres['role'] === 'admin') {
 				$finales = array();        // un administrateur voit toutes les entreprises : aucune ligne
 			} else {
 				$finales = ($demandees !== null) ? $demandees : $anciennes;
 				if (!$finales) {
 					throw new InventaireException('Un gestionnaire ou un employé doit avoir accès à au moins une entreprise.', 'entreprise_ids');
+				}
+				// Une entreprise désactivée seule ne donne accès à rien : refusé quand ce changement-ci en est la cause
+				if ($apres['actif'] && ($finales !== $anciennes || $apres['role'] !== $avant['role'] || !$avant['actif'])) {
+					Admin::exigerEntrepriseActive($finales);
 				}
 			}
 			if ($apres['nom_utilisateur'] !== $avant['nom_utilisateur']) {
@@ -396,10 +441,18 @@ final class AdminUtilisateur
 		});
 	}
 
+	/** Empreinte (version) d'une fiche : change dès qu'un champ éditable de l'utilisateur change. $u = ligne utilisateurs, $entreprises = ses id d'entreprises. */
+	public static function empreinte(array $u, array $entreprises)
+	{
+		$e = array_map('intval', $entreprises);
+		sort($e);
+		return hash('sha256', json_encode(array((string) $u['nom_utilisateur'], (string) $u['nom_complet'], (string) $u['role'], (int) $u['actif'], $e)));
+	}
+
 	/** Remplace le mot de passe d'un utilisateur (et déverrouille son compte). Le mot de passe n'est ni journalisé ni renvoyé. */
 	public static function reinitialiserMotDePasse($acteur, $id, $mdpBrut)
 	{
-		global $pdo;
+		global $pdo, $Ouser;
 		$st = $pdo->prepare('SELECT nom_utilisateur FROM utilisateurs WHERE id = ?');
 		$st->execute(array($id));
 		$nom = $st->fetchColumn();
@@ -409,7 +462,7 @@ final class AdminUtilisateur
 		$mdp = Admin::motDePasse($mdpBrut, $nom);
 		$hash = password_hash($mdp, PASSWORD_DEFAULT);
 		unset($mdp, $mdpBrut);
-		return inventaire()->transaction(function () use ($pdo, $acteur, $id, $hash) {
+		return inventaire()->transaction(function () use ($pdo, $Ouser, $acteur, $id, $hash) {
 			Admin::verrouillerAdmins($acteur);
 			$st = $pdo->prepare('SELECT nom_utilisateur, (verrouille_jusqua IS NOT NULL AND verrouille_jusqua > NOW()) AS verrouille FROM utilisateurs WHERE id = ? FOR UPDATE');
 			$st->execute(array($id));
@@ -419,6 +472,8 @@ final class AdminUtilisateur
 			}
 			$pdo->prepare('UPDATE utilisateurs SET mot_de_passe = ?, tentatives_echec = 0, verrouille_jusqua = NULL WHERE id = ?')->execute(array($hash, $id));
 			Journal::ecrire($pdo, $acteur, 'utilisateur.mdp_reinitialise', 'utilisateurs', $id, array('nom_utilisateur' => $u['nom_utilisateur'], 'deverrouille' => (bool) $u['verrouille']));
+			// Les connexions ouvertes avec l'ancien mot de passe sont coupées (sauf la session de l'administrateur lui-même s'il change le sien).
+			$Ouser->invaliderSessions($id, (int) $id === (int) $acteur);
 			return array('id' => $id, 'deverrouille' => (bool) $u['verrouille']);
 		});
 	}

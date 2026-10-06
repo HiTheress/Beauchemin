@@ -1,12 +1,14 @@
 <?php
 // Entreprises : liste, création, modification, désactivation (jamais de suppression). Administrateur seulement.
 if (!acces_page('admin')) { return; }
+require_once __DIR__ . '/../app/action/utilisateur_lib.php';
 page_script('assets/js/admin.js');
 ?>
 <link rel="stylesheet" href="assets/css/admin.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/admin.css'); ?>">
 <div class="content-wrapper" data-admin="entreprises">
   <?php page_titre('Entreprises', array('Administration')); ?>
   <section class="content"><div class="container-fluid">
+    <?php Admin::enteteImpression('Entreprises'); ?>
     <div class="card"><div class="card-body">
       <div class="row adm-filtres align-items-end">
         <div class="col-md-4 col-lg-3 form-group">
@@ -26,8 +28,7 @@ page_script('assets/js/admin.js');
       <div class="table-responsive">
         <table id="table-entreprises" class="table table-striped adm-table w-100">
           <thead><tr>
-            <th scope="col">Code</th><th scope="col">Nom</th><th scope="col">Adresse</th>
-            <th scope="col" class="nombre">Emplacements actifs</th><th scope="col" class="nombre">Pièces en stock</th><th scope="col" class="nombre">Utilisateurs</th>
+            <th scope="col">Entreprise</th><th scope="col">Contenu</th>
             <th scope="col">Statut</th><th scope="col" class="no-print"><span class="sr-only">Actions</span></th>
           </tr></thead>
           <tbody></tbody>
@@ -38,7 +39,7 @@ page_script('assets/js/admin.js');
     </div></div>
   </div></section>
 
-  <div class="modal fade" id="modal-entreprise" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-entreprise-titre">
+  <div class="modal fade" id="modal-entreprise" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="modal-entreprise-titre" data-backdrop="static">
     <div class="modal-dialog modal-dialog-centered" role="document"><div class="modal-content">
       <form id="form-entreprise" novalidate autocomplete="off">
         <div class="modal-header"><h5 class="modal-title" id="modal-entreprise-titre">Entreprise</h5>
