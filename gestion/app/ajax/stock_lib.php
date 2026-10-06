@@ -96,7 +96,7 @@ final class Suivi
 			'uid' => $uid,
 			'role' => $u['role'],
 			'couts' => Inventaire::RANG[$u['role']] >= Inventaire::RANG[Inventaire::ROLE_MIN['voir_couts']],
-			'entreprises' => array_values(array_map('intval', $u['entreprises'])),
+			'entreprises' => array_values(array_map('intval', $u['consultables'])),   // y compris une entreprise désactivée : son historique reste lisible
 		);
 	}
 

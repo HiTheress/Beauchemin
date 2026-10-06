@@ -75,7 +75,7 @@ class Inventaire
 	//  Droits
 	// ======================================================================
 
-	/** @return array{id:int,role:string,entreprises:int[]} */
+	/** @return array{id:int,role:string,entreprises:int[],consultables:int[]} */
 	public function utilisateur($userId)
 	{
 		$st = $this->pdo->prepare('SELECT id, role, actif FROM utilisateurs WHERE id = ?');
@@ -84,6 +84,15 @@ class Inventaire
 		if (!$u || !$u['actif']) {
 			throw new InventaireException('Utilisateur introuvable ou désactivé.');
 		}
+		// Entreprises « consultables » : celles de l'utilisateur, ACTIVES OU NON (un document ou un mouvement d'une entreprise
+		// désactivée reste dans l'historique ; seules les écritures exigent une entreprise active).
+		if ($u['role'] === 'admin') {
+			$cons = $this->pdo->query('SELECT id FROM entreprises')->fetchAll(PDO::FETCH_COLUMN);
+		} else {
+			$sc = $this->pdo->prepare('SELECT entreprise_id FROM utilisateur_entreprises WHERE utilisateur_id = ?');
+			$sc->execute(array((int) $userId));
+			$cons = $sc->fetchAll(PDO::FETCH_COLUMN);
+		}
 		if ($u['role'] === 'admin') {
 			$ids = $this->pdo->query('SELECT id FROM entreprises WHERE actif = 1')->fetchAll(PDO::FETCH_COLUMN);
 		} else {
@@ -91,7 +100,7 @@ class Inventaire
 			$st->execute(array((int) $userId));
 			$ids = $st->fetchAll(PDO::FETCH_COLUMN);
 		}
-		return array('id' => (int) $u['id'], 'role' => $u['role'], 'entreprises' => array_map('intval', $ids));
+		return array('id' => (int) $u['id'], 'role' => $u['role'], 'entreprises' => array_map('intval', $ids), 'consultables' => array_map('intval', $cons));
 	}
 
 	/**
@@ -107,7 +116,8 @@ class Inventaire
 		}
 		$entrepriseIds = array_values(array_unique(array_map('intval', $entrepriseIds)));
 		if ($entrepriseIds) {
-			$ok = array_intersect($entrepriseIds, $u['entreprises']);
+			$lecture = in_array($operation, array('consulter', 'rapport', 'voir_couts'), true);
+			$ok = array_intersect($entrepriseIds, $lecture ? $u['consultables'] : $u['entreprises']);
 			$bon = ($mode === 'une') ? count($ok) > 0 : count($ok) === count($entrepriseIds);
 			if (!$bon) {
 				throw new InventaireException("Vous n'avez pas accès à cette entreprise.");
@@ -1214,13 +1224,13 @@ class Inventaire
 	}
 
 	/** Recherche rapide (liste déroulante / auto-complétion) par code, alias ou nom. */
-	public function piecesRecherche($userId, $terme, $limite = 20)
+	public function piecesRecherche($userId, $terme, $limite = 20, $inclureInactives = false)
 	{
 		$this->exiger($userId, 'consulter');
 		$terme = is_string($terme) ? $terme : '';
 		$mots = mb_check_encoding($terme, 'UTF-8') ? preg_split('/\s+/u', trim($terme), -1, PREG_SPLIT_NO_EMPTY) : array();
 		$mots = $mots === false ? array() : $mots;
-		$where = array('p.actif = 1');
+		$where = $inclureInactives ? array('1 = 1') : array('p.actif = 1');   // (l'historique doit pouvoir retrouver une pièce désactivée)
 		$params = array();
 		foreach (array_slice($mots, 0, 6) as $m) {
 			$like = '%' . self::likeEchapper($m) . '%';
@@ -1229,7 +1239,7 @@ class Inventaire
 		}
 		$limite = max(1, min(50, (int) $limite));
 		return $this->tous(
-			'SELECT DISTINCT p.id, p.code, p.nom, p.unite FROM pieces p LEFT JOIN pieces_codes pc ON pc.piece_id = p.id
+			'SELECT DISTINCT p.id, p.code, p.nom, p.unite, p.actif FROM pieces p LEFT JOIN pieces_codes pc ON pc.piece_id = p.id
 			  WHERE ' . implode(' AND ', $where) . ' ORDER BY p.nom LIMIT ' . $limite,
 			$params
 		);
@@ -1244,7 +1254,7 @@ class Inventaire
 	public function valeurInventaire($userId, array $entrepriseIds = array())
 	{
 		$u = $this->exiger($userId, 'rapport');
-		$ids = $entrepriseIds ? array_values(array_intersect(array_map('intval', $entrepriseIds), $u['entreprises'])) : $u['entreprises'];
+		$ids = $entrepriseIds ? array_values(array_intersect(array_map('intval', $entrepriseIds), $u['consultables'])) : $u['consultables'];
 		if (!$ids) {
 			return array('entreprises' => array(), 'emplacements' => array());
 		}
@@ -1316,15 +1326,15 @@ class Inventaire
 		if (!$d) {
 			throw new InventaireException('Document introuvable.');
 		}
-		$acces = in_array((int) $d['entreprise_id'], $u['entreprises'], true)
-			|| ($d['entreprise_dest_id'] && in_array((int) $d['entreprise_dest_id'], $u['entreprises'], true));
+		$acces = in_array((int) $d['entreprise_id'], $u['consultables'], true)
+			|| ($d['entreprise_dest_id'] && in_array((int) $d['entreprise_dest_id'], $u['consultables'], true));
 		if (!$acces) {
 			throw new InventaireException("Vous n'avez pas accès à ce document.");
 		}
-		if (!in_array((int) $d['entreprise_id'], $u['entreprises'], true)) {
+		if (!in_array((int) $d['entreprise_id'], $u['consultables'], true)) {
 			$d['emplacement'] = null;   // emplacement d'une autre entreprise : nom non communiqué
 		}
-		if ($d['entreprise_dest_id'] && !in_array((int) $d['entreprise_dest_id'], $u['entreprises'], true)) {
+		if ($d['entreprise_dest_id'] && !in_array((int) $d['entreprise_dest_id'], $u['consultables'], true)) {
 			$d['emplacement_dest'] = null;
 		}
 		$lignes = $this->tous(

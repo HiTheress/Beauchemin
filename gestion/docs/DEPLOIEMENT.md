@@ -87,6 +87,7 @@ sudo crontab -u www-data -e
 * **Restauration** (remplace toutes les données) : `sudo -u www-data /var/www/beauchemin/gestion/tools/restaurer.sh /var/backups/beauchemin/beauchemin_AAAA-MM-JJ_HHMMSS.sql.gz`.
   **Essayez une restauration dans une base de test au moins une fois** avant d'en avoir besoin : `DB_NAME=base_test tools/restaurer.sh fichier.sql.gz`.
 * L'administrateur peut aussi télécharger une sauvegarde depuis l'application (*Administration → Sauvegarde*).
+  Le fichier téléchargé est un `.sql.gz` du même format que la sauvegarde nocturne : il se restaure avec `tools/restaurer.sh`.
 
 ## 8. Charger les pièces et le stock de départ
 
@@ -112,6 +113,6 @@ sudo systemctl reload php8.3-fpm
 | Page blanche / erreur 500 | `sudo tail -50 /var/log/nginx/error.log` et le journal de PHP-FPM (`/var/log/php8.3-fpm.log`) |
 | « Erreur de connexion à la base de données » | `app/config/config.local.php` (utilisateur, mot de passe, nom), service `mariadb` démarré |
 | Déconnexions fréquentes | `session.gc_maxlifetime` (voir `php-production.ini`), et HTTPS bien configuré (cookie « secure ») |
-| Compte verrouillé | 5 échecs → verrou de 15 min ; un administrateur peut le lever dans *Utilisateurs* |
+| Connexion refusée (mot de passe correct) | 5 échecs depuis une même adresse sur un compte → cette adresse est refusée 15 min ; 20 échecs au total → compte verrouillé 15 min. Un administrateur le lève dans *Utilisateurs*. Si l'unique administrateur est bloqué : `tools/deverrouiller.sh <nom_utilisateur> [nouveau_mot_de_passe]` sur le serveur. |
 | Caméra refusée | la page doit être en **HTTPS** et l'accès à la caméra autorisé dans le navigateur |
 | Heures décalées | `date.timezone = America/Toronto` (php-production.ini) et heure du serveur à jour (`timedatectl`) |

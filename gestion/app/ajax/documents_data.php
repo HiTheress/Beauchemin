@@ -20,7 +20,7 @@ endpoint(function () {
 
 	// Entreprises de l'utilisateur : entiers issus de ses droits (jamais du navigateur), donc insérés tels quels
 	// (les expressions de colonnes ne peuvent pas porter de paramètres : elles ne figurent pas dans le comptage).
-	$acc = array_map('intval', $Ouser->entreprisesAutorisees());
+	$acc = array_map('intval', $Ouser->entreprisesConsultables());   // y compris une entreprise désactivée (historique)
 	$liste = $acc ? implode(',', $acc) : '0';
 
 	$where = array('(d.entreprise_id IN (' . $liste . ') OR d.entreprise_dest_id IN (' . $liste . '))');

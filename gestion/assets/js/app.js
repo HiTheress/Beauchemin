@@ -181,6 +181,12 @@
     sc.focus();   // le caractère de cette frappe est alors saisi dans le champ de scan
   }, true);
 
+  // ---- Titre d'onglet : celui de l'écran (le serveur envoie le même titre partout)
+  $(function () {
+    var h = document.querySelector('.content-header h1');
+    if (h && h.textContent.trim()) { document.title = h.textContent.trim() + ' — Beauchemin'; }
+  });
+
   // ---- Entreprise active (barre du haut) ---------------------------------------------------------
   $(function () {
     $('#entreprise-courante').on('change', function () {

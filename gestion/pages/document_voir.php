@@ -7,7 +7,7 @@ page_script('assets/js/mouvements.js');
 $id = (isset($_GET['id']) && is_string($_GET['id']) && ctype_digit($_GET['id']) && strlen($_GET['id']) < 10) ? (int) $_GET['id'] : 0;
 $gest = $Ouser->aRole('gestionnaire');
 $couts = $Ouser->peutVoirCouts();
-$acc = array_map('intval', $Ouser->entreprisesAutorisees());
+$acc = array_map('intval', $Ouser->entreprisesConsultables());
 
 $r = null;
 try { $r = inventaire()->document(utilisateur_id(), $id); } catch (InventaireException $ex) { $r = null; }   // inexistant ou inaccessible : même réponse

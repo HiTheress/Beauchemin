@@ -381,6 +381,22 @@ $_SESSION = array('user_id' => $gA);   // session sans version (ancienne) : refu
 egal(null, (new User($pdo))->courant(), 'session sans version : refusée');
 $_SESSION = array();
 
+// ---- entreprise désactivée : son historique reste lisible, mais plus rien ne s'y écrit ------------------------------------
+$docB = (int) val("SELECT id FROM documents WHERE entreprise_id = 2 OR entreprise_dest_id = 2 ORDER BY id DESC LIMIT 1");
+$pdo->exec("UPDATE entreprises SET actif = 0 WHERE id = 2");
+ok($inv->document($gB, $docB)['doc']['numero'] !== '', 'entreprise désactivée : un de ses utilisateurs lit encore ses documents');
+ok($inv->document($adm, $docB)['doc']['numero'] !== '', 'entreprise désactivée : l\'administrateur lit encore ses documents');
+egal(array(), $inv->utilisateur($gB)['entreprises'], 'entreprise désactivée : plus d\'entreprise « active » pour ses utilisateurs');
+ok(in_array(2, $inv->utilisateur($gB)['consultables'], true), 'entreprise désactivée : elle reste consultable');
+refuse(function () use ($inv, $gB, $E, $P) { $inv->sortir($gB, array('emplacement_id' => $E['BOUT'], 'motif' => 'service', 'lignes' => array(L($P['T1'], '1')))); }, 'introuvable', 'entreprise désactivée : aucune écriture (emplacement introuvable pour ses utilisateurs)');
+refuse(function () use ($inv, $adm, $E, $P) { $inv->sortir($adm, array('emplacement_id' => $E['BOUT'], 'motif' => 'service', 'lignes' => array(L($P['T1'], '1')))); }, 'introuvable', 'entreprise désactivée : aucune écriture, même pour l\'administrateur');
+ok(count($inv->valeurInventaire($adm)['entreprises']) >= 2, 'entreprise désactivée : encore dans la valeur d\'inventaire de l\'administrateur');
+$pdo->exec("UPDATE entreprises SET actif = 1 WHERE id = 2");
+// recherche de pièces : désactivées seulement sur demande
+$pdo->exec("INSERT INTO pieces (code, nom, actif) VALUES ('INACT9','Pièce rangée',0)");
+egal(0, count($inv->piecesRecherche($gA, 'INACT9')), 'piecesRecherche : une pièce désactivée n\'est pas proposée par défaut');
+egal(1, count($inv->piecesRecherche($gA, 'INACT9', 20, true)), 'piecesRecherche : ... mais l\'est quand on la demande (historique)');
+
 // coût moyen jamais remis à zéro par un retrait
 egal(10000, Dec::coutMoyenRetrait(10000, 10000, 5000, 30000), 'Dec : un retrait trop « cher » garde la moyenne actuelle (pas de 0)');
 egal(10000, Dec::coutMoyenRetrait(20000, 15000, 10000, 20000), 'Dec : retrait normal (20@1,50 moins 10@2,00 = 10@1,00)');

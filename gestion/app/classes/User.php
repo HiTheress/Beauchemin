@@ -44,6 +44,10 @@ class User {
 			redirect("login.php");
 		}
 
+		// Sérialise les tentatives d'un même couple (nom saisi, adresse IP) : le décompte des échecs ne peut pas être dépassé par des requêtes
+		// parallèles. Le verrou est relâché automatiquement à la fin de la requête (connexion fermée).
+		$this->pdo->query("SELECT GET_LOCK(" . $this->pdo->quote('bea_login_' . md5(mb_strtolower($username) . '|' . $ip)) . ", 5)");
+
 		$st = $this->pdo->prepare("SELECT * FROM utilisateurs WHERE nom_utilisateur = ? LIMIT 1");
 		$st->execute(array($username));
 		$u = $st->fetch();
@@ -53,8 +57,10 @@ class User {
 		// Limite par COUPLE compte + adresse IP : une adresse qui échoue trop souvent sur ce compte est refusée, sans bloquer le compte
 		// pour son vrai propriétaire (un tiers anonyme ne peut donc pas verrouiller le compte d'un collègue ni de l'administrateur).
 		if ($utilisable && !$verrouille) {
-			$st = $this->pdo->prepare("SELECT COUNT(*) FROM journal WHERE action = 'connexion.echec' AND entite = 'utilisateurs' AND entite_id = ? AND ip = ? AND date_action > ?");
-			$st->execute(array($u['id'], $ip, date('Y-m-d H:i:s', time() - self::VERROU_MINUTES * 60)));
+			// Seuls comptent les échecs APRÈS la dernière remise à zéro du compte (déverrouillage, réinitialisation ou changement de mot de passe).
+			$st = $this->pdo->prepare("SELECT COUNT(*) FROM journal j WHERE j.action = 'connexion.echec' AND j.entite = 'utilisateurs' AND j.entite_id = ? AND j.ip = ? AND j.date_action > ?
+				AND j.id > (SELECT COALESCE(MAX(r.id), 0) FROM journal r WHERE r.entite = 'utilisateurs' AND r.entite_id = ? AND r.action IN ('utilisateur.deverrouille', 'utilisateur.mdp_reinitialise', 'profil.mdp_change'))");
+			$st->execute(array($u['id'], $ip, date('Y-m-d H:i:s', time() - self::VERROU_MINUTES * 60), $u['id']));
 			if ((int) $st->fetchColumn() >= self::MAX_ECHECS_COUPLE) {
 				$verrouille = true;
 			}
@@ -88,7 +94,8 @@ class User {
 				Journal::ecrire($this->pdo, (int) $u['id'], 'utilisateur.verrouille', 'utilisateurs', (int) $u['id']);
 			}
 		}
-		Journal::ecrire($this->pdo, $u ? (int) $u['id'] : null, 'connexion.echec', 'utilisateurs', $u ? (int) $u['id'] : null, array('nom' => mb_substr($username, 0, 50)));
+		// Le nom saisi n'est journalisé QUE pour un compte qui existe (un mot de passe tapé par erreur dans ce champ ne doit pas rester en base).
+		Journal::ecrire($this->pdo, $u ? (int) $u['id'] : null, 'connexion.echec', 'utilisateurs', $u ? (int) $u['id'] : null, $u ? array('nom' => mb_substr($username, 0, 50)) : null);
 		sleep(1); // ralentit les essais répétés
 		$_SESSION['login_error'] = $erreur;
 		redirect("login.php");
@@ -115,9 +122,19 @@ class User {
 					$ids = $s2->fetchAll(PDO::FETCH_COLUMN);
 				}
 				$u['entreprises'] = array_map('intval', $ids);
+				// consultables = actives OU NON (historique d'une entreprise désactivée) ; admin : toutes
+				if ($u['role'] === 'admin') {
+					$cons = $this->pdo->query("SELECT id FROM entreprises ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+				} else {
+					$s3 = $this->pdo->prepare("SELECT entreprise_id FROM utilisateur_entreprises WHERE utilisateur_id = ? ORDER BY entreprise_id");
+					$s3->execute(array($id));
+					$cons = $s3->fetchAll(PDO::FETCH_COLUMN);
+				}
+				$u['consultables'] = array_map('intval', $cons);
 				$this->courant = $u;
 			} else {
 				unset($_SESSION['user_id'], $_SESSION['user_name'], $_SESSION['auth_v']);
+				$_SESSION['login_error'] = 'Votre session a pris fin. Veuillez vous reconnecter.';   // message neutre (compte désactivé, mot de passe changé ailleurs, ...)
 			}
 		}
 		return $this->courant;
@@ -149,6 +166,12 @@ class User {
 	public function entreprisesAutorisees() {
 		$u = $this->courant();
 		return $u ? $u['entreprises'] : array();
+	}
+
+	/** Entreprises consultables en lecture (actives ou non). @return int[] */
+	public function entreprisesConsultables() {
+		$u = $this->courant();
+		return $u ? $u['consultables'] : array();
 	}
 
 	public function peutAcces($entrepriseId) {

@@ -343,7 +343,7 @@
       placeholder: 'Toutes les pièces', allowClear: true,
       ajax: {
         url: 'app/ajax/pieces_recherche.php', dataType: 'json', delay: 250,
-        data: function (p) { return { q: p.term || '' }; },
+        data: function (p) { return { q: p.term || '', inactives: 1 }; },   // l'historique retrouve aussi les pièces désactivées
         processResults: function (r) {
           return { results: ((r && r.pieces) || []).map(function (x) { return { id: x.id, text: x.code + ' — ' + x.nom }; }) };
         }

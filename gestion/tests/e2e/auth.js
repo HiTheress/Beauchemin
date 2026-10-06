@@ -32,6 +32,27 @@ async function tenter(page, nom, mdp) {
   const proprio = await tenter(await (await b.newContext()).newPage(), 'gestionnaire1', 'Test-Beauchemin-1');
   L.verifier(proprio === 'CONNECTÉ', 'le propriétaire se connecte malgré 12 échecs venant d\'une autre adresse : ' + proprio);
   L.verifier(sql("SELECT verrouille_jusqua IS NULL FROM utilisateurs WHERE nom_utilisateur = 'gestionnaire1'") === '1', 'le compte n\'est pas verrouillé par les échecs d\'un tiers');
+  // « Déverrouiller » rend la connexion possible tout de suite (même adresse) : les échecs antérieurs ne comptent plus
+  const idE = sql("SELECT id FROM utilisateurs WHERE nom_utilisateur = 'employe1'");
+  sql("UPDATE utilisateurs SET tentatives_echec = 0, verrouille_jusqua = NULL WHERE nom_utilisateur = 'employe1'");
+  sql("DELETE FROM journal WHERE entite_id = " + idE + " AND action IN ('connexion.echec', 'utilisateur.deverrouille')");
+  const ctxU = await b.newContext(); const pu = await ctxU.newPage();
+  for (let i = 0; i < 5; i++) { await tenter(pu, 'employe1', 'mauvais'); }
+  const refuse5 = await tenter(pu, 'employe1', 'Test-Beauchemin-1');
+  L.verifier(refuse5 !== 'CONNECTÉ', 'après 5 échecs de cette adresse : refusé même avec le bon mot de passe');
+  sql("INSERT INTO journal (date_action, utilisateur_id, action, entite, entite_id) VALUES (NOW(), NULL, 'utilisateur.deverrouille', 'utilisateurs', " + idE + ")");
+  const apres = await tenter(pu, 'employe1', 'Test-Beauchemin-1');
+  L.verifier(apres === 'CONNECTÉ', 'après « Déverrouiller » : la connexion est possible tout de suite depuis la même adresse (' + apres + ')');
+  // un nom saisi pour un compte inexistant n'est pas conservé dans le journal
+  await tenter(await (await b.newContext()).newPage(), 'MotDePasseTapeParErreur-123', 'x');
+  L.verifier(sql("SELECT COUNT(*) FROM journal WHERE details LIKE '%MotDePasseTapeParErreur%'") === '0', 'nom saisi pour un compte inexistant : absent du journal');
+  // un compte désactivé / un mot de passe changé ailleurs : message neutre sur la page de connexion
+  const ctxS = await b.newContext(); const ps = await ctxS.newPage();
+  await tenter(ps, 'employe1', 'Test-Beauchemin-1');
+  sql("UPDATE utilisateurs SET mdp_version = mdp_version + 1 WHERE nom_utilisateur = 'employe1'");
+  await ps.goto(base + '/index.php'); await ps.waitForLoadState('load');
+  const msg = ((await ps.textContent('.alert-danger').catch(() => '')) || '').trim();
+  L.verifier(/session a pris fin/.test(msg), 'session refusée : message neutre « ' + msg + ' »');
   // téléchargement après expiration de session : redirection vers la connexion, pas du JSON brut
   const ctxSans = await b.newContext(); const q = await ctxSans.newPage();
   await q.goto(base + '/app/ajax/code128.php?texte=ABC', { waitUntil: 'load' });

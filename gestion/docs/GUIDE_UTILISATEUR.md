@@ -124,7 +124,7 @@ Quand on annule une **réception** qui avait mis à jour les prix du fournisseur
 | « Stock insuffisant… » | Il n'y a pas assez à cet emplacement : vérifiez l'emplacement choisi, ou faites un comptage. |
 | La page dit « Session expirée » | Reconnectez-vous ; vos données non enregistrées ne sont pas gardées. |
 | Le scan ne tape rien | Cliquez dans le champ de scan bleu ; vérifiez que le lecteur envoie bien « Entrée » après le code. |
-| Une erreur « Compte verrouillé » | Attendez 15 minutes ou demandez à un administrateur de le débloquer. |
+| La connexion est refusée alors que le mot de passe est correct | Le compte ou votre adresse est peut-être verrouillé (15 minutes après plusieurs échecs) : attendez, ou demandez à un administrateur de le déverrouiller (*Administration → Utilisateurs*). Le message d'erreur est volontairement toujours le même. |
 | Un chiffre vous semble faux | Ouvrez *Historique des mouvements* pour la pièce : chaque variation y est tracée avec son document et son auteur. |
 
 ## 8. Mise en route (liste de contrôle)
