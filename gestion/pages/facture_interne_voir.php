@@ -24,9 +24,9 @@ if ($r && $r['doc']['type'] !== 'facture_interne') {
 if (!$r) {
 	http_response_code($refus ? 403 : 404);
 	?>
-<div class="content-wrapper"><?php page_titre($refus ? 'Accès refusé' : 'Facture introuvable', array('Rapports', 'Factures internes')); ?>
+<div class="content-wrapper"><?php page_titre($refus ? 'Accès refusé' : 'Facture introuvable', array('Facturation', 'Factures')); ?>
   <section class="content"><div class="container-fluid">
-    <div class="alert alert-<?php echo $refus ? 'danger' : 'warning'; ?>" role="alert"><?php echo e($erreur_doc); ?> <a class="alert-link" href="index.php?page=factures_internes">Retour à la liste des factures internes</a></div>
+    <div class="alert alert-<?php echo $refus ? 'danger' : 'warning'; ?>" role="alert"><?php echo e($erreur_doc); ?> <a class="alert-link" href="index.php?page=factures_internes">Retour aux factures</a></div>
   </div></section>
 </div>
 <?php return; }
@@ -35,7 +35,7 @@ $d = $r['doc'];
 $lignes = $r['lignes'];
 $annule = ($d['statut'] === 'annule');
 // Seule l'entreprise qui a ÉMIS la facture peut l'annuler (règle du service) : le destinataire voit la facture, sans le bouton,
-// avec l'explication de la marche à suivre (facture en sens inverse).
+// avec une petite icône d'information (infobulle) qui dit pourquoi.
 $peut_annuler = !$annule && $Ouser->peutAcces((int) $d['entreprise_id']);
 $moment = function ($s) { return $s ? substr((string) $s, 0, 16) : ''; };
 $qte = function ($s) { return Interentreprise::nombre($s); };
@@ -49,21 +49,20 @@ $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
 ?>
 <?php echo $css; ?>
 <div class="content-wrapper" data-ie="facture_interne_voir" data-document-id="<?php echo (int) $d['id']; ?>" data-numero="<?php echo e($d['numero']); ?>" data-titre="<?php echo e('Facture interne ' . $d['numero'] . ' — Beauchemin'); ?>">
-  <?php page_titre($d['numero'], array('Rapports', 'Factures internes')); ?>
+  <?php page_titre($d['numero'], array('Facturation', 'Factures')); ?>
   <section class="content"><div class="container-fluid">
 
-    <?php if ($flash) { ?><div class="alert ie-succes no-print" role="status" id="flash-annule"><i class="fas fa-check-circle mr-1" aria-hidden="true"></i> La facture <strong><?php echo e($d['numero']); ?></strong> a été annulée : les pièces sont retournées à l'emplacement source de <?php echo e($d['entreprise']); ?> et ont quitté l'emplacement de destination de <?php echo e($d['entreprise_dest']); ?>.</div><?php } ?>
+    <?php if ($flash) { ?><div class="alert ie-succes no-print" role="status" id="flash-annule"><i class="fas fa-check-circle mr-1" aria-hidden="true"></i> Facture <strong><?php echo e($d['numero']); ?></strong> annulée.</div><?php } ?>
 
     <div class="mb-3 no-print ie-barre">
-      <a class="btn btn-outline-secondary" href="index.php?page=factures_internes"><i class="fas fa-arrow-left mr-1" aria-hidden="true"></i> Liste des factures</a>
-      <button type="button" class="btn btn-outline-secondary" id="btn-imprimer"><i class="fas fa-print mr-1" aria-hidden="true"></i> Imprimer</button>
+      <a class="btn btn-outline-secondary" href="index.php?page=factures_internes"><i class="fas fa-arrow-left mr-1" aria-hidden="true"></i> Factures</a>
+      <button type="button" class="btn btn-primary" id="btn-imprimer"><i class="fas fa-print mr-1" aria-hidden="true"></i> Imprimer</button>
       <?php if ($peut_annuler) { ?>
-        <button type="button" class="btn ie-btn-danger" id="btn-annuler"><i class="fas fa-ban mr-1" aria-hidden="true"></i> Annuler cette facture</button>
+        <button type="button" class="btn ie-btn-danger" id="btn-annuler"><i class="fas fa-ban mr-1" aria-hidden="true"></i> Annuler la facture</button>
+      <?php } elseif (!$annule) { $info_annul = 'Seule l\'entreprise émettrice (' . $d['entreprise'] . ') peut annuler cette facture.'; ?>
+        <span class="ie-info" id="annulation-emettrice" tabindex="0" role="img" aria-label="<?php echo e($info_annul); ?>" title="<?php echo e($info_annul); ?>"><i class="fas fa-info-circle" aria-hidden="true"></i></span>
       <?php } ?>
     </div>
-    <?php if (!$annule && !$peut_annuler) { ?>
-    <p class="text-muted no-print" id="annulation-emettrice"><i class="fas fa-info-circle mr-1" aria-hidden="true"></i> Seule l'entreprise émettrice (<?php echo e($d['entreprise']); ?>) peut annuler cette facture. Pour la défaire, demandez-lui de l'annuler ou faites émettre une facture en sens inverse.</p>
-    <?php } ?>
 
     <article class="card ie-facture<?php echo $annule ? ' ie-annulee' : ''; ?>" id="facture" aria-label="Facture interne <?php echo e($d['numero']); ?>">
       <?php if ($annule) { ?><div class="ie-filigrane" aria-hidden="true">ANNULÉE</div><?php } ?>
@@ -81,7 +80,6 @@ $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
         <header class="ie-entete">
           <div>
             <h2 class="ie-titre">FACTURE INTERNE</h2>
-            <div class="ie-sous-titre">Facturation entre entreprises, au coût</div>
           </div>
           <dl class="ie-meta">
             <dt>Numéro</dt><dd class="code font-weight-bold"><?php echo e($d['numero']); ?></dd>
@@ -125,8 +123,6 @@ $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
           </table>
         </div>
 
-        <p class="ie-mention"><i class="fas fa-info-circle mr-1" aria-hidden="true"></i> Facturé au coût — aucune marge</p>
-
         <?php if ($d['note'] !== null && $d['note'] !== '') { ?>
         <div class="ie-note"><strong>Note</strong><div class="ie-note-texte"><?php echo e($d['note']); ?></div></div>
         <?php } ?>
@@ -150,16 +146,16 @@ $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
       <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
     </div>
     <div class="modal-body">
-      <p>Les pièces retourneront à l'emplacement source de <?php echo e($d['entreprise']); ?> et quitteront l'emplacement de destination de <?php echo e($d['entreprise_dest']); ?>. La facture reste dans la liste, marquée «&nbsp;ANNULÉE&nbsp;», et n'est plus comptée dans le bilan. Si les pièces ont déjà été sorties de la destination, l'annulation est refusée.</p>
+      <p>Les pièces retourneront chez <?php echo e($d['entreprise']); ?> et quitteront <?php echo e($d['entreprise_dest']); ?> : l'annulation est définitive.</p>
       <div class="form-group mb-2">
-        <label for="annuler-motif">Motif de l'annulation <span class="text-danger" aria-hidden="true">*</span><span class="sr-only">(obligatoire)</span></label>
-        <textarea id="annuler-motif" class="form-control" rows="3" maxlength="255" required aria-required="true" placeholder="Par exemple : erreur de quantité, mauvaise destination…"></textarea>
+        <label for="annuler-motif">Motif <span class="text-danger" aria-hidden="true">*</span><span class="sr-only">(obligatoire)</span></label>
+        <textarea id="annuler-motif" class="form-control" rows="3" maxlength="255" required aria-required="true" placeholder="Ex. : erreur de quantité"></textarea>
       </div>
       <div id="annuler-erreur" class="alert alert-danger mb-0" role="alert" hidden></div>
     </div>
     <div class="modal-footer">
-      <button type="button" class="btn btn-outline-secondary" data-dismiss="modal" id="annuler-retour">Retour</button>
-      <button type="button" class="btn ie-btn-danger" id="annuler-confirmer">Annuler cette facture</button>
+      <button type="button" class="btn btn-outline-secondary" data-dismiss="modal" id="annuler-retour">Garder la facture</button>
+      <button type="button" class="btn ie-btn-danger" id="annuler-confirmer">Annuler la facture</button>
     </div>
   </div></div>
 </div>

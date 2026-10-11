@@ -82,7 +82,7 @@ $config = array('formats' => $formats, 'format_defaut' => 'feuille30', 'prefill'
             <div class="scan-box et-scan-box"><input id="et-scan" class="form-control scan-input" autocomplete="off" inputmode="none" placeholder="Scanner un code"></div>
           </div>
         </div>
-        <button type="button" id="et-plus" class="btn btn-link et-plus" data-toggle="collapse" data-target="#et-options" aria-expanded="false" aria-controls="et-options">Plus d'options <i class="fas fa-caret-down" aria-hidden="true"></i></button>
+        <button type="button" id="et-plus" class="btn btn-link a2-plus" data-toggle="collapse" data-target="#et-options" aria-expanded="false" aria-controls="et-options">Plus d'options <i class="fas fa-caret-down" aria-hidden="true"></i></button>
         <div id="et-options" class="collapse">
           <div class="form-row et-options-ligne">
             <div class="form-group col-md-8">

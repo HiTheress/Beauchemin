@@ -2,7 +2,7 @@
  * Les variables --pg-*, --et-*, --cols… sont posées par assets/js/etiquettes.js à partir du format choisi. */
 
 .et-table td, .et-table th { vertical-align: middle; }
-.et-table .btn, .et-copies-input, #et-ajouter-categorie, #et-tous-emplacements, #et-imprimer, #et-vider, #et-vide-action, .et-plus { min-height: 44px; }
+.et-table .btn, .et-copies-input, #et-ajouter-categorie, #et-tous-emplacements, #et-imprimer, #et-vider, #et-vide-action { min-height: 44px; }
 .et-table .btn { min-width: 44px; }
 .et-table td.code { white-space: nowrap; }
 .et-badge-type { font-weight: 500; }
@@ -11,10 +11,6 @@
 .a2-page .et-scan-box input.scan-input { font-size: 1rem; letter-spacing: normal; padding: .375rem .75rem; min-height: 44px; }
 .et-scan-box { padding: 0; }
 
-/* « Plus d'options » : lien discret, flèche qui se retourne à l'ouverture */
-.et-plus { padding-left: 0; padding-right: .5rem; display: inline-flex; align-items: center; gap: .4rem; }
-.et-plus .fa-caret-down { transition: transform .15s; }
-.et-plus[aria-expanded="true"] .fa-caret-down { transform: rotate(180deg); }
 #et-options { padding-top: .5rem; }
 #et-options .form-group label { margin-bottom: .25rem; }
 

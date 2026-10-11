@@ -4,6 +4,7 @@
 .ie-carte .form-control, .ie-carte .btn { min-height: 44px; }
 .ie-carte textarea.form-control { min-height: 70px; }
 .ie-carte .btn-sm { min-height: 44px; }
+.ie-valeur-entete { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
 .ie-valeur-entete .btn { min-height: 44px; }
 .ie-lien-tactile { display: inline-flex; align-items: center; min-height: 44px; }       /* liens de tableau : zone tactile d'au moins 44 px de haut */
 .ie-bilan-factures td, .ie-bilan-pieces td { vertical-align: middle; }
@@ -16,17 +17,29 @@
 .modal .btn, .modal .form-control { min-height: 44px; }
 .modal textarea.form-control { min-height: 88px; }
 
+/* Nouvelle facture : « qui facture à qui » en grosses cartes */
+.ie-trajet { border: 0; padding: 0; margin: 0 0 1rem; min-width: 0; }
+.ie-carte .ie-legende { display: block; width: auto; padding: 0; margin: 0 0 .4rem; font-size: .9rem; font-weight: 600; color: #343a40; }
+.ie-trajet-choix { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .75rem; }
+.ie-carte label.ie-trajet-carte { position: relative; display: flex; align-items: center; justify-content: center; gap: .75rem; min-height: 76px; margin: 0; padding: .75rem 1rem;
+  border: 2px solid var(--line-strong, #ced4da); border-radius: 18px; background: var(--surface); cursor: pointer; font-size: 1.2rem; font-weight: 700; color: var(--ink); text-align: center; line-height: 1.25; }
+.ie-carte label.ie-trajet-carte:hover { border-color: var(--accent); }
+.ie-carte label.ie-trajet-carte.ie-choisie { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 4px var(--accent-ring); }
+.ie-carte label.ie-trajet-carte.ie-suggere { border-style: dashed; border-color: var(--accent); }
+.ie-carte label.ie-trajet-carte:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; }
+.ie-trajet-fleche { flex: 0 0 auto; color: var(--accent-ink, var(--accent)); font-size: 1.3rem; }
+.ie-trajet-nom { min-width: 0; overflow-wrap: anywhere; }
+.ie-trajet.is-invalid .ie-trajet-carte { border-color: #dc3545; }
+
 /* Facture interne : champ de scan et lignes */
 .ie-scan { margin-top: .25rem; }
-.ie-scan-label { display: block; font-weight: 600; color: var(--accent); margin-bottom: .3rem; }
-.ie-aide-scan { margin: -.25rem 0 .75rem; }
 .ie-entete-form label { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ie-recap { margin: .75rem 0 .5rem; padding: .5rem .75rem; background: var(--accent-soft); border: 1px solid var(--line-strong); border-radius: .25rem; font-size: 1.05rem; }
 .ie-scan .scan-input::placeholder { color: #6c757d; opacity: 1; }          /* contraste 4,6:1 (le thème donne 2,8:1) */
 .ie-lignes table { background: var(--surface); }
 .ie-lignes td, .ie-lignes th { vertical-align: middle; }
 .ie-lignes input.form-control { min-width: 84px; min-height: 44px; }
 .ie-lignes .btn { min-width: 44px; min-height: 44px; }
+.ie-lignes td.ie-attente { white-space: nowrap; }
 .ie-lignes input.is-invalid { border-color: #dc3545; }
 .ie-lignes th { white-space: nowrap; }
 .ie-lignes td.code { white-space: nowrap; }
@@ -34,9 +47,9 @@
 .ie-lignes td.ie-attente { color: #6c757d; font-style: italic; }
 .ie-lignes .badge-sans-cout { background: #dc3545; color: #fff; font-size: .8rem; }
 .ie-lignes tr.ie-ligne-sans-cout td { background: #fff5f5; }
-.ie-total-general { margin: .75rem 0 0; font-size: 1.25rem; font-weight: 600; text-align: right; }
+.ie-total-general { margin: 0; font-size: 1.3rem; font-weight: 600; }
 .ie-total-general:empty { display: none; }
-.ie-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+.ie-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1rem; margin-top: .5rem; }
 .ie-actions .btn-lg { min-height: 52px; padding-left: 1.75rem; padding-right: 1.75rem; }
 .ie-erreur, .ie-succes { font-size: 1.05rem; }
 .ie-succes { background: #1e7e34; border-color: #1e7e34; color: #fff; }      /* blanc sur #1e7e34 : 5,1:1 (le vert du thème donne 3,1:1) */
@@ -54,6 +67,12 @@
 .ie-btn-danger[disabled] { opacity: .65; }
 
 /* Liste des factures */
+.ie-liste-barre { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: flex-start; }
+.ie-liste-recherche { flex: 1 1 260px; margin: 0 0 1rem; }
+.ie-liste-nouveau { flex: 0 0 auto; }
+.ie-carte .ie-plus-btn { padding-left: 0; padding-right: .75rem; font-weight: 600; color: var(--accent-ink, var(--accent)); text-decoration: none; }
+.ie-carte .ie-plus-btn:hover { text-decoration: underline; }
+.ie-plus-icone { display: inline-block; width: 1rem; font-size: .8rem; }
 .ie-filtres label { display: block; margin-bottom: .2rem; font-size: .85rem; color: #495057; }
 .ie-filtres .form-control { min-height: 44px; }
 #table-factures tbody tr td { padding-top: .7rem; padding-bottom: .7rem; }   /* lignes ≥ 44 px */
@@ -68,11 +87,12 @@
 .ie-totaux strong { font-size: 1.2rem; }
 
 /* Facture imprimable */
+.ie-info { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; color: #6c757d; font-size: 1.3rem; cursor: help; vertical-align: middle; }
+.ie-info-icone { cursor: help; }
 .ie-facture { position: relative; overflow: hidden; max-width: 900px; margin-left: auto; margin-right: auto; }
 .ie-facture .card-body { padding: 2rem; position: relative; z-index: 1; }
 .ie-entete { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; border-bottom: 3px solid var(--ink); padding-bottom: .75rem; margin-bottom: 1.25rem; }
 .ie-titre { font-size: 2rem; font-weight: 800; letter-spacing: .08em; margin: 0; color: var(--ink); }
-.ie-sous-titre { color: #6c757d; }
 .ie-meta { display: grid; grid-template-columns: auto auto; gap: .15rem 1rem; margin: 0; }
 .ie-meta dt { font-weight: 600; color: #495057; text-align: right; }
 .ie-meta dd { margin: 0; }
@@ -82,7 +102,6 @@
 .ie-partie-nom { font-size: 1.25rem; font-weight: 700; margin: 0 0 .25rem; }
 .ie-table-facture th { border-top: 0; border-bottom: 2px solid var(--ink); }
 .ie-ligne-total th { font-size: 1.15rem; border-top: 2px solid var(--ink); }
-.ie-mention { margin: 1rem 0; font-weight: 700; font-size: 1.05rem; text-align: center; padding: .5rem; border: 1px dashed #6c757d; border-radius: .25rem; }
 .ie-note { margin-top: 1rem; }
 .ie-note-texte { white-space: pre-wrap; }
 .ie-signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; margin-top: 3rem; }
@@ -94,9 +113,18 @@
 .ie-filigrane { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-20deg); font-size: 6.5rem; font-weight: 900; letter-spacing: .1em; color: rgba(220, 53, 69, .16); border: .45rem solid rgba(220, 53, 69, .16); padding: 0 1.5rem; pointer-events: none; user-select: none; z-index: 0; white-space: nowrap; }
 
 /* Bilan mensuel */
-.ie-bilan-titre { font-size: 1.6rem; font-weight: 700; margin: .25rem 0; }
-.ie-bilan-paire { color: #495057; margin-bottom: 1rem; }
-.ie-nav-mois .btn { margin-right: .25rem; }
+.ie-bilan-barre { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; }
+.ie-nav-mois { display: flex; align-items: center; gap: .75rem; }
+.ie-nav-btn { width: 52px; height: 52px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 1.15rem; border-radius: 50%; }
+.ie-bilan-titre { font-size: 1.7rem; font-weight: 700; margin: 0; min-width: 9.5ch; text-align: center; text-transform: capitalize; }
+.ie-bilan-outils { display: flex; flex-wrap: wrap; gap: .5rem; }
+.ie-bilan-outils .btn { min-height: 44px; }
+.ie-bilan-paire { color: #495057; margin: -.5rem 0 1rem; }
+.ie-bilan-plus { margin-bottom: 1rem; }
+.ie-bilan-plus .ie-options-liste { margin: .25rem 0 0; padding: 1rem 1rem .25rem; background: rgba(0, 0, 0, .03); border-radius: 16px; }
+.ie-bilan-plus .form-control, .ie-bilan-plus .btn { min-height: 44px; }
+.ie-bilan-plus label { margin-bottom: .2rem; font-size: .9rem; color: #343a40; }
+.ie-bilan-factures td.code, .ie-bilan-pieces td.code { white-space: nowrap; }
 .ie-solde { background: var(--surface); border: 2px solid var(--ink); border-left-width: 10px; border-radius: .35rem; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
 .ie-solde-texte { font-size: 1.9rem; font-weight: 600; line-height: 1.3; }
 .ie-solde-qui { font-weight: 800; }
@@ -107,7 +135,6 @@
 .ie-sous-section:first-of-type { margin-top: 0; }
 .ie-total-sens { font-size: 1.15rem; }
 .ie-note-ligne { white-space: pre-wrap; }
-.ie-bilan-pied { margin-top: .5rem; }
 .ie-impression-entete { font-size: 10pt; color: #555; margin-bottom: .5rem; }
 
 /* Valeur de l'inventaire */
@@ -131,10 +158,16 @@
 
 @media (max-width: 767.98px) {
   .ie-actions .btn-lg { width: 100%; }
+  .ie-bilan-titre { font-size: 1.4rem; }
   .ie-parties, .ie-signatures { grid-template-columns: 1fr; }
   .ie-solde-texte { font-size: 1.4rem; }
   .ie-filigrane { font-size: 3.5rem; }
   .ie-facture .card-body { padding: 1rem; }
+}
+
+@media (max-width: 575.98px) {
+  .ie-liste-nouveau { order: -1; width: 100%; }
+  .ie-carte label.ie-trajet-carte { font-size: 1.1rem; }
 }
 
 @media print {

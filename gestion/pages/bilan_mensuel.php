@@ -2,7 +2,8 @@
 // Bilan mensuel des factures internes entre deux entreprises (gestionnaire+) : factures et pièces regroupées de chaque sens,
 // puis le solde. Tous les montants viennent de inventaire()->bilanMensuel (les factures annulées n'y figurent pas).
 // URL : annee, mois (défaut : mois courant), a et b (paire d'entreprises, seulement s'il y a plus de deux entreprises).
-// Le formulaire de choix (mois, année, paire) est TOUJOURS affiché, même si la paire demandée est refusée.
+// Écran : une phrase (qui doit combien à qui), le sélecteur ‹ mois ›, puis le détail. Le choix d'un autre mois ou d'une autre paire
+// est caché derrière « Plus d'options » (ouvert d'office si la paire demandée est refusée).
 if (!acces_page('gestionnaire')) { return; }
 require_once __DIR__ . '/../app/action/facture_lib.php';
 page_script('assets/js/interentreprise.js');
@@ -63,90 +64,92 @@ if ($r) {
 	);
 	$titre_onglet = 'Bilan ' . $periode_de . ' — ' . $noms[$a] . ' et ' . $noms[$b];
 } else {
-	$titre_onglet = 'Bilan mensuel — Beauchemin';
+	$titre_onglet = 'Bilan du mois — Beauchemin';
 }
 echo $css;
 ?>
 <div class="content-wrapper" data-ie="bilan_mensuel" data-titre="<?php echo e($titre_onglet); ?>">
-  <?php page_titre('Bilan mensuel', array('Rapports')); ?>
+  <?php page_titre('Bilan du mois', array('Facturation')); ?>
   <section class="content"><div class="container-fluid">
 
-    <?php if ($toutes) { ?>
-    <div class="card ie-carte no-print"><div class="card-body">
-      <form method="get" action="index.php" class="ie-form-bilan" id="form-bilan">
-        <input type="hidden" name="page" value="bilan_mensuel">
-        <div class="form-row align-items-end">
-          <div class="col-auto form-group">
-            <label for="b-mois">Mois</label>
-            <select id="b-mois" name="mois" class="form-control">
-              <?php foreach (MOIS_FR as $n => $lib) { ?><option value="<?php echo (int) $n; ?>"<?php echo $mois === $n ? ' selected' : ''; ?>><?php echo e($mois_cap($n)); ?></option><?php } ?>
-            </select>
-          </div>
-          <div class="col-auto form-group">
-            <label for="b-annee">Année</label>
-            <select id="b-annee" name="annee" class="form-control">
-              <?php foreach ($annees as $y) { ?><option value="<?php echo (int) $y; ?>"<?php echo $annee === $y ? ' selected' : ''; ?>><?php echo (int) $y; ?></option><?php } ?>
-            </select>
-          </div>
-          <?php if ($plusDeDeux) { ?>
-          <div class="col-auto form-group">
-            <label for="b-a">Entre l'entreprise</label>
-            <select id="b-a" name="a" class="form-control">
-              <?php foreach ($toutes as $en) { if (!in_array((int) $en['id'], $miennes, true)) { continue; } ?><option value="<?php echo (int) $en['id']; ?>"<?php echo $a === (int) $en['id'] ? ' selected' : ''; ?>><?php echo e($en['nom']); ?></option><?php } ?>
-            </select>
-          </div>
-          <div class="col-auto form-group">
-            <label for="b-b">et l'entreprise</label>
-            <select id="b-b" name="b" class="form-control">
-              <?php foreach ($toutes as $en) { ?><option value="<?php echo (int) $en['id']; ?>"<?php echo $b === (int) $en['id'] ? ' selected' : ''; ?>><?php echo e($en['nom']); ?></option><?php } ?>
-            </select>
-          </div>
-          <?php } ?>
-          <div class="col-auto form-group"><button type="submit" class="btn btn-outline-primary">Afficher</button></div>
-          <?php if ($r) { ?>
-          <div class="col-auto form-group ie-nav-mois">
-            <?php if ($peut_prec) { ?><a class="btn btn-outline-secondary" id="b-prec" href="<?php echo e($url($prec[0], $prec[1])); ?>"><i class="fas fa-chevron-left mr-1" aria-hidden="true"></i> Mois précédent</a><?php } ?>
-            <?php if ($peut_suiv) { ?><a class="btn btn-outline-secondary" id="b-suiv" href="<?php echo e($url($suiv[0], $suiv[1])); ?>">Mois suivant <i class="fas fa-chevron-right ml-1" aria-hidden="true"></i></a>
-            <?php } else { ?><span class="btn btn-outline-secondary disabled" aria-disabled="true" id="b-suiv-off">Mois suivant <i class="fas fa-chevron-right ml-1" aria-hidden="true"></i></span><?php } ?>
-          </div>
-          <div class="col-auto form-group ml-lg-auto">
-            <a class="btn btn-outline-secondary" id="btn-csv" href="<?php echo e($lien_csv); ?>"><i class="fas fa-file-csv mr-1" aria-hidden="true"></i> Exporter (CSV)</a>
-            <button type="button" class="btn btn-outline-secondary" id="btn-imprimer"><i class="fas fa-print mr-1" aria-hidden="true"></i> Imprimer</button>
-          </div>
-          <?php } ?>
-        </div>
-      </form>
-      <?php if ($r) { ?>
-      <p class="mb-0 small">
-        <?php if ($nb_annulees > 0) { ?>
-          <i class="fas fa-ban text-danger mr-1" aria-hidden="true"></i> <a id="lien-annulees" class="ie-lien-tactile" href="<?php echo e($lien_annulees); ?>"><?php echo $nb_annulees === 1 ? '1 facture annulée' : (int) $nb_annulees . ' factures annulées'; ?> en <?php echo e($periode); ?></a> (non comptée<?php echo $nb_annulees === 1 ? '' : 's'; ?> dans ce bilan)
-        <?php } else { ?>
-          <span class="text-muted" id="lien-annulees-aucune">Aucune facture annulée pour <?php echo e($periode); ?>.</span>
-        <?php } ?>
-      </p>
-      <?php } ?>
-    </div></div>
+    <?php if ($r) { ?>
+    <div class="ie-bilan-barre no-print">
+      <div class="ie-nav-mois" role="group" aria-label="Mois">
+        <?php if ($peut_prec) { ?><a class="btn btn-outline-secondary ie-nav-btn" id="b-prec" href="<?php echo e($url($prec[0], $prec[1])); ?>" aria-label="Mois précédent" title="Mois précédent"><i class="fas fa-chevron-left" aria-hidden="true"></i></a><?php } ?>
+        <h2 class="ie-bilan-titre"><?php echo e($periode); ?></h2>
+        <?php if ($peut_suiv) { ?><a class="btn btn-outline-secondary ie-nav-btn" id="b-suiv" href="<?php echo e($url($suiv[0], $suiv[1])); ?>" aria-label="Mois suivant" title="Mois suivant"><i class="fas fa-chevron-right" aria-hidden="true"></i></a>
+        <?php } else { ?><span class="btn btn-outline-secondary ie-nav-btn disabled" aria-disabled="true" id="b-suiv-off" aria-label="Mois suivant" title="Mois suivant"><i class="fas fa-chevron-right" aria-hidden="true"></i></span><?php } ?>
+      </div>
+      <div class="ie-bilan-outils">
+        <a class="btn btn-outline-secondary" id="btn-csv" href="<?php echo e($lien_csv); ?>"><i class="fas fa-file-csv mr-1" aria-hidden="true"></i> Exporter</a>
+        <button type="button" class="btn btn-outline-secondary" id="btn-imprimer"><i class="fas fa-print mr-1" aria-hidden="true"></i> Imprimer</button>
+      </div>
+    </div>
     <?php } ?>
 
     <?php if (!$r) { ?>
     <div class="alert alert-warning" role="alert"><?php echo e($erreur !== null ? $erreur : 'Le bilan est indisponible.'); ?><?php echo ($plusDeDeux && $toutes) ? ' Choisissez une paire qui comprend l\'une de vos entreprises.' : ''; ?></div>
+    <?php } ?>
+
+    <?php if ($toutes) { ?>
+    <div class="ie-bilan-plus no-print">
+      <button type="button" id="b-plus" class="btn btn-link ie-plus-btn" aria-expanded="<?php echo $r ? 'false' : 'true'; ?>" aria-controls="b-options"><i class="fas fa-chevron-<?php echo $r ? 'right' : 'down'; ?> ie-plus-icone" aria-hidden="true"></i> Plus d'options</button>
+      <div id="b-options" class="ie-options-liste"<?php echo $r ? ' hidden' : ''; ?>>
+        <form method="get" action="index.php" class="ie-form-bilan" id="form-bilan">
+          <input type="hidden" name="page" value="bilan_mensuel">
+          <div class="form-row align-items-end">
+            <div class="col-auto form-group">
+              <label for="b-mois">Mois</label>
+              <select id="b-mois" name="mois" class="form-control">
+                <?php foreach (MOIS_FR as $n => $lib) { ?><option value="<?php echo (int) $n; ?>"<?php echo $mois === $n ? ' selected' : ''; ?>><?php echo e($mois_cap($n)); ?></option><?php } ?>
+              </select>
+            </div>
+            <div class="col-auto form-group">
+              <label for="b-annee">Année</label>
+              <select id="b-annee" name="annee" class="form-control">
+                <?php foreach ($annees as $y) { ?><option value="<?php echo (int) $y; ?>"<?php echo $annee === $y ? ' selected' : ''; ?>><?php echo (int) $y; ?></option><?php } ?>
+              </select>
+            </div>
+            <?php if ($plusDeDeux) { ?>
+            <div class="col-auto form-group">
+              <label for="b-a">Entre l'entreprise</label>
+              <select id="b-a" name="a" class="form-control">
+                <?php foreach ($toutes as $en) { if (!in_array((int) $en['id'], $miennes, true)) { continue; } ?><option value="<?php echo (int) $en['id']; ?>"<?php echo $a === (int) $en['id'] ? ' selected' : ''; ?>><?php echo e($en['nom']); ?></option><?php } ?>
+              </select>
+            </div>
+            <div class="col-auto form-group">
+              <label for="b-b">et l'entreprise</label>
+              <select id="b-b" name="b" class="form-control">
+                <?php foreach ($toutes as $en) { ?><option value="<?php echo (int) $en['id']; ?>"<?php echo $b === (int) $en['id'] ? ' selected' : ''; ?>><?php echo e($en['nom']); ?></option><?php } ?>
+              </select>
+            </div>
+            <?php } ?>
+            <div class="col-auto form-group"><button type="submit" class="btn btn-outline-primary">Afficher</button></div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <?php } ?>
+
+    <?php if (!$r) { ?>
   </div></section>
 </div>
 <?php return; } ?>
 
     <div class="ie-bilan" id="bilan">
-      <div class="d-none d-print-block ie-impression-entete">Beauchemin — Gestion d'inventaire · imprimé le <?php echo e(date('Y-m-d H:i')); ?></div>
-      <h2 class="ie-bilan-titre">Bilan <?php echo e($periode_de); ?></h2>
-      <p class="ie-bilan-paire"><?php echo e($noms[$a]); ?> <i class="fas fa-exchange-alt mx-1" aria-hidden="true"></i><span class="sr-only">et</span> <?php echo e($noms[$b]); ?> — factures internes établies au coût (sans marge)</p>
+      <div class="d-none d-print-block ie-impression-entete">Bilan <?php echo e($periode_de); ?> · <?php echo e($noms[$a]); ?> et <?php echo e($noms[$b]); ?> · imprimé le <?php echo e(date('Y-m-d H:i')); ?></div>
 
       <div class="ie-solde<?php echo $solde['debiteur'] === null ? ' ie-solde-nul' : ''; ?>" id="solde" role="status">
         <?php if ($solde['debiteur'] !== null) { ?>
-          <div class="ie-solde-texte"><span class="ie-solde-qui"><?php echo e($solde['debiteur_nom']); ?></span> doit <span class="ie-montant" id="solde-montant"><?php echo e(Interentreprise::argent($solde['montant'])); ?></span> à <span class="ie-solde-qui"><?php echo e($solde['creancier_nom']); ?></span> pour <?php echo e($periode); ?></div>
+          <div class="ie-solde-texte"><span class="ie-solde-qui"><?php echo e($solde['debiteur_nom']); ?></span> doit <span class="ie-montant" id="solde-montant"><?php echo e(Interentreprise::argent($solde['montant'])); ?></span> à <span class="ie-solde-qui"><?php echo e($solde['creancier_nom']); ?></span></div>
         <?php } else { ?>
-          <div class="ie-solde-texte">Aucun solde pour <?php echo e($periode); ?></div>
-          <div class="ie-solde-sous"><?php echo $nb_factures === 0 ? 'Aucune facture interne valide entre ces deux entreprises pour ' . $periode . '.' : 'Les factures des deux sens s\'annulent exactement.'; ?></div>
+          <div class="ie-solde-texte">Aucun solde</div>
+          <div class="ie-solde-sous"><?php echo $nb_factures === 0 ? 'Aucune facture en ' . e($periode) . '.' : 'Les deux entreprises sont quittes.'; ?></div>
         <?php } ?>
       </div>
+      <p class="ie-bilan-paire"><?php echo e($noms[$a]); ?> <i class="fas fa-exchange-alt mx-1" aria-hidden="true"></i><span class="sr-only">et</span> <?php echo e($noms[$b]); ?>
+        <?php if ($nb_annulees > 0) { ?><span class="ie-annulees no-print"> · <i class="fas fa-ban text-danger mr-1" aria-hidden="true"></i><a id="lien-annulees" class="ie-lien-tactile" href="<?php echo e($lien_annulees); ?>"><?php echo $nb_annulees === 1 ? '1 facture annulée' : (int) $nb_annulees . ' factures annulées'; ?></a></span><?php } ?>
+      </p>
 
       <?php foreach ($sens as $i => $s) {
         list($de, $vers, $bloc) = $s; ?>
@@ -156,52 +159,49 @@ echo $css;
           <div class="card-tools ie-total-sens">Total : <strong class="ie-total-sens-montant"><?php echo e(Interentreprise::argent($bloc['total'])); ?></strong></div>
         </div>
         <div class="card-body">
-          <p class="text-muted small mb-2">Pièces prises dans l'inventaire de <?php echo e($noms[$de]); ?> par <?php echo e($noms[$vers]); ?>.</p>
           <?php if (!$bloc['documents']) { ?>
-            <p class="text-muted mb-0">Aucune facture dans ce sens pour <?php echo e($periode); ?>.</p>
+            <p class="text-muted mb-0">Aucune facture.</p>
           <?php } else { ?>
-          <h4 class="ie-sous-section">Factures (<?php echo count($bloc['documents']); ?>)</h4>
+          <h4 class="ie-sous-section">Factures</h4>
           <div class="table-responsive">
             <table class="table table-sm ie-table ie-bilan-factures mb-3">
               <caption class="sr-only">Factures de <?php echo e($noms[$de]); ?> à <?php echo e($noms[$vers]); ?> pour <?php echo e($periode); ?></caption>
-              <thead><tr><th scope="col">Numéro</th><th scope="col">Date</th><th scope="col">Emplacements</th><th scope="col" class="nombre">Total</th></tr></thead>
+              <thead><tr><th scope="col">Numéro</th><th scope="col">Date</th><th scope="col" class="d-none d-sm-table-cell">Emplacements</th><th scope="col" class="nombre">Total</th></tr></thead>
               <tbody>
               <?php foreach ($bloc['documents'] as $doc) { ?>
                 <tr>
                   <td class="code"><a class="ie-lien-tactile" href="index.php?page=facture_interne_voir&amp;id=<?php echo (int) $doc['id']; ?>"><?php echo e($doc['numero']); ?></a></td>
                   <td><?php echo e(fmt_date($doc['date_document'])); ?></td>
-                  <td><?php echo e($doc['emplacement']); ?> <i class="fas fa-long-arrow-alt-right mx-1" aria-hidden="true"></i><span class="sr-only">vers</span> <?php echo e($doc['emplacement_dest']); ?><?php echo ($doc['note'] !== null && $doc['note'] !== '') ? '<div class="small text-muted ie-note-ligne">' . e($doc['note']) . '</div>' : ''; ?></td>
+                  <td class="d-none d-sm-table-cell"><?php echo e($doc['emplacement']); ?> <i class="fas fa-long-arrow-alt-right mx-1" aria-hidden="true"></i><span class="sr-only">vers</span> <?php echo e($doc['emplacement_dest']); ?><?php echo ($doc['note'] !== null && $doc['note'] !== '') ? '<div class="small text-muted ie-note-ligne">' . e($doc['note']) . '</div>' : ''; ?></td>
                   <td class="nombre"><?php echo e(Interentreprise::argent($doc['total'])); ?></td>
                 </tr>
               <?php } ?>
               </tbody>
             </table>
           </div>
-          <h4 class="ie-sous-section">Pièces regroupées (<?php echo count($bloc['pieces']); ?>)</h4>
+          <h4 class="ie-sous-section">Pièces</h4>
           <div class="table-responsive">
             <table class="table table-sm ie-table ie-bilan-pieces mb-0">
-              <caption class="sr-only">Pièces regroupées de <?php echo e($noms[$de]); ?> à <?php echo e($noms[$vers]); ?> pour <?php echo e($periode); ?></caption>
-              <thead><tr><th scope="col">Code</th><th scope="col">Pièce</th><th scope="col" class="nombre">Quantité</th><th scope="col" class="nombre">Coût moyen pondéré</th><th scope="col" class="nombre">Total</th></tr></thead>
+              <caption class="sr-only">Pièces de <?php echo e($noms[$de]); ?> à <?php echo e($noms[$vers]); ?> pour <?php echo e($periode); ?></caption>
+              <thead><tr><th scope="col">Code</th><th scope="col">Pièce</th><th scope="col" class="nombre">Quantité</th><th scope="col" class="nombre d-none d-sm-table-cell">Coût moyen</th><th scope="col" class="nombre">Total</th></tr></thead>
               <tbody>
               <?php foreach ($bloc['pieces'] as $p) { ?>
                 <tr>
                   <td class="code"><a class="ie-lien-tactile" href="index.php?page=piece_voir&amp;id=<?php echo (int) $p['piece_id']; ?>"><?php echo e($p['code']); ?></a></td>
                   <td><?php echo e($p['nom']); ?></td>
                   <td class="nombre"><?php echo e(Interentreprise::nombre($p['quantite'])); ?><?php echo ($p['unite'] && $p['unite'] !== 'unité') ? ' <small class="text-muted">' . e($p['unite']) . '</small>' : ''; ?></td>
-                  <td class="nombre"><?php echo e(Interentreprise::cout($p['cout_moyen'])); ?></td>
+                  <td class="nombre d-none d-sm-table-cell"><?php echo e(Interentreprise::cout($p['cout_moyen'])); ?></td>
                   <td class="nombre"><?php echo e(Interentreprise::argent($p['total'])); ?></td>
                 </tr>
               <?php } ?>
               </tbody>
-              <tfoot><tr class="ie-ligne-total"><th colspan="4" class="text-right">Total <?php echo e($noms[$de]); ?> → <?php echo e($noms[$vers]); ?></th><th class="nombre"><?php echo e(Interentreprise::argent($bloc['total'])); ?></th></tr></tfoot>
+              <tfoot><tr class="ie-ligne-total"><th colspan="4" class="text-right d-none d-sm-table-cell">Total <?php echo e($noms[$de]); ?> → <?php echo e($noms[$vers]); ?></th><th colspan="3" class="text-right d-sm-none">Total</th><th class="nombre"><?php echo e(Interentreprise::argent($bloc['total'])); ?></th></tr></tfoot>
             </table>
           </div>
           <?php } ?>
         </div>
       </section>
       <?php } ?>
-
-      <p class="text-muted small ie-bilan-pied">Solde = total <?php echo e($noms[$a]); ?> → <?php echo e($noms[$b]); ?> moins total <?php echo e($noms[$b]); ?> → <?php echo e($noms[$a]); ?>. Seules les factures valides datées <?php echo e($periode_de); ?> sont comptées ; le coût moyen pondéré d'une pièce est son total divisé par sa quantité.</p>
     </div>
 
   </div></section>

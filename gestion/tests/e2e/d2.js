@@ -389,6 +389,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await redessine(a, '#table-stock', () => a.fill('#f-recherche', 'P-0007'));
     await Promise.all([a.waitForNavigation(), a.click('#table-stock tbody tr:first-child a.code')]);
     verifier(/page=piece_voir&id=\d+/.test(a.url()), 'un clic sur la pièce ouvre piece_voir : ' + a.url());
+    await a.waitForLoadState('networkidle');   // la fiche finit de charger avant de la quitter (sinon une requête est annulée)
     // un clic n'importe où sur la ligne ouvre aussi la fiche
     await L.aller(a, 'stock');
     await redessine(a, '#table-stock', () => a.fill('#f-recherche', 'P-0007'));

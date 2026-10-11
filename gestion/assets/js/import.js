@@ -63,24 +63,25 @@
   }
 
   // ---- Affichage des étapes ------------------------------------------------------------------
-  /* Une seule étape « en cours » (aria-current) ; les étapes terminées sont annoncées aux lecteurs d'écran. */
-  var ETAPES = { 1: ['actif', '', '', ''], 3: ['fait', 'fait', 'actif', ''], 4: ['fait', 'fait', 'fait', 'actif'] };
+  /* Trois étapes : 1 fichier, 2 aperçu, 3 résultat. Une seule étape « en cours » (aria-current) ; les étapes terminées sont annoncées aux lecteurs d'écran. */
+  var ETAPES = { 1: ['actif', '', ''], 2: ['fait', 'actif', ''], 3: ['fait', 'fait', 'actif'] };
   function montrer(etape, avecFocus) {
     $id('imp-depart').style.display = etape === 1 ? '' : 'none';
-    $id('imp-options').style.display = (etape === 1 || etape === 3) ? '' : 'none';
-    $id('imp-apercu').style.display = etape === 3 ? '' : 'none';
-    $id('imp-resultat').style.display = etape === 4 ? '' : 'none';
+    $id('imp-options-zone').style.display = (etape === 1 || etape === 2) ? '' : 'none';
+    $id('imp-export-bloc').style.display = etape === 1 ? '' : 'none';   // l'export n'a de sens qu'avant le choix du fichier
+    $id('imp-apercu').style.display = etape === 2 ? '' : 'none';
+    $id('imp-resultat').style.display = etape === 3 ? '' : 'none';
     var cls = ETAPES[etape];
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 3; i++) {
       var li = $id('imp-s' + (i + 1));
       li.className = cls[i];
-      if (cls[i] === 'actif' || (etape === 4 && i === 3)) { li.setAttribute('aria-current', 'step'); } else { li.removeAttribute('aria-current'); }
+      if (cls[i] === 'actif') { li.setAttribute('aria-current', 'step'); } else { li.removeAttribute('aria-current'); }
       var sr = li.querySelector('.sr-only');
-      if (sr) { sr.textContent = (etape === 4 && i === 3) ? ' (étape en cours)' : (cls[i] === 'fait' ? ' (terminée)' : (cls[i] === 'actif' ? ' (étape en cours)' : '')); }
+      if (sr) { sr.textContent = cls[i] === 'fait' ? ' (terminée)' : (cls[i] === 'actif' ? ' (étape en cours)' : ''); }
     }
     w.scrollTo(0, 0);
     if (avecFocus) {   // le focus suit l'écran : un clavier ou un lecteur d'écran ne repart pas du haut de la page
-      var cible = etape === 3 ? $id('imp-titre-3') : (etape === 4 ? $id('imp-titre-4') : $id('imp-fichier'));
+      var cible = etape === 2 ? $id('imp-titre-2') : (etape === 3 ? $id('imp-titre-3') : $id('imp-fichier'));
       if (cible) { cible.focus({ preventScroll: true }); }
     }
   }
@@ -149,7 +150,7 @@
     erreurGlobale(null);
     var inp = $id('imp-fichier');
     var f = inp.files && inp.files[0];
-    if (!f) { erreurGlobale('Choisissez d\'abord un fichier CSV.'); inp.focus(); return; }
+    if (!f) { erreurGlobale('Choisissez un fichier CSV.'); inp.focus(); return; }
     if (!/\.(csv|txt)$/i.test(f.name)) { erreurGlobale('Le fichier doit être un fichier .csv ou .txt. Dans Excel : « Enregistrer sous », puis « CSV UTF-8 ».'); return; }
     if (f.size > cfg.max_octets) { erreurGlobale('Le fichier dépasse 2 Mo : découpez-le en plusieurs fichiers.'); return; }
     if (f.size === 0) { erreurGlobale('Le fichier est vide.'); return; }
@@ -160,18 +161,18 @@
     fd.append('creer_categories', o.creer_categories ? '1' : '0');
     fd.append('creer_fournisseurs', o.creer_fournisseurs ? '1' : '0');
     var btn = $id('imp-analyser');
-    btn.disabled = true; btn.textContent = 'Analyse en cours…';
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Un instant…';
     appel('app/ajax/import_analyser.php', { method: 'POST', body: fd },
       'Le serveur ne répond pas ou le fichier a changé depuis sa sélection. Vérifiez votre connexion, choisissez de nouveau le fichier, puis réessayez.'
     ).then(function (r) {
       etat.source = r.source; etat.meta = r.meta; etat.resultats = r.resultats; etat.totaux = r.totaux;
       etat.nom = r.meta.fichier || f.name; etat.filtre = 'tous'; etat.page = 1;
-      montrer(3, true); dessiner();
+      montrer(2, true); dessiner();
       annoncer('Analyse terminée : ' + pluriel(r.totaux.erreurs, 'erreur', 'erreurs') + ', ' + pluriel(r.totaux.avertissements, 'avertissement', 'avertissements') + '.');
     }).catch(function (err) {
       erreurGlobale(msg(err));
     }).then(function () {
-      btn.disabled = false; btn.innerHTML = '<i class="fas fa-search"></i> Analyser le fichier';
+      btn.disabled = false; btn.innerHTML = '<i class="fas fa-eye"></i> Voir l\'aperçu';
     });
   }
 
@@ -200,7 +201,7 @@
     etat.occupe = true; majBoutons();
     var btn = $id('imp-confirmer');
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Import en cours…';
-    function fin() { etat.occupe = false; btn.innerHTML = '<i class="fas fa-check"></i> Confirmer l\'import'; majBoutons(); }
+    function fin() { etat.occupe = false; btn.innerHTML = '<i class="fas fa-check"></i> Importer'; majBoutons(); }
     postJson('app/action/import_appliquer.php', Object.assign({ lignes: etat.source, fichier: etat.nom }, options())).then(function (r) {
       etat.source = null;   // le fichier est consommé : pas de deuxième envoi par erreur
       fin();
@@ -247,24 +248,25 @@
   /* foc : 'filtre' (redonne le focus au bouton de filtre recréé) ou 'page' (focus et défilement sur le haut du tableau). */
   function dessiner(foc) {
     var t = etat.totaux, m = etat.meta;
-    // méta
+    // fichier : nom et nombre de lignes ; le détail technique (séparateur, encodage, colonnes) reste dans l'infobulle
     var meta = $id('imp-meta');
     if (m) {
-      var txt = 'Fichier « ' + etat.nom + ' » — séparateur « ' + m.separateur + ' » — encodage ' + m.encodage + ' — ' + pluriel(m.nb_lignes, 'ligne lue', 'lignes lues')
-        + (m.lignes_vides ? ' (' + pluriel(m.lignes_vides, 'ligne vide ignorée', 'lignes vides ignorées') + ')' : '') + '.';
-      txt += ' Colonnes reconnues : ' + m.colonnes.join(', ') + '.';
-      if (m.colonnes_ignorees.length) { txt += ' Colonnes ignorées : ' + m.colonnes_ignorees.join(', ') + '.'; }
-      if (m.colonnes_informatives.length) { txt += ' Colonnes informatives (jamais importées) : ' + m.colonnes_informatives.join(', ') + '.'; }
-      meta.textContent = fr(txt);
+      meta.innerHTML = '';
+      meta.appendChild(document.createTextNode(fr(etat.nom + ' · ' + pluriel(m.nb_lignes, 'ligne', 'lignes') + (m.lignes_vides ? ' (' + pluriel(m.lignes_vides, 'ligne vide ignorée', 'lignes vides ignorées') + ')' : ''))));
+      var detail = 'Séparateur « ' + m.separateur + ' » — encodage ' + m.encodage + ' — ' + pluriel(m.nb_lignes, 'ligne lue', 'lignes lues') + '. Colonnes reconnues : ' + m.colonnes.join(', ') + '.';
+      if (m.colonnes_informatives.length) { detail += ' Colonnes informatives (jamais importées) : ' + m.colonnes_informatives.join(', ') + '.'; }
+      detail = fr(detail);
+      var info = el('span', { class: 'imp-info', role: 'img', title: detail, 'aria-label': detail });
+      info.appendChild(el('i', { class: 'fas fa-info-circle', 'aria-hidden': 'true' }));
+      meta.appendChild(info);
+      if (m.colonnes_ignorees.length) {   // une colonne mal nommée est ignorée sans bruit : on le dit
+        meta.appendChild(el('div', { class: 'imp-msg-avertissement' }, fr('Colonnes ignorées : ' + m.colonnes_ignorees.join(', ') + '.')));
+      }
     }
-    // tuiles
+    // tuiles : seulement celles qui ne sont pas à zéro
     var tu = $id('imp-tuiles'); tu.innerHTML = '';
-    tu.appendChild(tuile('À créer', t.creer));
-    tu.appendChild(tuile('À mettre à jour', t.maj));
-    tu.appendChild(tuile('Ignorées ou sans changement', t.ignorer + t.inchange));
-    tu.appendChild(tuile('Lignes de stock initial', t.lignes_stock));
-    tu.appendChild(tuile('Erreurs', t.erreurs, t.erreurs ? 'erreur' : ''));
-    tu.appendChild(tuile('Avertissements', t.avertissements, t.avertissements ? 'avert' : ''));
+    [['À créer', t.creer, ''], ['À mettre à jour', t.maj, ''], ['Ignorées', t.ignorer + t.inchange, ''], ['Stock initial', t.lignes_stock, ''],
+      ['Erreurs', t.erreurs, 'erreur'], ['Avertissements', t.avertissements, 'avert']].forEach(function (x) { if (x[1]) { tu.appendChild(tuile(x[0], x[1], x[2])); } });
     // bilan
     var b = $id('imp-bilan'); b.innerHTML = '';
     var parts = [];
@@ -272,8 +274,7 @@
     if (t.categories_a_creer) { parts.push(pluriel(t.categories_a_creer, 'catégorie sera créée', 'catégories seront créées')); }
     if (t.fournisseurs_a_creer) { parts.push(pluriel(t.fournisseurs_a_creer, 'fournisseur sera créé', 'fournisseurs seront créés')); }
     if (t.erreurs) {
-      b.appendChild(el('div', { class: 'alert alert-danger mb-2' }, fr(pluriel(t.erreurs, 'ligne est en erreur', 'lignes sont en erreur') + ' : rien ne sera importé tant que '
-        + (t.erreurs > 1 ? 'les erreurs ne sont pas corrigées' : 'l\'erreur n\'est pas corrigée') + ' dans le fichier (tout ou rien).')));
+      b.appendChild(el('div', { class: 'alert alert-danger mb-2' }, fr(pluriel(t.erreurs, 'ligne en erreur', 'lignes en erreur') + ' : corrigez le fichier avant d\'importer.')));
     } else if (!(t.creer + t.maj + t.lignes_stock)) {
       b.appendChild(el('div', { class: 'alert alert-warning mb-2' }, fr('Il n\'y a rien à importer : toutes les lignes sont ignorées ou sans changement.')));
     } else {
@@ -287,11 +288,15 @@
       avertissements: etat.resultats.filter(function (r) { return r.statut === 'avertissement'; }).length,
       creer: t.creer, maj: t.maj
     };
+    var nbFiltres = 0;
     [['tous', 'Toutes'], ['erreurs', 'Erreurs'], ['avertissements', 'Avertissements'], ['creer', 'À créer'], ['maj', 'À mettre à jour']].forEach(function (f) {
+      if (f[0] !== 'tous' && !compte[f[0]]) { return; }   // un filtre à zéro ne sert à rien
+      nbFiltres++;
       var bt = el('button', { type: 'button', 'data-filtre': f[0], class: 'btn btn-outline-secondary imp-btn' + (etat.filtre === f[0] ? ' active' : ''), 'aria-pressed': etat.filtre === f[0] ? 'true' : 'false' }, f[1] + ' (' + nb(compte[f[0]]) + ')');
       bt.addEventListener('click', function () { etat.filtre = f[0]; etat.page = 1; dessiner('filtre'); });
       fl.appendChild(bt);
     });
+    fl.style.display = nbFiltres >= 3 ? '' : 'none';   // « Toutes » et un seul autre filtre : rien à filtrer
     // tableau
     var liste = filtrees();
     var pages = Math.max(1, Math.ceil(liste.length / PAR_PAGE));
@@ -359,11 +364,6 @@
     if (t) {
       $id('imp-erreurs-csv-txt').textContent = 'Télécharger ' + (t.erreurs && t.avertissements ? 'les erreurs et avertissements' : (t.erreurs ? 'les erreurs' : 'les avertissements')) + ' (CSV)';
     }
-    var aide = $id('imp-confirmer-aide');
-    if (etat.occupe) { aide.textContent = 'Veuillez patienter…'; }
-    else if (t && t.erreurs) { aide.textContent = 'Corrigez le fichier, puis analysez-le de nouveau.'; }
-    else if (t && !(t.creer + t.maj + t.lignes_stock)) { aide.textContent = 'Rien à importer.'; }
-    else { aide.textContent = 'Tout ou rien : si une écriture échoue, rien n\'est enregistré.'; }
   }
 
   // ---- Fichier des erreurs (pour les corriger dans le tableur) ------------------------------------------------------
@@ -411,16 +411,17 @@
 
   // ---- Résultat ---------------------------------------------------------------------------------------------------------
   function resultat(r) {
-    montrer(4, true);
+    montrer(3, true);
     var box = $id('imp-resume'); box.innerHTML = '';
     box.appendChild(el('strong', null, 'L\'import est terminé.'));
     var ul = el('ul', { class: 'mb-0 mt-2' });
-    ul.appendChild(el('li', null, pluriel(r.creees, 'pièce créée', 'pièces créées') + '.'));
-    ul.appendChild(el('li', null, pluriel(r.mises_a_jour, 'pièce mise à jour', 'pièces mises à jour') + '.'));
-    ul.appendChild(el('li', null, pluriel(r.ignorees, 'ligne ignorée', 'lignes ignorées') + (r.dont_inchangees ? ' (dont ' + nb(r.dont_inchangees) + ' sans changement)' : '') + '.'));
-    if (r.categories_creees) { ul.appendChild(el('li', null, pluriel(r.categories_creees, 'catégorie créée', 'catégories créées') + '.')); }
-    if (r.fournisseurs_crees) { ul.appendChild(el('li', null, pluriel(r.fournisseurs_crees, 'fournisseur créé', 'fournisseurs créés') + '.')); }
-    ul.appendChild(el('li', null, pluriel(r.documents.length, 'document de stock initial créé', 'documents de stock initial créés') + (r.lignes_stock ? ' (' + pluriel(r.lignes_stock, 'ligne de stock', 'lignes de stock') + ')' : '') + '.'));
+    function ligne(n, texte) { if (n) { ul.appendChild(el('li', null, texte + '.')); } }
+    ligne(r.creees, pluriel(r.creees, 'pièce créée', 'pièces créées'));
+    ligne(r.mises_a_jour, pluriel(r.mises_a_jour, 'pièce mise à jour', 'pièces mises à jour'));
+    ligne(r.ignorees, pluriel(r.ignorees, 'ligne ignorée', 'lignes ignorées') + (r.dont_inchangees ? ' (dont ' + nb(r.dont_inchangees) + ' sans changement)' : ''));
+    ligne(r.categories_creees, pluriel(r.categories_creees, 'catégorie créée', 'catégories créées'));
+    ligne(r.fournisseurs_crees, pluriel(r.fournisseurs_crees, 'fournisseur créé', 'fournisseurs créés'));
+    ligne(r.documents.length, pluriel(r.documents.length, 'document de stock initial créé', 'documents de stock initial créés') + (r.lignes_stock ? ' (' + pluriel(r.lignes_stock, 'ligne de stock', 'lignes de stock') + ')' : ''));
     box.appendChild(ul);
     var d = $id('imp-docs'); d.innerHTML = '';
     if (r.documents.length) {
@@ -477,9 +478,6 @@
     $id('imp-exp-inactives').addEventListener('change', function () {
       $id('imp-exporter').setAttribute('href', 'app/ajax/pieces_export.php' + (this.checked ? '?inactives=1' : ''));
     });
-    // bascule « Description des colonnes » : l'état (ouvert / fermé) est annoncé
-    $('#imp-desc-bascule').on('expanded.lte.cardwidget', function () { this.setAttribute('aria-expanded', 'true'); })
-      .on('collapsed.lte.cardwidget', function () { this.setAttribute('aria-expanded', 'false'); });
     // changement d'option pendant l'aperçu : nouvelle analyse (les lignes lues sont conservées)
     ['imp-mode-creer', 'imp-mode-maj', 'imp-creer-cat', 'imp-creer-four'].forEach(function (id) {
       $id(id).addEventListener('change', function () {

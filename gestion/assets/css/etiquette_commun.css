@@ -47,3 +47,8 @@
   border-color: var(--focus) !important; box-shadow: 0 0 0 .2rem var(--accent-ring) !important;
 }
 .a2-page [tabindex="-1"]:focus { outline: none; }
+
+/* ---- « Plus d'options » : lien discret, flèche qui se retourne à l'ouverture ---- */
+.a2-page .a2-plus { padding-left: 0; padding-right: .5rem; min-height: 44px; display: inline-flex; align-items: center; gap: .4rem; }
+.a2-page .a2-plus .fa-caret-down { transition: transform .15s; }
+.a2-page .a2-plus[aria-expanded="true"] .fa-caret-down { transform: rotate(180deg); }

@@ -3,7 +3,7 @@
  *   facture_interne | factures_internes | facture_interne_voir | bilan_mensuel | valeur_inventaire
  * Règles : tout texte venant du serveur est inséré avec textContent ou esc() (jamais en HTML brut) ; les quantités et montants
  * restent des chaînes décimales (les nombres ne servent qu'à l'affichage et au tri) ; les coûts et totaux d'une facture sont
- * calculés par le serveur (aperçu en lecture seule), jamais saisis ; le bouton « Enregistrer » est désactivé pendant l'envoi et
+ * calculés par le serveur (aperçu en lecture seule), jamais saisis ; le bouton « Facturer » est désactivé pendant l'envoi et
  * un jeton à usage unique empêche qu'un double envoi crée deux factures. Les lignes (scan, recherche, quantités) sont gérées
  * par le composant partagé saisie-lignes.js.
  */
@@ -46,7 +46,7 @@
     var m = (err && err.message) ? String(err.message) : '';
     if (err instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed|^Connexion impossible/i.test(m)) {
       if (contexte === 'enregistrement') {
-        return 'Connexion perdue : la facture n\'a peut-être pas été enregistrée. Vérifiez la liste des factures internes avant de recommencer ; un nouvel essai ne crée jamais de doublon.';
+        return 'Connexion perdue : la facture n\'a peut-être pas été enregistrée. Vérifiez la liste des factures avant de recommencer.';
       }
       if (contexte === 'annulation') {
         return 'Connexion perdue : l\'annulation n\'a peut-être pas été enregistrée. Rechargez la page pour voir l\'état de la facture.';
@@ -94,16 +94,19 @@
   if (titreOnglet) { document.title = titreOnglet; }
 
   // ===================================================================================
-  //  Facture interne : saisie
+  //  Nouvelle facture : saisie
   // ===================================================================================
   function initFacture() {
-    var $emp = q('#emplacement'), $ent = q('#entreprise-dest'), $dest = q('#destination'), $date = q('#date'), $note = q('#note');
+    var $emp = q('#emplacement'), $dest = q('#destination'), $date = q('#date'), $note = q('#note');
+    var $trajet = q('#ie-trajet'), $choix = q('#ie-trajet-choix'), $plus = q('#ie-plus'), $options = q('#ie-options');
     var $zeroBloc = q('#ie-zero-bloc'), $zero = q('#cout-zero'), $avert = q('#ie-avert'), $total = q('#ie-total');
-    var $btn = q('#btn-enregistrer'), $err = q('#ie-erreur'), $succes = q('#ie-succes'), $resume = q('#ie-resume'), $recap = q('#ie-recap');
+    var $btn = q('#btn-enregistrer'), $err = q('#ie-erreur'), $succes = q('#ie-succes');
     var $scan = q('#scan');
-    var CLE_SRC = 'bea.ie.facture.source', CLE_DEST = 'bea.ie.facture.destination.';
+    var CLE_TRAJET = 'bea.ie.facture.trajet', CLE_SRC = 'bea.ie.facture.source.', CLE_DEST = 'bea.ie.facture.destination.';
     var emplacements = [];       // emplacements actifs de mes entreprises (sources possibles)
     var entreprises = [];        // toutes les entreprises actives (destinataires possibles)
+    var sources = [];            // entreprises de mes emplacements : {id, nom}
+    var trajet = { src: '', dest: '' };      // « qui facture à qui » : ids d'entreprise (chaînes)
     var enCours = false;
     var jeton = nouveauJeton();
     var reqDest = 0;             // numéro de la dernière demande de la liste des destinations (ignore les réponses périmées)
@@ -111,24 +114,75 @@
     var consentement = {};       // codes des pièces sans coût que l'utilisateur a accepté de facturer à 0 $ (case cochée)
     var sl = null;
 
-    // ---- listes déroulantes ----------------------------------------------------------
+    // ---- Plus d'options : la date et la note restent repliées ---------------------------------------------------------------
+    function ouvrirOptions(oui) {
+      $options.hidden = !oui;
+      $plus.setAttribute('aria-expanded', oui ? 'true' : 'false');
+      var ic = q('i', $plus);
+      if (ic) { ic.className = oui ? 'fas fa-chevron-down mv-plus-icone' : 'fas fa-chevron-right mv-plus-icone'; }
+    }
+
+    // ---- « qui facture à qui » : une grosse carte par couple (entreprise émettrice → entreprise destinataire) -------------
     function parId(id) {
       for (var i = 0; i < emplacements.length; i++) { if (String(emplacements[i].id) === String(id)) { return emplacements[i]; } }
       return null;
     }
+    function autresEntreprises(idSrc) {
+      return entreprises.filter(function (e) { return String(e.id) !== String(idSrc); });
+    }
+    function paireValide(src, dest) {
+      return sources.some(function (s) { return String(s.id) === String(src); }) &&
+        autresEntreprises(src).some(function (e) { return String(e.id) === String(dest); });
+    }
 
-    /** Liste des sources (textContent : aucun HTML issu du serveur). Le nom de l'entreprise émettrice précède celui de l'emplacement. */
+    function dessinerTrajets() {
+      $choix.textContent = '';
+      var n = 0;
+      sources.forEach(function (s) {
+        autresEntreprises(s.id).forEach(function (d) {
+          n++;
+          var lab = el('label', 'ie-trajet-carte');
+          var r = el('input', 'sr-only');
+          r.type = 'radio'; r.name = 'trajet'; r.value = s.id + '>' + d.id;
+          r.setAttribute('data-src', String(s.id)); r.setAttribute('data-dest', String(d.id));
+          lab.appendChild(r);
+          lab.appendChild(el('span', 'ie-trajet-nom', s.nom));
+          var fl = el('i', 'fas fa-long-arrow-alt-right ie-trajet-fleche'); fl.setAttribute('aria-hidden', 'true');
+          lab.appendChild(fl);
+          lab.appendChild(el('span', 'ie-trajet-nom', d.nom));
+          $choix.appendChild(lab);
+        });
+      });
+      if (!n) { $choix.appendChild(el('span', 'text-muted', 'Aucune autre entreprise active.')); }
+    }
+
+    /** Coche la carte du trajet courant ; sans destination encore choisie, les cartes de la source sont seulement soulignées. */
+    function marquerTrajet() {
+      qa('.ie-trajet-carte', $choix).forEach(function (lab) {
+        var r = q('input', lab);
+        var choisie = r.getAttribute('data-src') === trajet.src && r.getAttribute('data-dest') === trajet.dest;
+        r.checked = choisie;
+        lab.classList.toggle('ie-choisie', choisie);
+        lab.classList.toggle('ie-suggere', !choisie && !trajet.dest && trajet.src !== '' && r.getAttribute('data-src') === trajet.src);
+      });
+      $trajet.classList.remove('is-invalid');
+    }
+
+    // ---- listes d'emplacements ------------------------------------------------------------------
+    /** Emplacements de l'entreprise émettrice choisie (textContent : aucun HTML issu du serveur). */
     function remplirSources(valeur) {
       $emp.innerHTML = '';
-      var o = el('option', null, '— Choisissez —'); o.value = '';
+      var liste = emplacements.filter(function (e) { return String(e.entreprise_id) === trajet.src; });
+      var o = el('option', null, liste.length ? '— Choisissez —' : '—'); o.value = '';
       $emp.appendChild(o);
-      emplacements.forEach(function (e) {
-        var op = el('option', null, e.entreprise_nom + ' — ' + e.nom + ' (' + (TYPES_EMP[e.type] || e.type) + ')');
+      liste.forEach(function (e) {
+        var op = el('option', null, e.nom);
         op.value = String(e.id);
         $emp.appendChild(op);
       });
-      $emp.disabled = false;
-      if (valeur && parId(valeur)) { $emp.value = String(valeur); }
+      $emp.disabled = !liste.length;
+      if (valeur && liste.some(function (e) { return String(e.id) === String(valeur); })) { $emp.value = String(valeur); }
+      else if (liste.length === 1) { $emp.value = String(liste[0].id); }      // un seul choix : on le prend
     }
 
     function remplirDestinations(liste, vide, valeur) {
@@ -136,7 +190,7 @@
       var o = el('option', null, vide); o.value = '';
       $dest.appendChild(o);
       liste.forEach(function (e) {
-        var op = el('option', null, e.nom + ' (' + (TYPES_EMP[e.type] || e.type) + ')');
+        var op = el('option', null, e.nom);
         op.value = String(e.id);
         $dest.appendChild(op);
       });
@@ -145,53 +199,12 @@
       else if (liste.length === 1) { $dest.value = String(liste[0].id); }
     }
 
-    /** Résumé « Émetteur → Destinataire » au-dessus des lignes : on voit toujours de quelle entreprise vient le coût. */
-    function majRecap() {
-      var s = parId($emp.value);
-      if (!s) { $recap.textContent = ''; montrer($recap, false); return; }
-      var d = null;
-      entreprises.forEach(function (e) { if (String(e.id) === String($ent.value)) { d = e; } });
-      $recap.textContent = '';
-      $recap.appendChild(document.createTextNode('Émetteur : '));
-      $recap.appendChild(el('strong', null, s.entreprise_nom));
-      $recap.appendChild(document.createTextNode(' '));
-      var fl = el('i', 'fas fa-long-arrow-alt-right mx-1'); fl.setAttribute('aria-hidden', 'true');
-      $recap.appendChild(fl);
-      $recap.appendChild(document.createTextNode(' Destinataire : '));
-      $recap.appendChild(el('strong', null, d ? d.nom : '(à choisir)'));
-      $recap.appendChild(document.createTextNode(' — coûts au coût moyen de ' + s.entreprise_nom));
-      montrer($recap, true);
-    }
-
-    /** Entreprises destinataires : toutes sauf l'entreprise de la source. */
-    function majEntreprises() {
-      var s = parId($emp.value);
-      var ancien = $ent.value;
-      $ent.innerHTML = '';
-      if (!s) {
-        var o0 = el('option', null, 'Choisissez d\'abord la source'); o0.value = '';
-        $ent.appendChild(o0);
-        $ent.disabled = true;
-        chargerDestinations();
-        return;
-      }
-      var liste = entreprises.filter(function (e) { return String(e.id) !== String(s.entreprise_id); });
-      var o = el('option', null, liste.length ? '— Choisissez —' : 'Aucune autre entreprise active'); o.value = '';
-      $ent.appendChild(o);
-      liste.forEach(function (e) { var op = el('option', null, e.nom); op.value = String(e.id); $ent.appendChild(op); });
-      $ent.disabled = !liste.length;
-      if (ancien && liste.some(function (e) { return String(e.id) === String(ancien); })) { $ent.value = String(ancien); }
-      else if (liste.length === 1) { $ent.value = String(liste[0].id); }
-      chargerDestinations();
-    }
-
     /** Emplacements actifs de l'entreprise destinataire choisie (voulu : emplacement à présélectionner). */
     function chargerDestinations(voulu) {
-      var id = $ent.value;
+      var id = trajet.dest;
       var mon = ++reqDest;
-      majRecap();
       if (!id) {
-        remplirDestinations([], 'Choisissez d\'abord l\'entreprise', '');
+        remplirDestinations([], '—', '');
         return Promise.resolve();
       }
       $dest.disabled = true;
@@ -199,7 +212,7 @@
       return w.api.get('app/ajax/emplacements_liste.php', { destination_entreprise: id }).then(function (r) {
         if (mon !== reqDest) { return; }
         var liste = r.emplacements || [];
-        remplirDestinations(liste, liste.length ? '— Choisissez la destination —' : 'Aucun emplacement actif dans cette entreprise', voulu || memoLire(CLE_DEST + id));
+        remplirDestinations(liste, liste.length ? '— Choisissez —' : 'Aucun emplacement actif', voulu || memoLire(CLE_DEST + id));
       }).catch(function (err) {
         if (mon !== reqDest) { return; }
         $dest.innerHTML = '<option value="">Liste indisponible</option>';
@@ -207,45 +220,61 @@
       });
     }
 
+    /** Choisit « qui facture à qui » (dest peut rester vide) ; retourne la promesse du chargement des destinations. */
+    function choisirTrajet(src, dest, destVoulue) {
+      src = String(src || ''); dest = String(dest || '');
+      var autreSource = (src !== trajet.src), autreDest = (dest !== trajet.dest);
+      trajet.src = src; trajet.dest = dest;
+      marquerTrajet();
+      if (src && dest) { memoEcrire(CLE_TRAJET, src + '>' + dest); }
+      if (autreSource) {
+        remplirSources(src ? memoLire(CLE_SRC + src) : '');
+        if (sl) { sl.rafraichir(); }        // « Disponible » et aperçu des coûts de la nouvelle source
+      }
+      return (autreDest || destVoulue) ? chargerDestinations(destVoulue) : Promise.resolve();
+    }
+
     function surChangementSource() {
-      if ($emp.value) { memoEcrire(CLE_SRC, $emp.value); }
-      majEntreprises();
-      if (sl) { sl.rafraichir(); }        // « Disponible » et aperçu des coûts de la nouvelle source
+      if ($emp.value && trajet.src) { memoEcrire(CLE_SRC + trajet.src, $emp.value); }
+      if (sl) { sl.rafraichir(); }
       effacerErreur();
     }
 
     // ---- scan d'un emplacement ---------------------------------------------------------
     /**
-     * Un code EMP-… a été scanné : la source s'il n'y en a pas encore (ou si c'est une autre entreprise à moi), sinon la destination.
-     * Une entreprise à laquelle je n'ai pas accès ne peut être que la destination (résolue par facture_emplacement_code.php).
+     * Un code EMP-… a été scanné. Une entreprise émettrice est déjà choisie : un emplacement de cette entreprise est la source, celui
+     * d'une autre entreprise est la destination. Rien n'est choisi : un emplacement à moi fixe l'émettrice (et le destinataire s'il n'y a
+     * qu'un autre choix). Une entreprise à laquelle je n'ai pas accès ne peut être que la destination (résolue par facture_emplacement_code.php).
      */
     function emplacementScanne(emp) {
-      var s = parId($emp.value);
-      var mien = !!parId(emp.id);
-      if (s && String(emp.entreprise_id) !== String(s.entreprise_id)) {
-        if (!entreprises.some(function (e) { return String(e.id) === String(emp.entreprise_id); })) {
+      var ent = String(emp.entreprise_id);
+      if (trajet.src && ent !== trajet.src) {
+        if (!entreprises.some(function (e) { return String(e.id) === ent; })) {
           throw new Error('L\'entreprise de ' + guill(emp.nom) + ' ne peut pas recevoir de facture.');
         }
-        $ent.value = String(emp.entreprise_id);
-        return chargerDestinations(String(emp.id)).then(function () {
-          if ($dest.value !== String(emp.id)) { throw new Error('L\'emplacement ' + guill(emp.nom) + ' est désactivé : choisissez la destination dans la liste.'); }
-          memoEcrire(CLE_DEST + emp.entreprise_id, String(emp.id));
+        return choisirTrajet(trajet.src, ent, String(emp.id)).then(function () {
+          if ($dest.value !== String(emp.id)) { throw new Error('L\'emplacement ' + guill(emp.nom) + ' est désactivé : choisissez où mettre les pièces dans la liste.'); }
+          memoEcrire(CLE_DEST + ent, String(emp.id));
           effacerErreur();
           w.toast('Destination : ' + emp.nom + ' (' + (emp.entreprise_nom || '') + ')', 'info');
         });
       }
-      if (!mien) {
-        throw new Error('Choisissez d\'abord l\'emplacement source de votre entreprise, puis scannez l\'emplacement de destination.');
+      if (!trajet.src && !parId(emp.id)) {
+        throw new Error('Choisissez d\'abord qui facture à qui, puis scannez l\'emplacement où mettre les pièces.');
       }
       var e = parId(emp.id);
       if (!e) { throw new Error('L\'emplacement ' + guill(emp.nom) + ' est désactivé ou n\'est pas disponible.'); }
+      if (!trajet.src) {
+        var autres = autresEntreprises(ent);
+        choisirTrajet(ent, autres.length === 1 ? autres[0].id : '');
+      }
       $emp.value = String(e.id);
       surChangementSource();
       w.toast('Source : ' + e.nom + ' (' + e.entreprise_nom + ')', 'info');
     }
 
     // ---- messages ------------------------------------------------------------------------
-    var champsFautifs = { emplacement_id: $emp, entreprise_dest_id: $ent, emplacement_dest_id: $dest, date: $date, note: $note };
+    var champsFautifs = { emplacement_id: $emp, entreprise_dest_id: $trajet, emplacement_dest_id: $dest, date: $date, note: $note };
 
     function effacerErreur() {
       montrer($err, false);
@@ -258,6 +287,7 @@
       montrer($err, true);
       var f = champ ? champsFautifs[champ] : null;
       if (f) { f.classList.add('is-invalid'); }
+      if (f && $options.contains(f)) { ouvrirOptions(true); }       // la date ou la note fautive doit se voir
       try { $err.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ancien navigateur */ }
       w.toast(texte, 'danger');
       w.bip(false);
@@ -268,31 +298,23 @@
       var ic = el('i', 'fas fa-check-circle mr-1');
       ic.setAttribute('aria-hidden', 'true');
       $succes.appendChild(ic);
-      $succes.appendChild(document.createTextNode('Facture interne '));
+      $succes.appendChild(document.createTextNode('Facture '));
       var a = el('a', null, r.numero);
       a.href = lienFacture(r.id);
       $succes.appendChild(a);
-      $succes.appendChild(document.createTextNode(r.doublon ? ' : cette facture avait déjà été enregistrée (aucun doublon créé)' : ' enregistrée'));
-      if (r.total !== undefined && r.total !== null) { $succes.appendChild(document.createTextNode(' — total ' + argent(r.total))); }
-      $succes.appendChild(document.createTextNode('. '));
-      var b = el('a', 'alert-link', 'Voir la facture');
-      b.href = lienFacture(r.id);
-      $succes.appendChild(b);
+      $succes.appendChild(document.createTextNode(r.doublon ? ' déjà enregistrée (aucun doublon)' : ' enregistrée'));
+      if (r.total !== undefined && r.total !== null) { $succes.appendChild(document.createTextNode(' : ' + argent(r.total))); }
       montrer($succes, true);
       try { $succes.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ancien navigateur */ }
     }
 
-    function majResume(lignes) {
-      $resume.textContent = lignes.length ? (lignes.length + (lignes.length > 1 ? ' lignes' : ' ligne')) : '';
-    }
-
     // ---- aperçu au coût (lecture seule, calculé par le serveur) --------------------------------
-    /** Ajoute au tableau du composant les colonnes « Coût unitaire (au coût) » et « Total » (en lecture seule) et un titre pour les lecteurs d'écran. */
+    /** Ajoute au tableau du composant les colonnes « Coût unitaire » et « Total » (en lecture seule) et un titre pour les lecteurs d'écran. */
     function ajouterEntetes() {
       var htr = q('#lignes thead tr');
       if (!htr || q('.ie-col-cout', htr)) { return; }
       var fin = htr.lastElementChild;
-      ['Coût unitaire (au coût)', 'Total'].forEach(function (t) {
+      ['Coût unitaire', 'Total'].forEach(function (t) {
         var th = el('th', 'nombre ie-col-cout', t);
         th.scope = 'col';
         htr.insertBefore(th, fin);
@@ -315,8 +337,9 @@
       qa('#lignes tbody tr').forEach(function (tr) {
         if (q('.ie-cout', tr)) { return; }
         var fin = tr.lastElementChild;
-        var c1 = el('td', 'nombre ie-cout ie-attente', '…');
-        var c2 = el('td', 'nombre ie-total-ligne ie-attente', '…');
+        var c1 = el('td', 'nombre ie-cout mv-c-cout ie-attente', '…');
+        var c2 = el('td', 'nombre ie-total-ligne mv-c-total ie-attente', '…');
+        c1.setAttribute('data-label', 'Coût unitaire'); c2.setAttribute('data-label', 'Total');
         tr.insertBefore(c1, fin);
         tr.insertBefore(c2, fin);
       });
@@ -326,8 +349,8 @@
       qa('#lignes tbody tr').forEach(function (tr) {
         tr.classList.remove('ie-ligne-sans-cout');
         var c1 = q('.ie-cout', tr), c2 = q('.ie-total-ligne', tr);
-        if (c1) { c1.textContent = '…'; c1.className = 'nombre ie-cout ie-attente'; }
-        if (c2) { c2.textContent = '…'; c2.className = 'nombre ie-total-ligne ie-attente'; }
+        if (c1) { c1.textContent = '…'; c1.className = 'nombre ie-cout mv-c-cout ie-attente'; }
+        if (c2) { c2.textContent = '…'; c2.className = 'nombre ie-total-ligne mv-c-total ie-attente'; }
       });
     }
 
@@ -366,7 +389,7 @@
           tr.cells[ci].className = 'nombre' + (l.insuffisant ? ' text-danger font-weight-bold' : '');
         }
         tr.classList.remove('ie-ligne-sans-cout');
-        c1.className = 'nombre ie-cout'; c2.className = 'nombre ie-total-ligne';
+        c1.className = 'nombre ie-cout mv-c-cout'; c2.className = 'nombre ie-total-ligne mv-c-total';
         c1.textContent = ''; c2.textContent = '';
         if (!l || l.erreur) { c1.textContent = '—'; c2.textContent = '—'; return; }
         if (l.sans_cout) {
@@ -389,11 +412,10 @@
       $avert.textContent = '';
       if (sans.length) {
         ajouterAvis('Coût inconnu', sans.map(function (l) { return guill(l.code); }).join(', ') + (sans.length > 1 ? ' n\'ont' : ' n\'a') +
-          ' aucun coût connu chez ' + nomEmetteur + '. Faites d\'abord une réception (ou un ajustement avec coût), ou cochez ' + guill('Facturer les pièces sans coût à 0' + NB + '$') + '.');
+          ' aucun coût connu chez ' + nomEmetteur + '. Faites d\'abord une réception, ou cochez ' + guill('Facturer les pièces sans coût à 0' + NB + '$') + '.');
       }
       if (insuf.length) {
-        ajouterAvis('Stock insuffisant', insuf.map(function (l) { return guill(l.code) + ' (disponible ' + w.fmtQte(l.disponible) + ', demandé ' + w.fmtQte(l.quantite) + ')'; }).join(', ') +
-          ' : l\'enregistrement sera refusé.');
+        ajouterAvis('Stock insuffisant', insuf.map(function (l) { return guill(l.code) + ' (disponible ' + w.fmtQte(l.disponible) + ', demandé ' + w.fmtQte(l.quantite) + ')'; }).join(', ') + '.');
       }
       if (erreurs.length) {
         ajouterAvis('Ligne à corriger', erreurs.map(function (l) { return (l.code ? guill(l.code) + ' : ' : '') + l.erreur; }).join(' '));
@@ -403,8 +425,8 @@
       // Une pièce sans coût que l'utilisateur n'a pas déjà acceptée de facturer à 0 $ remet la case à « décochée »
       if (sans.some(function (l) { return !consentement[l.code]; })) { $zero.checked = false; }
 
-      var texte = 'Total de la facture (au coût) : ' + argent(r.total);
-      if (sans.length) { texte += ' — dont ' + sans.length + (sans.length > 1 ? ' pièces sans coût comptées à 0,00' + NB + '$' : ' pièce sans coût comptée à 0,00' + NB + '$'); }
+      var texte = 'Total : ' + argent(r.total);
+      if (sans.length) { texte += ' · ' + sans.length + (sans.length > 1 ? ' pièces sans coût' : ' pièce sans coût'); }
       $total.textContent = (r.lignes || []).length ? texte : '';
     }
 
@@ -430,7 +452,7 @@
         reinitialiserApercu();
         if (lignes.length) {      // des pièces, mais pas encore de source : le coût est celui de l'entreprise émettrice
           qa('#lignes td.ie-cout, #lignes td.ie-total-ligne').forEach(function (c) { c.textContent = '—'; c.className = c.className.replace(/\s*ie-attente/, ''); });
-          $total.textContent = 'Choisissez l\'emplacement source pour calculer les coûts.';
+          $total.textContent = 'Choisissez où prendre les pièces.';
         }
         return;
       }
@@ -446,7 +468,6 @@
 
     function surChangementLignes(lignes) {
       assurerCellules();
-      majResume(lignes);
       programmerApercu(lignes);
     }
 
@@ -457,7 +478,7 @@
       for (var i = 0; i < rows.length; i++) {
         var inp = q('input', rows[i]);
         if (!inp) { continue; }
-        var v = inp.value.replace(/[\s ]/g, '');
+        var v = inp.value.replace(/[\s ]/g, '');
         if (!/^(\d+([.,]\d+)?|[.,]\d+)$/.test(v)) {
           return 'Quantité invalide pour ' + guill(rows[i].cells[0].textContent) + '.';
         }
@@ -466,9 +487,9 @@
     }
 
     function validerBase() {
-      if (!$emp.value) { return { m: 'Choisissez l\'emplacement source.', champ: 'emplacement_id' }; }
-      if (!$ent.value) { return { m: 'Choisissez l\'entreprise destinataire.', champ: 'entreprise_dest_id' }; }
-      if (!$dest.value) { return { m: 'Choisissez l\'emplacement de destination.', champ: 'emplacement_dest_id' }; }
+      if (!trajet.src || !trajet.dest) { return { m: 'Choisissez qui facture à qui.', champ: 'entreprise_dest_id' }; }
+      if (!$emp.value) { return { m: 'Choisissez où prendre les pièces.', champ: 'emplacement_id' }; }
+      if (!$dest.value) { return { m: 'Choisissez où mettre les pièces.', champ: 'emplacement_dest_id' }; }
       if (!$date.value) { return { m: 'Entrez une date valide.', champ: 'date' }; }
       if ($date.value > aujourdhui()) { return { m: 'La date ne peut pas être dans le futur.', champ: 'date' }; }
       if ($date.value < '2000-01-01') { return { m: 'La date doit être le 1er janvier 2000 ou plus récente.', champ: 'date' }; }
@@ -491,7 +512,7 @@
 
     function charge() {
       return {
-        jeton: jeton, emplacement_id: parseInt($emp.value, 10), entreprise_dest_id: parseInt($ent.value, 10),
+        jeton: jeton, emplacement_id: parseInt($emp.value, 10), entreprise_dest_id: parseInt(trajet.dest, 10),
         emplacement_dest_id: parseInt($dest.value, 10), date: $date.value, note: $note.value,
         permettre_cout_zero: !!($zero.checked && apercu.sansCout.length), lignes: sl.lignes()
       };
@@ -503,13 +524,14 @@
       $zero.checked = false;
       consentement = {};
       $date.value = aujourdhui();
+      ouvrirOptions(false);
       jeton = nouveauJeton();
       effacerErreur();
       sl.focus();
     }
 
     /**
-     * Bouton « Enregistrer » pendant l'envoi : aria-disabled (et non disabled) pour que le bouton GARDE le focus ;
+     * Bouton « Facturer » pendant l'envoi : aria-disabled (et non disabled) pour que le bouton GARDE le focus ;
      * l'indicateur « enCours » bloque le double clic. Un bouton désactivé qui a le focus le perdrait (focus sur BODY : le scan suivant serait perdu).
      */
     function occupe(oui) {
@@ -517,7 +539,7 @@
       $btn.setAttribute('aria-disabled', oui ? 'true' : 'false');
       $btn.classList.toggle('disabled', !!oui);
       var s = q('span', $btn), i = q('i', $btn);
-      if (oui) { $btn.setAttribute('data-libelle', s.textContent); s.textContent = 'Enregistrement…'; i.className = 'fas fa-spinner fa-spin mr-1'; }
+      if (oui) { $btn.setAttribute('data-libelle', s.textContent); s.textContent = 'Facturation…'; i.className = 'fas fa-spinner fa-spin mr-1'; }
       else if ($btn.hasAttribute('data-libelle')) { s.textContent = $btn.getAttribute('data-libelle'); i.className = 'fas fa-check mr-1'; }
     }
 
@@ -547,12 +569,15 @@
 
     // ---- démarrage ----------------------------------------------------------------------------------
     sl = w.SaisieLignes.creer({
-      conteneur: '#lignes', scan: '#scan', recherche: '#recherche',
+      conteneur: '#lignes', scan: '#scan', suggestions: true, stepper: true,
       coutColonne: false,
       emplacementSource: function () { return $emp.value || null; },
-      onEmplacement: emplacementScanne,
+      onEmplacement: function (emp) {          // le composant n'attend pas la promesse : une erreur tardive doit se voir
+        var r = emplacementScanne(emp);
+        if (r && r.catch) { r.catch(function (err) { w.bip(false); w.toast(msg(err), 'danger'); }); }
+      },
       onChange: surChangementLignes,
-      vide: 'Scannez une pièce ou cherchez-la ci-dessus.'
+      vide: 'Aucune pièce.'
     });
     ajouterEntetes();
 
@@ -565,7 +590,7 @@
         if (/^EMP-/i.test(c) && /^Code inconnu/.test(err.message || '')) {
           return w.api.get('app/ajax/facture_emplacement_code.php', { code: c }).then(function (r) {
             if (!r.trouve) {
-              throw new Error('Emplacement inconnu ou désactivé : ' + guill(c) + '. Choisissez-le dans la liste.');
+              throw new Error('Emplacement inconnu ou désactivé : ' + guill(c) + '.');
             }
             return emplacementScanne(r.emplacement);
           });
@@ -575,8 +600,13 @@
     };
 
     $emp.addEventListener('change', surChangementSource);
-    $ent.addEventListener('change', function () { chargerDestinations(); effacerErreur(); });
-    $dest.addEventListener('change', function () { if ($dest.value && $ent.value) { memoEcrire(CLE_DEST + $ent.value, $dest.value); } effacerErreur(); });
+    $dest.addEventListener('change', function () { if ($dest.value && trajet.dest) { memoEcrire(CLE_DEST + trajet.dest, $dest.value); } effacerErreur(); });
+    $choix.addEventListener('change', function (ev) {
+      var r = ev.target;
+      if (!r || r.name !== 'trajet') { return; }
+      choisirTrajet(r.getAttribute('data-src'), r.getAttribute('data-dest'));
+      effacerErreur();
+    });
     [$date, $note].forEach(function (c) { c.addEventListener('input', effacerErreur); c.addEventListener('change', effacerErreur); });
     $zero.addEventListener('change', function () {
       consentement = {};
@@ -584,15 +614,16 @@
       effacerErreur();
     });
     $btn.addEventListener('click', enregistrer);
+    $plus.addEventListener('click', function () { ouvrirOptions($options.hidden); });
 
-    // Après un choix fait À LA SOURIS dans une liste, le curseur revient au champ de scan (le prochain code scanné n'est pas avalé par la liste).
+    // Après un choix fait À LA SOURIS dans une liste ou parmi les cartes, le curseur revient au champ de scan (le prochain code scanné n'est pas avalé par la liste).
     // Au clavier on ne bouge pas : chaque flèche d'une liste fermée déclenche « change », et l'utilisateur doit pouvoir continuer.
     // (Une frappe de lecteur tombée sur une liste est de toute façon redirigée vers le champ de scan par app.js.)
-    [$emp, $ent, $dest].forEach(function (c) {
+    [$emp, $dest, $choix].forEach(function (c) {
       var pointeur = false;
       c.addEventListener('pointerdown', function () { pointeur = true; });
       c.addEventListener('keydown', function () { pointeur = false; });
-      c.addEventListener('blur', function () { pointeur = false; });
+      c.addEventListener('blur', function () { pointeur = false; }, true);
       c.addEventListener('change', function () { if (pointeur) { pointeur = false; setTimeout(function () { sl.focus(); }, 0); } });
     });
 
@@ -632,6 +663,24 @@
       if (ev.target.tagName === 'INPUT') { try { ev.target.select(); } catch (e) { /* sans effet */ } }
     });
 
+    /** Trajet de départ : l'emplacement de l'adresse, sinon le dernier trajet utilisé, sinon l'unique trajet possible. */
+    function trajetInitial() {
+      var voulu = parId(racine.getAttribute('data-emplacement-id') || '');
+      var memo = (memoLire(CLE_TRAJET) || '').split('>');
+      if (voulu) {
+        var src = String(voulu.entreprise_id), autres = autresEntreprises(src);
+        var dest = autres.length === 1 ? String(autres[0].id) : (memo[0] === src && paireValide(src, memo[1]) ? memo[1] : '');
+        choisirTrajet(src, dest);
+        $emp.value = String(voulu.id);
+        surChangementSource();
+        return;
+      }
+      if (memo.length === 2 && paireValide(memo[0], memo[1])) { choisirTrajet(memo[0], memo[1]); return; }
+      var paires = [];
+      sources.forEach(function (s) { autresEntreprises(s.id).forEach(function (d) { paires.push([String(s.id), String(d.id)]); }); });
+      if (paires.length === 1) { choisirTrajet(paires[0][0], paires[0][1]); }
+    }
+
     Promise.all([
       w.api.get('app/ajax/emplacements_liste.php'),
       w.api.get('app/ajax/emplacements_liste.php', { entreprises_destination: 1 })
@@ -639,19 +688,22 @@
       emplacements = (res[0].emplacements || []).map(function (e) { return { id: e.id, nom: e.nom, type: e.type, entreprise_id: e.entreprise_id, entreprise_nom: e.entreprise_nom }; });
       entreprises = (res[1].entreprises || []).map(function (e) { return { id: e.id, nom: e.nom }; });
       if (!emplacements.length) {
-        $emp.innerHTML = '<option value="">Aucun emplacement disponible</option>';
+        $choix.textContent = '';
+        $emp.innerHTML = '<option value="">Aucun emplacement</option>';
         afficherErreur('Aucun emplacement actif n\'est disponible pour vous. Demandez à un administrateur d\'en créer un.', null);
         return;
       }
-      var voulu = racine.getAttribute('data-emplacement-id') || memoLire(CLE_SRC) || '';
-      remplirSources(voulu);
-      if (!$emp.value && emplacements.length === 1) { $emp.value = String(emplacements[0].id); }   // un seul choix : on le prend
-      surChangementSource();
+      emplacements.forEach(function (e) {
+        if (!sources.some(function (s) { return String(s.id) === String(e.entreprise_id); })) { sources.push({ id: e.entreprise_id, nom: e.entreprise_nom }); }
+      });
+      dessinerTrajets();
+      trajetInitial();
       var code = racine.getAttribute('data-piece-code');
       if (code) {
         return sl.ajouterParCode(code).then(function () { w.bip(true); }).catch(function (err) { w.toast(msg(err), 'danger'); });
       }
     }).catch(function (err) {
+      $choix.textContent = '';
       $emp.innerHTML = '<option value="">Liste indisponible</option>';
       afficherErreur('Impossible de charger les emplacements : ' + msg(err), null);
     }).then(function () { sl.focus(); });
@@ -669,7 +721,7 @@
     }
 
     var langue = $.extend({}, w.DT_LANG, LANG_PLUS, {
-      emptyTable: 'Aucune facture interne pour ces filtres.', zeroRecords: 'Aucune facture interne pour ces filtres.',
+      emptyTable: 'Aucune facture.', zeroRecords: 'Aucune facture.',
       infoEmpty: '', info: '_START_ à _END_ de _TOTAL_ factures', infoFiltered: ''
     });
     var table = $('#table-factures').DataTable({
@@ -684,7 +736,7 @@
         { data: 'numero' },
         { data: 'date', orderSequence: ['desc', 'asc'] },
         { data: 'parties' },
-        { data: 'emplacements' },
+        { data: 'emplacements', visible: false },       // trouvé par la recherche, mais pas affiché : le détail est sur la facture
         { data: 'total', className: 'nombre', orderSequence: ['desc', 'asc'] },
         { data: 'statut' }
       ],
@@ -698,7 +750,7 @@
       if (!r.nb_valides && !r.nb_annulees) { montrer($tot, false); return; }     // le tableau dit déjà qu'il n'y a aucune facture
       montrer($tot, true);
       $tot.appendChild(el('strong', null, String(r.nb_valides)));
-      $tot.appendChild(document.createTextNode((r.nb_valides > 1 ? ' factures valides' : ' facture valide') + ' · total au coût : '));
+      $tot.appendChild(document.createTextNode((r.nb_valides > 1 ? ' factures valides' : ' facture valide') + ' · total : '));
       var t = el('strong', null, argent(r.total));
       t.id = 'ie-totaux-montant';
       $tot.appendChild(t);
@@ -707,7 +759,6 @@
 
     function chargerTotaux() {
       var mon = ++seqTotaux;
-      montrer($tot, true);
       w.api.post('app/ajax/factures_internes_totaux.php', filtres())
         .then(function (r) { if (mon === seqTotaux) { afficherTotaux(r); } })
         .catch(function (err) { if (mon === seqTotaux) { $tot.textContent = 'Totaux indisponibles : ' + msg(err); } });
@@ -716,10 +767,10 @@
     function echecListe() {
       seqTotaux++;                                   // une réponse de totaux encore en route est ignorée
       montrer($tot, true);
-      $tot.textContent = 'Impossible de charger la liste des factures internes. Vérifiez la connexion, puis réessayez.';
+      $tot.textContent = 'Impossible de charger les factures. Vérifiez la connexion, puis réessayez.';
       var tr = el('tr', 'odd');
-      var td = el('td', 'dataTables_empty', 'Impossible de charger la liste des factures internes. Vérifiez la connexion, puis réessayez.');
-      td.colSpan = 6;
+      var td = el('td', 'dataTables_empty', 'Impossible de charger les factures. Vérifiez la connexion, puis réessayez.');
+      td.colSpan = 5;
       tr.appendChild(td);
       var tb = q('#table-factures tbody');
       tb.textContent = '';
@@ -736,8 +787,17 @@
     [$an, $mo, $sens, $st].forEach(function (c) { c.addEventListener('change', redessiner); });
     var minuteur = null;
     $q.addEventListener('input', function () { clearTimeout(minuteur); minuteur = setTimeout(redessiner, 300); });
+    // « Plus d'options » : le sens et le statut restent repliés tant qu'on ne les demande pas
+    var $plus = q('#f-plus'), $opts = q('#f-options');
+    function ouvrirOptions(oui) {
+      $opts.hidden = !oui;
+      $plus.setAttribute('aria-expanded', oui ? 'true' : 'false');
+      q('i', $plus).className = 'fas ' + (oui ? 'fa-chevron-down' : 'fa-chevron-right') + ' ie-plus-icone';
+    }
+    $plus.addEventListener('click', function () { ouvrirOptions($opts.hidden); });
     q('#f-effacer').addEventListener('click', function () {
       $q.value = ''; $an.value = ''; $mo.value = ''; $sens.value = ''; $st.value = '';
+      ouvrirOptions(false);
       redessiner();
     });
     // Un clic n'importe où sur la ligne ouvre la facture (les liens gardent leur comportement)
@@ -785,7 +845,7 @@
         .catch(function (err) {
           erreur(msg(err, 'annulation'));        // message du service (ex. : stock insuffisant à la destination), précédé d'une phrase qui explique
           enCours = false; $ok.disabled = false; $retour.disabled = false;
-          $ok.textContent = 'Annuler cette facture';
+          $ok.textContent = 'Annuler la facture';
           $motif.focus();           // le focus ne doit pas tomber sur la page (Échap fermerait la fenêtre)
         });
     });
@@ -797,6 +857,15 @@
   function initBilan() {
     // Aucun envoi automatique à chaque changement d'une liste : au clavier, une flèche recharge la page et fait perdre le focus.
     // Le bouton « Afficher » (ou Entrée) envoie le formulaire.
+    var $plus = q('#b-plus'), $opts = q('#b-options');
+    if ($plus && $opts) {         // « Plus d'options » : autre mois, autre année, autre paire d'entreprises
+      $plus.addEventListener('click', function () {
+        var oui = $opts.hidden;
+        $opts.hidden = !oui;
+        $plus.setAttribute('aria-expanded', oui ? 'true' : 'false');
+        q('i', $plus).className = 'fas ' + (oui ? 'fa-chevron-down' : 'fa-chevron-right') + ' ie-plus-icone';
+      });
+    }
     var $a = q('#b-a'), $b = q('#b-b');
     if ($a && $b) {
       // Les deux entreprises doivent être différentes : l'entreprise choisie à gauche n'est pas proposée à droite

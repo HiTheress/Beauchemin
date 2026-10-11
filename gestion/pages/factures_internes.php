@@ -1,6 +1,6 @@
 <?php
 // Liste des factures internes dont une entreprise de l'utilisateur est émettrice ou destinataire (gestionnaire+).
-// Filtres : mois / année, sens (émises / reçues), statut, recherche. Préremplis par l'URL : annee, mois, sens, statut, q.
+// Filtres : recherche, année, mois ; sens (émises / reçues) et statut sont cachés derrière « Plus d'options ». Préremplis par l'URL : annee, mois, sens, statut, q.
 if (!acces_page('gestionnaire')) { return; }
 require_once __DIR__ . '/../app/action/facture_lib.php';
 page_script('assets/js/interentreprise.js');
@@ -23,16 +23,20 @@ for ($a = $annee_courante; $a >= min($premiere, $annee_courante); $a--) { $annee
 if ($pre_annee && !in_array($pre_annee, $annees, true)) { $annees[] = $pre_annee; rsort($annees); }
 ?>
 <link rel="stylesheet" href="assets/css/interentreprise.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/interentreprise.css'); ?>">
-<div class="content-wrapper" data-ie="factures_internes" data-titre="Factures internes — Beauchemin">
-  <?php page_titre('Factures internes', array('Rapports')); ?>
+<div class="content-wrapper" data-ie="factures_internes" data-titre="Factures — Beauchemin">
+  <?php page_titre('Factures', array('Facturation')); ?>
   <section class="content"><div class="container-fluid">
     <div class="card ie-carte"><div class="card-body">
 
-      <div class="row ie-filtres">
-        <div class="col-md-6 col-xl-4 form-group">
-          <label for="f-recherche">Rechercher</label>
+      <div class="ie-liste-barre no-print">
+        <div class="form-group ie-liste-recherche">
+          <label for="f-recherche" class="sr-only">Rechercher</label>
           <input id="f-recherche" type="search" class="form-control" autocomplete="off" maxlength="100" placeholder="Numéro, note ou emplacement" value="<?php echo e($pre_q); ?>">
         </div>
+        <a href="index.php?page=facture_interne" class="btn btn-primary ie-liste-nouveau"><i class="fas fa-plus mr-1" aria-hidden="true"></i> Nouvelle facture</a>
+      </div>
+
+      <div class="row ie-filtres align-items-end">
         <div class="col-6 col-md-3 col-xl-2 form-group">
           <label for="f-annee">Année</label>
           <select id="f-annee" class="form-control">
@@ -47,12 +51,18 @@ if ($pre_annee && !in_array($pre_annee, $annees, true)) { $annees[] = $pre_annee
             <?php foreach (MOIS_FR as $n => $lib) { ?><option value="<?php echo (int) $n; ?>"<?php echo $pre_mois === $n ? ' selected' : ''; ?>><?php echo e(mb_strtoupper(mb_substr($lib, 0, 1)) . mb_substr($lib, 1)); ?></option><?php } ?>
           </select>
         </div>
-        <div class="col-md-6 col-xl-4 form-group">
+        <div class="col-12 col-md-auto form-group">
+          <button type="button" id="f-plus" class="btn btn-link ie-plus-btn" aria-expanded="<?php echo ($pre_sens !== '' || $pre_statut !== '') ? 'true' : 'false'; ?>" aria-controls="f-options"><i class="fas fa-chevron-<?php echo ($pre_sens !== '' || $pre_statut !== '') ? 'down' : 'right'; ?> ie-plus-icone" aria-hidden="true"></i> Plus d'options</button>
+          <button type="button" id="f-effacer" class="btn btn-link ie-plus-btn">Effacer</button>
+        </div>
+      </div>
+      <div id="f-options" class="row ie-filtres ie-options-liste"<?php echo ($pre_sens !== '' || $pre_statut !== '') ? '' : ' hidden'; ?>>
+        <div class="col-md-6 col-xl-3 form-group">
           <label for="f-sens">Sens</label>
           <select id="f-sens" class="form-control">
-            <option value="">Émises et reçues</option>
-            <option value="emises"<?php echo $pre_sens === 'emises' ? ' selected' : ''; ?>>Émises par l'entreprise affichée</option>
-            <option value="recues"<?php echo $pre_sens === 'recues' ? ' selected' : ''; ?>>Reçues par l'entreprise affichée</option>
+            <option value="">Toutes</option>
+            <option value="emises"<?php echo $pre_sens === 'emises' ? ' selected' : ''; ?>>Émises</option>
+            <option value="recues"<?php echo $pre_sens === 'recues' ? ' selected' : ''; ?>>Reçues</option>
           </select>
         </div>
         <div class="col-md-6 col-xl-3 form-group">
@@ -64,14 +74,10 @@ if ($pre_annee && !in_array($pre_annee, $annees, true)) { $annees[] = $pre_annee
           </select>
         </div>
       </div>
-      <div class="mb-3 no-print">
-        <button type="button" id="f-effacer" class="btn btn-outline-secondary"><i class="fas fa-eraser mr-1" aria-hidden="true"></i> Effacer les filtres</button>
-        <a href="index.php?page=facture_interne" class="btn btn-primary ml-1"><i class="fas fa-plus mr-1" aria-hidden="true"></i> Nouvelle facture interne</a>
-      </div>
 
       <div class="table-responsive">
         <table id="table-factures" class="table table-striped ie-table w-100">
-          <caption class="sr-only">Factures internes de vos entreprises</caption>
+          <caption class="sr-only">Factures de vos entreprises</caption>
           <thead><tr>
             <th scope="col">Numéro</th>
             <th scope="col">Date</th>
@@ -84,8 +90,7 @@ if ($pre_annee && !in_array($pre_annee, $annees, true)) { $annees[] = $pre_annee
         </table>
       </div>
 
-      <div id="ie-totaux" class="ie-totaux" aria-live="polite">Calcul des totaux…</div>
-      <p class="text-muted small mt-2 mb-0">Seules les factures de vos entreprises sont listées. Les montants sont établis au coût : aucune marge. Cliquez sur un numéro pour voir la facture, l'imprimer ou, au besoin, l'annuler.</p>
+      <div id="ie-totaux" class="ie-totaux" aria-live="polite" hidden></div>
     </div></div>
   </div></section>
 </div>
