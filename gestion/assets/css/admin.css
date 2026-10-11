@@ -47,7 +47,7 @@ table.adm-table thead th { padding-right: 1.3rem; }          /* place des flèch
 
 /* Contrastes (WCAG AA, 4,5 : 1) : le jaune sur blanc est illisible ; pastilles blanches sur vert et sur bleu-vert assombries */
 .adm-avert { color: #7a5c00; font-weight: 600; }
-.adm-btn-attention { color: #7a5c00; border: 1px solid #b58105; background: #fff; }
+.adm-btn-attention { color: #7a5c00; border: 1px solid #b58105; background: var(--surface); }
 .adm-btn-attention:hover, .adm-btn-attention:focus { color: #5c4500; background: #fff3cd; border-color: #8a6100; }
 [data-admin] .badge-success { background-color: #1e7e34; }
 [data-admin] .badge-info { background-color: #117a8b; }

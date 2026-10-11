@@ -32,7 +32,7 @@ table.dataTable.sk-table > thead > tr > th::before, table.dataTable.sk-table > t
 .sk-table tbody tr.sk-bas, .sk-table tbody tr.sk-bas > td { background-color: #fde8e8; }
 .sk-table tbody tr.sk-bas > td:first-child { box-shadow: inset 4px 0 0 #dc3545; }
 .sk-table tbody tr.sk-annulation > td { color: #6c757d; }
-.sk-table a { text-decoration: underline; text-decoration-color: rgba(11,94,215,.35); overflow-wrap: anywhere; }   /* un nom sans espace (très long) se coupe plutôt que d'élargir le tableau */
+.sk-table a { text-decoration: underline; text-decoration-color: var(--accent-ring); overflow-wrap: anywhere; }   /* un nom sans espace (très long) se coupe plutôt que d'élargir le tableau */
 .sk-table a:focus, .sk-carte a:focus, .ds-carte a:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sk-btn-recevoir { text-decoration: none !important; white-space: nowrap; }
 .sk-pos { color: #1e7e34; }

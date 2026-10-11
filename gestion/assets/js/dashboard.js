@@ -29,6 +29,56 @@
   /** Montant avec son signe explicite pour un solde. */
   function signe(s) { var n = parseFloat(s); return (n > 0 ? '+' : '') + w.fmtArgent(s); }
 
+  var MOIS_COURTS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+  function dateCourte(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+    return m ? (parseInt(m[3], 10) + ' ' + MOIS_COURTS[parseInt(m[2], 10) - 1]) : '';
+  }
+  function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) { e.className = cls; } if (txt !== undefined) { e.textContent = txt; } return e; }
+
+  /** Graphique d'activité : barres en pastille (7 jours), ligne de moyenne, trois dernières lectures. Aucun montant. */
+  function dessinerActivite(a, docs) {
+    var zone = q('gr-graph');
+    if (!zone || !a) { return; }
+    var jours = a.jours || [];
+    var max = 1;
+    jours.forEach(function (j) { if (entier(j.n) > max) { max = entier(j.n); } });
+    var HAUT = 64, MIN = 8, BAS = 22;   // px : hauteur utile, barre minimale, bande des libellés
+    zone.textContent = '';
+    jours.forEach(function (j) {
+      var n = entier(j.n);
+      var cell = el('div', 'gr-colonne');
+      var barre = el('div', 'gr-barre' + (n === 0 ? ' gr-vide' : ''));
+      barre.style.height = (MIN + Math.round(HAUT * n / max)) + 'px';
+      barre.title = dateCourte(j.date) + ' : ' + n + (n > 1 ? ' mouvements' : ' mouvement');
+      barre.appendChild(el('span', 'gr-point gr-haut'));
+      barre.appendChild(el('span', 'gr-point gr-bas'));
+      cell.appendChild(barre);
+      cell.appendChild(el('span', 'gr-jour', j.lettre));
+      zone.appendChild(cell);
+    });
+    q('gr-total').textContent = w.fmtQte(a.total);
+    q('gr-dates').textContent = 'Du ' + dateCourte(a.du) + ' au ' + dateCourte(a.au) + ' · 7 derniers jours';
+    var zoneEl = q('gr-zone');
+    zoneEl.setAttribute('aria-label', 'Mouvements par jour : ' + jours.map(function (j) { return j.lettre + ' ' + entier(j.n); }).join(', '));
+    var moy = parseFloat(a.moyenne) || 0;
+    var ligne = q('gr-moy');
+    ligne.hidden = !(entier(a.total) > 0);
+    ligne.style.bottom = (BAS + MIN + Math.round(HAUT * Math.min(moy, max) / max)) + 'px';
+    q('gr-moy-txt').textContent = 'moy. ' + String(moy).replace('.', ',');
+
+    var lect = q('gr-lectures');
+    lect.textContent = '';
+    (docs || []).slice(0, 3).forEach(function (d) {
+      var l = el('div', 'gr-lecture');
+      l.appendChild(el('span', 'gr-temps', dateCourte(d.date)));
+      var v = el('a', 'gr-val', d.numero + ' · ' + d.type_libelle + (d.statut === 'annule' ? ' (annulé)' : ''));
+      v.href = 'index.php?page=document_voir&id=' + entier(d.id);
+      l.appendChild(v);
+      lect.appendChild(l);
+    });
+  }
+
   var chargement = 0;   // numéro de la dernière demande : une réponse en retard est ignorée
 
   function dessiner(r) {
@@ -48,6 +98,8 @@
     q('ds-jour').textContent = w.fmtQte(c.mouvements_jour);
     var nd = entier(c.documents_jour);
     q('ds-jour-detail').textContent = nd === 0 ? 'Aucun document aujourd\'hui' : (nd === 1 ? 'dans 1 document' : 'dans ' + nd + ' documents');
+
+    dessinerActivite(r.activite, r.derniers_documents);
 
     if (gest) {
       var v = r.valeur || [];

@@ -23,7 +23,7 @@
 .ie-entete-form label { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ie-recap { margin: .75rem 0 .5rem; padding: .5rem .75rem; background: var(--accent-soft); border: 1px solid var(--line-strong); border-radius: .25rem; font-size: 1.05rem; }
 .ie-scan .scan-input::placeholder { color: #6c757d; opacity: 1; }          /* contraste 4,6:1 (le thème donne 2,8:1) */
-.ie-lignes table { background: #fff; }
+.ie-lignes table { background: var(--surface); }
 .ie-lignes td, .ie-lignes th { vertical-align: middle; }
 .ie-lignes input.form-control { min-width: 84px; min-height: 44px; }
 .ie-lignes .btn { min-width: 44px; min-height: 44px; }
@@ -42,7 +42,7 @@
 .ie-succes { background: #1e7e34; border-color: #1e7e34; color: #fff; }      /* blanc sur #1e7e34 : 5,1:1 (le vert du thème donne 3,1:1) */
 .ie-succes a { font-weight: 700; text-decoration: underline; color: #fff; }
 .ie-facture .badge-success, .ie-table .badge-success { background: #1e7e34; color: #fff; }
-.ie-actions { position: sticky; bottom: 0; z-index: 5; background: #fff; margin: .75rem -1.25rem -1.25rem; padding: .75rem 1.25rem; border-top: 1px solid #dee2e6; border-radius: 0 0 .25rem .25rem; }
+.ie-actions { position: sticky; bottom: 0; z-index: 5; background: var(--surface); margin: .75rem -1.25rem -1.25rem; padding: .75rem 1.25rem; border-top: 1px solid #dee2e6; border-radius: 0 0 .25rem .25rem; }
 .ie-erreur { scroll-margin-bottom: 110px; }
 .ie-succes { scroll-margin-top: 80px; }
 #ie-avert ul { margin: .25rem 0 0; padding-left: 1.2rem; }
@@ -97,7 +97,7 @@
 .ie-bilan-titre { font-size: 1.6rem; font-weight: 700; margin: .25rem 0; }
 .ie-bilan-paire { color: #495057; margin-bottom: 1rem; }
 .ie-nav-mois .btn { margin-right: .25rem; }
-.ie-solde { background: #fff; border: 2px solid var(--ink); border-left-width: 10px; border-radius: .35rem; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+.ie-solde { background: var(--surface); border: 2px solid var(--ink); border-left-width: 10px; border-radius: .35rem; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
 .ie-solde-texte { font-size: 1.9rem; font-weight: 600; line-height: 1.3; }
 .ie-solde-qui { font-weight: 800; }
 .ie-montant { font-weight: 800; color: var(--accent); white-space: nowrap; }
@@ -146,8 +146,8 @@
   .ie-facture .card-body { padding: 1rem 1.25rem; }
   .ie-titre { font-size: 22pt; }
   .ie-filigrane { color: rgba(0, 0, 0, .13) !important; border-color: rgba(0, 0, 0, .13) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .ie-bandeau-annule { border: 2px solid #000; background: #fff; color: #000; }
-  .badge { border: 1px solid #000; color: #000 !important; background: #fff !important; }
+  .ie-bandeau-annule { border: 2px solid #000; background: var(--surface); color: #000; }
+  .badge { border: 1px solid #000; color: #000 !important; background: var(--surface) !important; }
   .table { font-size: 10.5pt; }
   .ie-table-facture tr, .ie-sens tr { break-inside: avoid; }
   /* Bootstrap peint les cellules en blanc à l'impression : le filigrane ANNULÉE (derrière le contenu) serait presque entièrement masqué */
@@ -158,7 +158,7 @@
   .ie-solde { border: 2px solid #000; }
   .ie-montant { color: #000; }
   .ie-signatures { margin-top: 2.5rem; }
-  .ie-carte-total { background: #fff !important; border: 1px solid #000 !important; }
+  .ie-carte-total { background: var(--surface) !important; border: 1px solid #000 !important; }
   .ie-carte-total .ie-valeur-nom, .ie-carte-total .ie-valeur-montant { color: #000 !important; }
   .ie-table-emplacements tbody tr.ie-ligne-emplacement { cursor: auto; }
 }

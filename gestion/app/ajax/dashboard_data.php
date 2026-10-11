@@ -40,6 +40,26 @@ Suivi::executer(function ($ctx) {
 		array(':d0' => $aujourdhui . ' 00:00:00', ':d1' => date('Y-m-d', strtotime('+1 day')) . ' 00:00:00')
 	);
 
+	// --- activité des 7 derniers jours (nombre de lignes de mouvement par jour ; aucun montant) ---
+	$debut = date('Y-m-d', strtotime('-6 days'));
+	$st = $pdo->prepare(
+		'SELECT DATE(m.date_mouvement) AS j, COUNT(*) AS n FROM mouvements m JOIN emplacements e ON e.id = m.emplacement_id
+		  WHERE e.entreprise_id IN (' . $liste . ') AND m.date_mouvement >= :d0 GROUP BY DATE(m.date_mouvement)'
+	);
+	$st->execute(array(':d0' => $debut . ' 00:00:00'));
+	$parJour = array();
+	foreach ($st->fetchAll() as $x) { $parJour[$x['j']] = (int) $x['n']; }
+	$lettres = array(1 => 'L', 2 => 'M', 3 => 'M', 4 => 'J', 5 => 'V', 6 => 'S', 7 => 'D');
+	$jours = array();
+	$totalAct = 0;
+	for ($i = 6; $i >= 0; $i--) {
+		$t = strtotime("-$i days");
+		$d = date('Y-m-d', $t);
+		$n = isset($parJour[$d]) ? $parJour[$d] : 0;
+		$totalAct += $n;
+		$jours[] = array('date' => $d, 'lettre' => $lettres[(int) date('N', $t)], 'n' => $n);
+	}
+
 	// --- 10 derniers documents (émis OU reçus par l'entreprise choisie) ---
 	$docs = array();
 	$st = $pdo->query(
@@ -88,6 +108,7 @@ Suivi::executer(function ($ctx) {
 			'mouvements_jour' => (int) $jour['n'],
 			'documents_jour' => (int) $jour['docs'],
 		),
+		'activite' => array('du' => $debut, 'au' => $aujourdhui, 'jours' => $jours, 'total' => $totalAct, 'moyenne' => round($totalAct / 7, 1)),
 		'derniers_documents' => $docs,
 		'plus_bas' => array_slice($sous, 0, 5),
 	);

@@ -88,7 +88,43 @@ $aujourdhui = date('Y-m-d');
     <?php } ?>
 
     <div class="row">
-      <div class="col-xl-7">
+      <div class="col-xl-5 col-lg-6">
+        <div class="card gr-carte" aria-labelledby="ds-t-act">
+          <div class="gr-entete">
+            <h2 class="gr-titre" id="ds-t-act">Activité</h2>
+            <a class="gr-btn no-print" href="index.php?page=historique">Historique complet</a>
+          </div>
+          <div class="gr-valeur"><span class="gr-grand" id="gr-total">0</span><span class="gr-unite">mouvements</span></div>
+          <div class="gr-dates" id="gr-dates">&nbsp;</div>
+          <div class="gr-zone" role="img" id="gr-zone" aria-label="Mouvements par jour sur les sept derniers jours">
+            <div class="gr-graph" id="gr-graph"></div>
+            <div class="gr-moy" id="gr-moy" hidden><span class="gr-moy-etiquette" id="gr-moy-txt"></span></div>
+          </div>
+          <div class="gr-lectures" id="gr-lectures"></div>
+        </div>
+      </div>
+      <div class="col-xl-7 col-lg-6">
+        <div class="card ds-carte" aria-labelledby="ds-t-bas">
+          <div class="card-body">
+            <h2 class="ds-titre" id="ds-t-bas">Pièces les plus sous le minimum</h2>
+            <p class="text-muted mb-0" id="ds-bas-vide" hidden>Aucune pièce sous le minimum.</p>
+            <div class="table-responsive" id="ds-bas-zone" hidden>
+              <table class="table table-sm table-striped mb-0">
+                <caption class="sr-only">Les cinq pièces les plus manquantes</caption>
+                <thead><tr>
+                  <th scope="col">Pièce</th><th scope="col" class="nombre">Quantité</th><th scope="col" class="nombre">Minimum</th><th scope="col" class="nombre">Manque</th>
+                </tr></thead>
+                <tbody id="ds-bas"></tbody>
+              </table>
+            </div>
+            <a class="ds-lien no-print" href="index.php?page=sous_minimum">Voir toutes les pièces sous le minimum</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-12">
         <div class="card ds-carte" aria-labelledby="ds-t-docs">
           <div class="card-body">
             <h2 class="ds-titre" id="ds-t-docs">Derniers documents</h2>
@@ -104,24 +140,6 @@ $aujourdhui = date('Y-m-d');
               </table>
             </div>
             <a class="ds-lien no-print" href="index.php?page=documents">Tous les documents</a>
-          </div>
-        </div>
-      </div>
-      <div class="col-xl-5">
-        <div class="card ds-carte" aria-labelledby="ds-t-bas">
-          <div class="card-body">
-            <h2 class="ds-titre" id="ds-t-bas">Pièces les plus sous le minimum</h2>
-            <p class="text-muted mb-0" id="ds-bas-vide" hidden>Aucune pièce sous le minimum.</p>
-            <div class="table-responsive" id="ds-bas-zone" hidden>
-              <table class="table table-sm table-striped mb-0">
-                <caption class="sr-only">Les cinq pièces les plus manquantes</caption>
-                <thead><tr>
-                  <th scope="col">Pièce</th><th scope="col" class="nombre">Quantité</th><th scope="col" class="nombre">Minimum</th><th scope="col" class="nombre">Manque</th>
-                </tr></thead>
-                <tbody id="ds-bas"></tbody>
-              </table>
-            </div>
-            <a class="ds-lien no-print" href="index.php?page=sous_minimum">Voir toutes les pièces sous le minimum</a>
           </div>
         </div>
       </div>

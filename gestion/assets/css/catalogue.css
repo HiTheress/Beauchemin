@@ -11,9 +11,9 @@
 .cat-lien-cible { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 44px; min-height: 44px; }
 .cat-table a.code { font-weight: 600; }
 .cat-entete-entreprise td { background: #e9ecef; font-weight: 600; }
-.cat-barcode img { max-width: 100%; height: 64px; background: #fff; border: 1px solid #dee2e6; border-radius: .25rem; padding: 4px 8px; }
+.cat-barcode img { max-width: 100%; height: 64px; background: var(--surface); border: 1px solid #dee2e6; border-radius: .25rem; padding: 4px 8px; }
 .cat-alias-liste { list-style: none; padding: 0; margin: .5rem 0 0; }
-.cat-alias-liste li { display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem; border: 1px solid #dee2e6; border-radius: .25rem; margin-bottom: .35rem; background: #fff; }
+.cat-alias-liste li { display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem; border: 1px solid #dee2e6; border-radius: .25rem; margin-bottom: .35rem; background: var(--surface); }
 .cat-alias-liste li .code { flex: 1 1 auto; word-break: break-all; }
 .cat-alias-liste .btn { min-height: 44px; min-width: 44px; }
 .cat-desc { white-space: pre-wrap; }

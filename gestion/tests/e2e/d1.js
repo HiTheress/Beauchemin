@@ -1254,7 +1254,8 @@ async function section(nom, fn) {
     verifier(actif.ombre !== 'none' && actif.ombre !== inactif.ombre && actif.bordure !== inactif.bordure && actif.fond !== inactif.fond, 'constat 31 : le champ de scan actif se distingue nettement de l\'inactif : ' + JSON.stringify([actif, inactif]));
     verifier(/inactif/.test(inactif.invite) && /Scannez/.test(actif.invite), 'constat 31 : le texte d\'invite dit « Champ inactif » sans le focus');
     await ps.focus('#emp-choix');
-    verifier(/rgba\(11, 94, 215/.test(await ps.$eval('#emp-choix', el => getComputedStyle(el).boxShadow)), 'constat 31 : la liste d\'emplacements a un halo de focus visible');
+    const anneau = await ps.evaluate(() => (getComputedStyle(document.documentElement).getPropertyValue('--accent-ring').match(/\d+/g) || []).slice(0, 3).join(', '));
+    verifier(anneau !== '' && (await ps.$eval('#emp-choix', el => getComputedStyle(el).boxShadow)).includes('rgba(' + anneau), 'constat 31 : la liste d\'emplacements a un halo de focus visible (couleur de marque ' + anneau + ')');
     // fiche d'une pièce (gestionnaire) : accessibilité, libellés, contrastes
     await L.scanner(ps, '#scan', 'P-0001'); await ps.waitForSelector('#sc-resultat .sc-fiche');
     await ps.waitForFunction(() => /Fiche de P-0001/.test(document.querySelector('#sc-annonce').textContent));

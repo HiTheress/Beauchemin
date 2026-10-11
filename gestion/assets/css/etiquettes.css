@@ -16,7 +16,7 @@
 .et-apercu .et-chargement { text-align: center; color: #6c757d; padding: 2rem 0; }
 
 .et-page {
-  box-sizing: border-box; position: relative; overflow: hidden; background: #fff;
+  box-sizing: border-box; position: relative; overflow: hidden; background: var(--surface);
   width: calc(var(--pg-w) * 1mm); height: calc(var(--pg-h) * 1mm);
   zoom: var(--zoom, 1);
   margin: 0 auto 16px;
@@ -32,7 +32,7 @@
 }
 
 .et-etiquette {
-  box-sizing: border-box; overflow: hidden; background: #fff; color: #000;
+  box-sizing: border-box; overflow: hidden; background: var(--surface); color: #000;
   width: calc(var(--et-w) * 1mm); height: calc(var(--et-h) * 1mm);
   padding: calc(var(--pad) * 1mm);
   display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
@@ -63,14 +63,14 @@
 /* Impression : seule la zone des étiquettes est imprimée, sans aucune marge ajoutée par la page */
 @media print {
   /* Bootstrap impose body { min-width: 992px } à l'impression : Chrome réduirait alors tout à ~82 % pour « tenir » */
-  html, body { height: auto !important; min-width: 0 !important; width: auto !important; overflow: visible !important; background: #fff !important; }
+  html, body { height: auto !important; min-width: 0 !important; width: auto !important; overflow: visible !important; background: var(--surface) !important; }
   .container, .container-fluid { min-width: 0 !important; }
   .wrapper { overflow: visible !important; }
   .content-header { display: none !important; }
   .content-wrapper, .content-wrapper > .content, .content-wrapper .container-fluid,
   .et-carte-apercu, .et-carte-apercu .card-body, .et-apercu {
     margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important;
-    min-height: 0 !important; max-width: none !important; width: auto !important; background: #fff !important; overflow: visible !important;
+    min-height: 0 !important; max-width: none !important; width: auto !important; background: var(--surface) !important; overflow: visible !important;
   }
   #toasts { display: none !important; }   /* une notification ne doit jamais s'imprimer sur la feuille d'étiquettes */
   .et-apercu:empty::before { content: none; }
