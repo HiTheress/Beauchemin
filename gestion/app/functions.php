@@ -90,13 +90,10 @@ function endpoint($fn){
 
 /** En-tête de page standard (titre + fil d'Ariane). */
 function page_titre($titre, array $fil = array()){
+	// Titre seul : pas de fil d'Ariane (le menu indique déjà où l'on est). $fil est ignoré, gardé pour ne pas toucher aux pages.
 	echo '<div class="content-header"><div class="container-fluid"><div class="row mb-2">';
-	echo '<div class="col-sm-7"><h1 class="m-0 text-dark">' . e($titre) . '</h1></div>';
-	echo '<div class="col-sm-5"><ol class="breadcrumb float-sm-right"><li class="breadcrumb-item"><a href="index.php">Accueil</a></li>';
-	foreach ($fil as $f) {
-		echo '<li class="breadcrumb-item active">' . e($f) . '</li>';
-	}
-	echo '</ol></div></div></div></div>';
+	echo '<div class="col-12"><h1 class="m-0 text-dark">' . e($titre) . '</h1></div>';
+	echo '</div></div></div>';
 }
 
 /**
