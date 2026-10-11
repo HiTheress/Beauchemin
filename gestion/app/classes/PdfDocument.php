@@ -445,19 +445,21 @@ class PdfDocument extends FPDF
 			$this->ecrire($gauche, $y, $largeurTitre, 5.5, $e['sous_titre'], 'R');
 			$y += 5.8;
 		}
-		if ($e['ligne3'] !== '') {
-			$this->texteCouleur(self::GRIS);
-			$this->policeAjustee('', 9.5, $largeurTitre, $e['ligne3'], 6.5);
-			$this->ecrire($gauche, $y, $largeurTitre, 4.8, $e['ligne3'], 'R');
-			$y += 5.2;
-		}
+		// Dernière ligne : le statut (pastille) tout à droite, la date ou la paire d'entreprises à sa gauche
+		$droiteTexte = $droite;
 		if ($e['statut']) {
 			$this->police('B', 8.5);
 			$wp = $this->largeurTexte($e['statut']['texte']) + 7;
 			$this->remplirCouleur($e['statut']['ok'] ? self::VERT : self::ROUGE);
-			$this->rectArrondi($droite - $wp, $y + 0.4, $wp, 5.6, 2.8, 'F');
+			$this->rectArrondi($droite - $wp, $y + 0.1, $wp, 5.4, 2.7, 'F');
 			$this->SetTextColor(255, 255, 255);
-			$this->ecrire($droite - $wp, $y + 0.4, $wp, 5.6, $e['statut']['texte'], 'C');
+			$this->ecrire($droite - $wp, $y + 0.1, $wp, 5.4, $e['statut']['texte'], 'C');
+			$droiteTexte = $droite - $wp - 3;
+		}
+		if ($e['ligne3'] !== '') {
+			$this->texteCouleur(self::GRIS);
+			$this->policeAjustee('', 9.5, $droiteTexte - $gauche, $e['ligne3'], 6.5);
+			$this->ecrire($gauche, $y, $droiteTexte - $gauche, 5.6, $e['ligne3'], 'R');
 		}
 		$this->filet(34);
 		$this->SetY(self::HAUT_COMPLET);
