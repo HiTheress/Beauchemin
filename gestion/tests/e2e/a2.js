@@ -87,6 +87,16 @@ async function connecterComme(page, utilisateur) {
   await Promise.all([page.waitForNavigation(), page.click('button[type=submit]')]);
 }
 const CLICK = (page, sel) => page.$eval(sel, e => e.click());   // cases Bootstrap personnalisées : le <label> recouvre l'<input>
+/** Déplie « Plus d'options » (étiquettes : #et-plus, import : #imp-plus) si ce n'est pas déjà fait. */
+async function ouvrirOptions(page, bouton) {
+  if (await page.$eval(bouton, e => e.getAttribute('aria-expanded') !== 'true')) {
+    await page.click(bouton);
+    await page.waitForSelector(bouton.replace('-plus', '-options') + '.show');
+    await page.waitForTimeout(350);   // fin de l'animation
+  }
+}
+const ET_OPT = p => ouvrirOptions(p, '#et-plus');
+const IMP_OPT = p => ouvrirOptions(p, '#imp-plus');
 
 // ---- fichiers pièges ---------------------------------------------------------------------------------------------
 const ENT = 'code;nom;categorie;unite;code_barres;description;fournisseur;prix_fournisseur;no_fournisseur;minimum_entreprise_1;minimum_entreprise_2;emplacement;quantite;cout\r\n';
@@ -141,8 +151,10 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   section('Étiquettes : accès et chargement');
   await L.connecter(p, 'gestionnaire');
   await L.aller(p, 'etiquettes');
-  ok((await p.textContent('h1')).includes('Étiquettes code-barres'), 'titre de la page');
-  ok(await p.$eval('#et-resume', e => e.textContent.includes('Aucune étiquette')), 'état vide : message utile');
+  ok((await p.textContent('h1')).trim() === 'Étiquettes', 'titre de la page = libellé du menu');
+  ok(await p.$eval('#et-vide', e => e.textContent.includes('Aucune étiquette') && !!e.querySelector('button')), 'état vide : une ligne et un bouton pour ajouter');
+  ok(await p.$eval('#et-carte-impression', e => getComputedStyle(e).display === 'none') && await p.$eval('.et-carte-apercu', e => getComputedStyle(e).display === 'none'), 'état vide : ni formats, ni bouton Imprimer, ni aperçu');
+  ok(await p.$eval('#et-options', e => !e.classList.contains('show')) && await p.$eval('#et-plus', e => e.textContent.trim() === 'Plus d\'options' && e.getAttribute('aria-expanded') === 'false'), 'emplacements, catégorie et copies sont cachés derrière « Plus d\'options »');
   ok(await p.$eval('#et-imprimer', e => e.disabled), 'Imprimer désactivé sans étiquette');
   ok(await p.$eval('#et-scan', e => e === document.activeElement), 'le curseur est dans le champ de scan');
   ok((await p.$$('#et-categorie option')).length >= 6, 'catégories listées');
@@ -189,6 +201,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   ok(codes.includes('P-0003'), 'recherche de pièces (select2) : P-0003 ajoutée : ' + codes);
   ok(await p.$eval('#et-recherche', e => e.selectedOptions.length) === 0, 'la sélection se vide après l\'ajout (prête pour la suivante)');
   // catégorie
+  await ET_OPT(p);
   await p.selectOption('#et-categorie', { label: 'Contrôles (4)' });
   await p.click('#et-ajouter-categorie'); await p.waitForTimeout(700);
   codes = await p.$$eval('#et-table tbody tr td:nth-child(2)', e => e.map(x => x.textContent));
@@ -221,6 +234,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   ok(await p.$$eval('.et-page', e => e.length) === 2, '2 pages dans l\'aperçu');
   await p.fill('#et-table tbody tr:nth-child(1) input', '30'); await p.waitForTimeout(700);
   ok(await p.$$eval('.et-page', e => e.length) === 1, '30 copies : une seule feuille');
+  await ET_OPT(p);
   await p.fill('#et-depart', '3'); await p.waitForTimeout(500);
   ok(await p.$$eval('.et-page', e => e.length) === 2 && await p.$$eval('.et-etiquette.et-vide', e => e.length) === 2, 'feuille entamée (case 3) : 2 cases vides et une 2e feuille');
   ok((await p.textContent('#et-resume')).includes('en commençant à la case 3'), 'résumé : case de départ');
@@ -232,7 +246,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   ok(await p.$eval('#et-imprimer', e => e.disabled), '201 copies : refusé');
   await p.fill('#et-table tbody tr:nth-child(1) input', '2'); await p.waitForTimeout(700);
   await p.$eval('#et-format-rouleau', e => e.click()); await p.waitForTimeout(800);
-  ok(await p.$$eval('.et-page', e => e.length) === 2 && (await p.textContent('#et-resume')).includes('une étiquette par page'), 'rouleau : une étiquette par page');
+  ok(await p.$$eval('.et-page', e => e.length) === 2 && (await p.textContent('#et-resume')).includes('2 étiquettes') && !(await p.textContent('#et-resume')).includes('feuille'), 'rouleau : 2 étiquettes, une par page');
   ok(await p.$eval('#et-page-style', e => e.textContent.includes('50mm 25mm')), '@page rouleau : 50 mm × 25 mm');
   ok(await p.$eval('#et-depart-groupe', e => e.style.display === 'none'), 'case de départ masquée hors feuille');
   await p.$eval('#et-format-grande', e => e.click()); await p.waitForTimeout(800);
@@ -345,7 +359,8 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
     ok(await t.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'tablette : pas de défilement horizontal de la page');
     const bb = await t.$eval('.et-page', e => { const r = e.getBoundingClientRect(); return [r.left, r.right]; });
     ok(bb[1] <= 768, 'tablette : la feuille tient dans l\'écran (zoom automatique)');
-    const tailles = await t.$$eval('#et-table .btn, #et-ajouter-categorie, #et-imprimer', e => e.map(x => x.getBoundingClientRect().height));
+    await t.click('#et-plus'); await t.waitForSelector('#et-options.show'); await t.waitForTimeout(350);
+    const tailles = await t.$$eval('#et-table .btn, #et-ajouter-categorie, #et-tous-emplacements, #et-imprimer, #et-vider, #et-plus', e => e.map(x => x.getBoundingClientRect().height));
     ok(tailles.every(h => h >= 43.5), 'zones cliquables d\'au moins 44 px : ' + tailles.map(Math.round));
     ok(t.erreurs.length === 0, 'tablette : aucune erreur console : ' + JSON.stringify(t.erreurs));
     await ctx.close();
@@ -466,14 +481,14 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   await p.click('#imp-analyser');
   await p.waitForSelector('#imp-apercu', { state: 'visible' });
   ok(await p.$$eval('#imp-table tbody tr', e => e.length) === 3, 'aperçu : 3 lignes');
-  ok((await p.textContent('#imp-meta')).includes('UTF-8') && (await p.textContent('#imp-meta')).includes('3 lignes lues'), 'aperçu : encodage et nombre de lignes lus');
+  ok((await p.textContent('#imp-meta')).includes('bom.csv') && (await p.textContent('#imp-meta')).includes('3 lignes') && (await p.$eval('#imp-meta .imp-info', e => e.getAttribute('title'))).includes('UTF-8'), 'aperçu : nom du fichier et nombre de lignes ; encodage dans l\'infobulle');
   ok(await p.$$eval('#imp-table .badge-success', e => e.length) === 3, 'aperçu : 3 pièces à créer');
-  ok((await p.textContent('#imp-tuiles')).includes('Erreurs') && await p.$eval('#imp-confirmer', e => !e.disabled), 'aperçu : aucune erreur, confirmation possible');
+  ok((await p.textContent('#imp-tuiles')).includes('À créer') && !(await p.textContent('#imp-tuiles')).includes('Erreurs') && await p.$eval('#imp-confirmer', e => !e.disabled), 'aperçu : aucune erreur (tuile absente), confirmation possible');
   ok((await p.textContent('#imp-bilan')).includes('3 documents de stock initial'), 'aperçu : 3 documents de stock initial annoncés : ' + (await p.textContent('#imp-bilan')));
   await p.click('#imp-confirmer');
   await p.waitForSelector('#imp-resultat', { state: 'visible' });
   const resume = await p.textContent('#imp-resume');
-  ok(resume.includes('3 pièces créées') && resume.includes('0 pièce mise à jour') && resume.includes('0 ligne ignorée') && resume.includes('3 documents de stock initial créés'), 'résumé : créées / mises à jour / ignorées / documents : ' + resume.replace(/\s+/g, ' '));
+  ok(resume.includes('3 pièces créées') && !/mise à jour|ignorée/.test(resume) && resume.includes('3 documents de stock initial créés'), 'résumé : créées et documents (les lignes à zéro ne sont pas affichées) : ' + resume.replace(/\s+/g, ' '));
   const liens = await p.$$eval('#imp-docs a', e => e.map(x => x.getAttribute('href')));
   ok(liens.length === 3 && liens.every(h => /^index\.php\?page=document_voir&id=\d+$/.test(h)), 'résumé : liens vers les documents : ' + liens);
   ok(sql("SELECT COUNT(*) FROM pieces WHERE code LIKE 'N-100%'") === '3', 'base : 3 pièces créées');
@@ -503,6 +518,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   ok(await p.$$eval('#imp-table .badge-secondary', e => e.length) === 3 && (await p.textContent('#imp-table')).includes('Aucun changement'), 'mode « mettre à jour » sans modification : 3 lignes sans changement');
   await p.click('#imp-changer');
   ok(await p.$eval('#imp-depart', e => e.style.display !== 'none') && await p.$eval('#imp-apercu', e => e.style.display === 'none'), 'Choisir un autre fichier : retour à l\'étape du fichier');
+  ok(await p.$eval('#imp-options', e => !e.classList.contains('show')) && (await p.$$eval('.imp-steps li', e => e.length)) === 3 && (await p.$$eval('#imp-depart .btn-primary', e => e.length)) === 1, 'étape 1 : un seul bouton principal, options cachées, 3 étapes');
   const modif = U8(ENT + 'N-1001;Valve de sécurité 3/4 po (renommée);Brûleurs;paire;987000000011|987000000012;;Distribution Chauffage Plus;49,90;VS-34;8;;EMP-000001;999;1\r\nN-1002;;;;;;;;;;;;;\r\n');
   const modifF = path.join(TMP, 'modif.csv'); fs.writeFileSync(modifF, modif);
   await p.setInputFiles('#imp-fichier', modifF);
@@ -515,7 +531,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   await p.click('#imp-confirmer');
   await p.waitForSelector('#imp-resultat', { state: 'visible' });
   const resume2 = await p.textContent('#imp-resume');
-  ok(resume2.includes('1 pièce mise à jour') && resume2.includes('1 ligne ignorée') && resume2.includes('dont 1 sans changement') && resume2.includes('0 pièce créée'), 'résumé de la mise à jour : ' + resume2.replace(/\s+/g, ' '));
+  ok(resume2.includes('1 pièce mise à jour') && resume2.includes('1 ligne ignorée') && resume2.includes('dont 1 sans changement') && !/pièces? créées?/.test(resume2), 'résumé de la mise à jour : ' + resume2.replace(/\s+/g, ' '));
   ok(sql("SELECT CONCAT(p.nom,'|',c.nom,'|',p.unite) FROM pieces p JOIN categories c ON c.id = p.categorie_id WHERE p.code = 'N-1001'") === 'Valve de sécurité 3/4 po (renommée)|Brûleurs|paire', 'base : nom, catégorie et unité mis à jour');
   ok(sql("SELECT GROUP_CONCAT(code ORDER BY id) FROM pieces_codes WHERE piece_id = (SELECT id FROM pieces WHERE code = 'N-1001')") === '987000000011,987000000012', 'base : alias ajouté sans retirer l\'ancien');
   ok(sql("SELECT quantite FROM stock WHERE piece_id = (SELECT id FROM pieces WHERE code = 'N-1001') AND emplacement_id = 1") === '10.000', 'base : le stock n\'a pas bougé (jamais modifié par l\'import)');
@@ -846,6 +862,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
     ok(await actif() === 'et-scan', '#4 focus dans #et-scan après un choix dans la recherche de pièces : ' + await actif());
     await p.keyboard.type('P-0005'); await p.keyboard.press('Enter'); await p.waitForTimeout(500);
     ok(JSON.stringify(await codesListe()) === JSON.stringify(['P-0001', 'P-0005']), '#4 le code tapé juste après le choix est lu (pas perdu) : ' + await codesListe());
+    await ET_OPT(p);
     await p.click('#et-emplacements + .select2 .select2-selection');
     await p.waitForSelector('.select2-results__option:text-is("Boutique Centre-ville — EMP-000005")');
     await p.click('.select2-results__option:text-is("Boutique Centre-ville — EMP-000005")');
@@ -854,9 +871,9 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
     await p.keyboard.type('P-0006'); await p.keyboard.press('Enter'); await p.waitForTimeout(500);
     ok((await codesListe()).includes('P-0006'), '#4 code lu après le choix d\'un emplacement');
     await p.selectOption('#et-categorie', await p.$$eval('#et-categorie option', o => (o.find(x => x.textContent.startsWith('Contrôles (')) || {}).value));
-    ok((await p.textContent('#et-ajouter-categorie')).includes('Ajouter les pièces de la catégorie'), '#29 le bouton dit « Ajouter les pièces de la catégorie »');
+    ok((await p.textContent('#et-ajouter-categorie')).includes('Ajouter les pièces'), '#29 le bouton dit « Ajouter les pièces »');
     await p.click('#et-ajouter-categorie'); await p.waitForTimeout(800);
-    ok(await actif() === 'et-scan', '#4 focus dans #et-scan après « Ajouter les pièces de la catégorie » : ' + await actif());
+    ok(await actif() === 'et-scan', '#4 focus dans #et-scan après « Ajouter les pièces » : ' + await actif());
     await p.click('#et-tous-emplacements'); await p.waitForTimeout(300);
     ok(await actif() === 'et-scan', '#4 focus dans #et-scan après « Tous les emplacements actifs »');
 
@@ -869,17 +886,18 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
 
     // #11 #23 : « première étiquette » et « copies » invalides : message, impression bloquée, jamais remplacés en silence
     await L.aller(p, 'etiquettes&pieces=1,2,3'); await p.waitForSelector('.et-etiquette');
+    await ET_OPT(p);
     for (const v of ['31', '0', '', 'abc']) {
       await p.fill('#et-depart', v); await p.waitForTimeout(200);
-      ok(await p.$eval('#et-imprimer', e => e.disabled) && (await p.textContent('#et-resume')).includes('Première étiquette') && await p.$eval('#et-depart', e => e.classList.contains('is-invalid')) && await p.$eval('#et-depart-err', e => getComputedStyle(e).display !== 'none'),
+      ok(await p.$eval('#et-imprimer', e => e.disabled) && (await p.textContent('#et-resume')).includes('Commencer à la case') && await p.$eval('#et-depart', e => e.classList.contains('is-invalid')) && await p.$eval('#et-depart-err', e => getComputedStyle(e).display !== 'none'),
         '#11 case de départ « ' + v + ' » : message visible, Imprimer désactivé : ' + await p.textContent('#et-resume'));
     }
     await p.fill('#et-depart', '1'); await p.waitForTimeout(200);
     ok(await p.$eval('#et-imprimer', e => !e.disabled), '#11 case de départ valide : Imprimer de nouveau possible');
     await p.fill('#et-copies-defaut', 'abc');
-    ok(await p.$eval('#et-copies-defaut-err', e => getComputedStyle(e).display !== 'none'), '#23 « Copies par élément » invalide : message sous le champ');
+    ok(await p.$eval('#et-copies-defaut-err', e => getComputedStyle(e).display !== 'none'), '#23 « Copies par ajout » invalide : message sous le champ');
     await L.scanner(p, '#et-scan', 'P-0004'); await p.waitForTimeout(500);
-    ok((await p.textContent('#toasts')).includes('copies par élément est invalide') && await p.$eval('#et-table tbody tr:last-child input', e => e.value) === '1', '#23 copies par défaut invalides : 1 copie ajoutée ET message clair');
+    ok((await p.textContent('#toasts')).includes('Copies par ajout') && await p.$eval('#et-table tbody tr:last-child input', e => e.value) === '1', '#23 copies par défaut invalides : 1 copie ajoutée ET message clair');
     await p.fill('#et-copies-defaut', '1');
     await p.fill('#et-table tbody tr:nth-child(1) input', 'abc'); await p.waitForTimeout(300);
     ok(await p.$eval('#et-table tbody tr:nth-child(1) .invalid-feedback', e => getComputedStyle(e).display !== 'none' && e.textContent.includes('1 à 200')), '#23 copies invalides d\'une ligne : message sous le champ');
@@ -900,12 +918,13 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
     ok(await p.$eval('#et-resume', e => e.classList.contains('alert-warning')) && /1 élément refusé n'est pas imprimé/.test(resTxt), '#24 résumé en avertissement avec le nombre d\'éléments refusés : ' + resTxt);
     ok(await p.$eval('#et-refus', e => getComputedStyle(e).display !== 'none' && !!e.closest('#et-carte-impression')) && await p.$eval('#et-imprimer', e => !e.disabled), '#24 la liste des refus est dans la carte d\'impression, juste sous le résumé');
 
-    // #35 : lien « Aller à l'impression » (évite des dizaines de Tab)
+    // #35 : plus de lien d'évitement. Le bouton Imprimer et les formats sont placés AVANT la liste dans l'ordre du clavier :
+    // quelques Tab suffisent, quelle que soit la longueur de la liste
     await L.aller(p, 'etiquettes&pieces=1,2,3,4,5,6,7,8'); await p.waitForSelector('.et-etiquette');
-    await p.focus('#et-saut'); await p.keyboard.press('Enter'); await p.waitForTimeout(200);
-    ok(await actif() === 'et-carte-impression', '#35 « Aller à l\'impression » amène le focus à la carte Format et impression : ' + await actif());
-    await p.keyboard.press('Tab');
-    ok(await p.evaluate(() => (document.activeElement.name || document.activeElement.id)) === 'et-format', '#35 le Tab suivant arrive sur les formats : ' + await actif());
+    ok(await p.evaluate(() => !!(document.getElementById('et-imprimer').compareDocumentPosition(document.getElementById('et-table')) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(document.getElementById('et-format-feuille30').compareDocumentPosition(document.getElementById('et-imprimer')) & Node.DOCUMENT_POSITION_FOLLOWING)), '#35 formats et Imprimer précèdent la liste dans l\'ordre du clavier');
+    ok(await p.$('#et-saut') === null, '#35 plus de lien « Aller à l\'impression » (doublon)');
+    await p.focus('#et-vider'); await p.keyboard.press('Tab');
+    ok(await p.evaluate(() => document.activeElement.name) === 'et-format', '#35 le Tab suivant « Vider la liste » arrive sur les formats : ' + await actif());
 
     // #34 : noms accessibles, focus visible, pas de zone « live » reconstruite
     ok(await p.$eval('#et-recherche + .select2 .select2-search__field', e => !!e.getAttribute('aria-label')) && await p.$eval('#et-emplacements + .select2 .select2-search__field', e => !!e.getAttribute('aria-label')), '#34 les champs de recherche select2 ont un aria-label');
@@ -944,7 +963,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
 
     // #29 : repères de l'étape en cours et libellés harmonisés
     ok(await q.$$eval('.imp-steps li[aria-current="step"]', e => e.length) === 1, '#29 une seule étape « en cours » (aria-current) au départ');
-    ok((await q.textContent('.imp-steps')).includes('3. Aperçu et confirmation') && (await q.textContent('#imp-titre-3')) === '3. Aperçu et confirmation' && (await q.textContent('#imp-titre-4')) === '4. Résultat', '#29 stepper et titres des cartes portent les mêmes noms');
+    ok((await q.textContent('.imp-steps')).includes('2. Aperçu') && (await q.textContent('#imp-titre-2')) === '2. Aperçu' && (await q.textContent('#imp-titre-3')) === '3. Résultat' && await q.$$eval('.imp-steps li', e => e.length) === 3, '#29 trois étapes ; stepper et titres des cartes portent les mêmes noms');
 
     // #20 : Entrée sur le champ fichier vide ne doit pas être détournée (elle ouvre le sélecteur de fichier)
     await q.focus('#imp-fichier');
@@ -955,11 +974,11 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
     // #26 #27 #21 #3 #8 #30 : un fichier avec une seule ligne en erreur
     await analyser(U8(ENT + 'OK-1;Bonne pièce;;;;;;;;;;;;\r\nBAD-1;;;;;;;;;;;;;\r\n'));
     const bilan1 = N(await q.textContent('#imp-bilan'));
-    ok(bilan1.includes('1 ligne est en erreur : rien ne sera importé tant que l\'erreur n\'est pas corrigée dans le fichier'), '#26 accord correct avec une seule erreur : ' + bilan1);
+    ok(bilan1.includes('1 ligne en erreur : corrigez le fichier avant d\'importer') && await q.$eval('#imp-confirmer', e => e.disabled), '#26 accord correct avec une seule erreur, et Importer reste désactivé (tout ou rien) : ' + bilan1);
     ok((await q.textContent('#imp-erreurs-csv')).includes('Télécharger les erreurs (CSV)') && !(await q.textContent('#imp-erreurs-csv')).includes('avertissements'), '#27 seulement des erreurs : « Télécharger les erreurs (CSV) »');
-    ok(await actifQ() === 'imp-titre-3', '#21 après l\'analyse, le focus est au titre de l\'étape 3 : ' + await actifQ());
+    ok(await actifQ() === 'imp-titre-2', '#21 après l\'analyse, le focus est au titre de l\'étape 2 : ' + await actifQ());
     ok((await q.textContent('#imp-annonce')).includes('Analyse terminée'), '#21 l\'analyse est annoncée dans une zone toujours visible');
-    ok(await q.$$eval('.imp-steps li[aria-current="step"]', e => e.length) === 1 && await q.$eval('#imp-s3', e => e.getAttribute('aria-current') === 'step') && (await q.textContent('#imp-s1')).includes('terminée'), '#29 étape 3 en cours, étapes 1 et 2 annoncées « terminée »');
+    ok(await q.$$eval('.imp-steps li[aria-current="step"]', e => e.length) === 1 && await q.$eval('#imp-s2', e => e.getAttribute('aria-current') === 'step') && (await q.textContent('#imp-s1')).includes('terminée'), '#29 étape 2 en cours, étape 1 annoncée « terminée »');
     await q.click('#imp-filtres [data-filtre="erreurs"]');
     ok(await actifQ() === 'erreurs', '#21 après un clic sur un filtre, le focus revient au bouton recréé : ' + await actifQ());
     for (const sel of ['#imp-filtres .btn.active', '.imp-steps li.actif', '.imp-steps li.fait', '.imp-steps li:not(.actif):not(.fait)', '#imp-table .badge', '#imp-erreurs-csv', '#imp-changer', '.imp-msg-erreur', '#imp-bilan .alert', '.imp-tuile .small', '#imp-depart code']) {
@@ -991,6 +1010,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
     const [dlMod] = await Promise.all([q.waitForEvent('download'), q.click('#imp-modele')]);
     const contenuMod = fs.readFileSync(await dlMod.path());
     ok(dlMod.suggestedFilename() === 'modele-import-pieces.csv' && contenuMod[0] === 0xEF && contenuMod.toString('utf8').includes('code;nom;categorie'), '#36 le modèle CSV se télécharge normalement (BOM, nom du fichier)');
+    await IMP_OPT(q);
     const [dlExp] = await Promise.all([q.waitForEvent('download'), q.click('#imp-exporter')]);
     ok(/^catalogue-pieces-\d{4}-\d{2}-\d{2}\.csv$/.test(dlExp.suggestedFilename()), '#36 l\'export se télécharge normalement : ' + dlExp.suggestedFilename());
     {
@@ -1002,12 +1022,11 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
       await exp.context().close();
     }
 
-    // #34 : bascule « Description des colonnes » : état annoncé ; focus visible sur les cases
-    ok(await q.$eval('#imp-desc-bascule', e => e.getAttribute('aria-expanded') === 'false'), '#34 bascule de description : aria-expanded="false" au départ');
-    await q.click('#imp-desc-bascule'); await q.waitForTimeout(600);
-    ok(await q.$eval('#imp-desc-bascule', e => e.getAttribute('aria-expanded') === 'true'), '#34 après ouverture : aria-expanded="true"');
-    await q.click('#imp-desc-bascule'); await q.waitForTimeout(600);
-    ok(await q.$eval('#imp-desc-bascule', e => e.getAttribute('aria-expanded') === 'false'), '#34 après fermeture : aria-expanded="false"');
+    // #34 : « Plus d'options » : l'état (ouvert / fermé) est annoncé ; focus visible sur les cases
+    ok(await q.$eval('#imp-plus', e => e.getAttribute('aria-expanded') === 'true'), '#34 bascule d\'options : aria-expanded="true" une fois ouverte');
+    await q.click('#imp-plus'); await q.waitForTimeout(600);
+    ok(await q.$eval('#imp-plus', e => e.getAttribute('aria-expanded') === 'false'), '#34 après fermeture : aria-expanded="false"');
+    await IMP_OPT(q);
     await q.focus('#imp-creer-cat');
     ok(await q.$eval('label[for=imp-creer-cat]', e => getComputedStyle(e, '::before').boxShadow !== 'none'), '#34 focus visible sur une case à cocher (halo)');
 
@@ -1036,7 +1055,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
     ok(v.affiche && N(v.txt).includes('Ligne 3 (CER-00001)') && N(v.txt).includes('rien n\'a été importé') && !N(v.txt).includes('Aucune pièce n\'a été importée'), '#2 refus avec lignes en erreur : détail conservé, message non doublé : ' + N(v.txt));
     await inj.unroute(URL_APPL);
     await inj.click('#imp-confirmer'); await inj.waitForSelector('#imp-resultat', { state: 'visible' });
-    ok(await inj.evaluate(() => document.activeElement.id) === 'imp-titre-4', '#21 résultat : focus au titre de l\'étape 4');
+    ok(await inj.evaluate(() => document.activeElement.id) === 'imp-titre-3', '#21 résultat : focus au titre de l\'étape 3');
     ok(sql("SELECT COUNT(*) FROM pieces WHERE code LIKE 'CER-%'") === '60', '#2 après les échecs, la confirmation suivante importe bien les 60 pièces (une seule fois)');
     await inj.context().close();
 
@@ -1071,15 +1090,17 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
     await connecterComme(t, 'gestionnaire1');
     const mesures = (sel) => t.$$eval(sel, els => els.filter(e => e.offsetParent !== null).map(e => { const r = e.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), id: e.id || e.className.toString().slice(0, 30) }; }));
     await t.goto(L.BASE + '/index.php?page=etiquettes&pieces=1,2'); await t.waitForSelector('.et-etiquette'); await t.waitForTimeout(500);
-    for (const sel of ['#et-recherche + .select2 .select2-selection', '#et-emplacements + .select2 .select2-selection', '#et-categorie', '.et-table .btn', '#et-saut', '.custom-control-label']) {
+    await t.click('#et-plus'); await t.waitForSelector('#et-options.show'); await t.waitForTimeout(350);
+    for (const sel of ['#et-recherche + .select2 .select2-selection', '#et-emplacements + .select2 .select2-selection', '#et-categorie', '.et-table .btn', '#et-imprimer', '#et-vider', '#et-plus', '.custom-control-label']) {
       const m = await mesures(sel);
       ok(m.length > 0 && m.every(x => x.h >= 44 && (sel !== '.et-table .btn' || x.w >= 44)), '#10 #31 ' + sel + ' ≥ 44 px : ' + JSON.stringify(m.slice(0, 3)));
     }
     ok(await t.$eval('h1', e => { const h = e.getBoundingClientRect(), s = document.querySelector('.main-sidebar').getBoundingClientRect(); return h.left >= 0 && h.left >= s.right; }), '#15 titre de la page non recouvert par le menu replié (768 px)');
     await t.goto(L.BASE + '/index.php?page=pieces_import'); await t.waitForSelector('#imp-analyser');
-    for (const sel of ['.custom-control-label', '#imp-desc-bascule', '.imp-btn']) {
+    await t.click('#imp-plus'); await t.waitForSelector('#imp-options.show'); await t.waitForTimeout(350);
+    for (const sel of ['.custom-control-label', '#imp-plus', '.imp-btn']) {
       const m = await mesures(sel);
-      ok(m.length > 0 && m.every(x => x.h >= 43 && (sel !== '#imp-desc-bascule' || x.w >= 43)), '#10 #31 import : ' + sel + ' ≥ 44 px : ' + JSON.stringify(m.slice(0, 3)));
+      ok(m.length > 0 && m.every(x => x.h >= 43 && (sel !== '#imp-plus' || x.w >= 43)), '#10 #31 import : ' + sel + ' ≥ 44 px : ' + JSON.stringify(m.slice(0, 3)));
     }
     ok(await t.$$eval('.main-sidebar .nav-link.active', e => e.length) >= 1, '#14 la page d\'import allume une entrée du menu (« Pièces »)');
     await t.setInputFiles('#imp-fichier', { name: 'f.csv', mimeType: 'text/csv', buffer: lotS(5, 'TAB') });

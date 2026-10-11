@@ -84,7 +84,7 @@ async function succesSaisie(p, garder) {
 }
 /** « Plus d'options » : ouvre le panneau s'il est replié (les champs rares y sont cachés). */
 async function ouvrirOptions(p) {
-  if ((await p.$('#mv-plus')) && (await p.getAttribute('#mv-plus', 'aria-expanded')) !== 'true') { await p.click('#mv-plus'); }
+  if ((await p.$('#mv-plus')) && (await p.getAttribute('#mv-plus', 'aria-expanded')) !== 'true') { await p.click('#mv-plus'); await p.focus('#scan'); }
 }
 /** Ouvre une page et, si elle a un panneau « Plus d'options », le déplie : les tests remplissent les champs rares comme avant. */
 async function aller(p, route) { await L.aller(p, route); await ouvrirOptions(p); }

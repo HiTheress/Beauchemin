@@ -83,14 +83,23 @@ const stockQte = (piece, emp) => sql('SELECT COALESCE((SELECT quantite FROM stoc
 // ---- parcours de saisie d'une facture ------------------------------------------------------------------------------
 async function ouvrirFacture(p, suite) {
   await L.aller(p, 'facture_interne' + (suite || ''));
-  await p.waitForFunction(() => { const s = document.querySelector('#emplacement'); return s && !s.disabled && s.options.length > 1; });
+  await p.waitForSelector('.ie-trajet-carte');
 }
-/** Choisit source, entreprise destinataire et destination à la souris (les listes se chargent en cascade). */
+/** « Plus d'options » : la date et la note sont repliées. */
+async function ouvrirOptions(p) {
+  if (await p.$eval('#ie-options', e => e.hidden)) { await p.click('#ie-plus'); }
+}
+/** Liste des factures : le sens et le statut sont repliés. */
+async function ouvrirOptionsListe(p) {
+  if (await p.$eval('#f-options', e => e.hidden)) { await p.click('#f-plus'); }
+}
+/** Choisit « qui facture à qui » (carte), puis l'emplacement source et la destination à la souris. src et dest : id d'emplacement ; ent : entreprise destinataire. */
 async function choisirTrajet(p, src, ent, dest) {
+  const entSrc = sql('SELECT entreprise_id FROM emplacements WHERE id = ' + src);
+  await p.click('label.ie-trajet-carte:has(input[value="' + entSrc + '>' + ent + '"])');
+  await p.waitForFunction(s => !document.querySelector('#emplacement').disabled && !!document.querySelector('#emplacement option[value="' + s + '"]'), String(src));
   await p.selectOption('#emplacement', String(src));
-  await p.waitForFunction(() => !document.querySelector('#entreprise-dest').disabled);
-  if ((await p.$eval('#entreprise-dest', e => e.value)) !== String(ent)) { await p.selectOption('#entreprise-dest', String(ent)); }
-  await p.waitForFunction(([e, d]) => document.querySelector('#entreprise-dest').value === e && !document.querySelector('#destination').disabled && !!document.querySelector('#destination option[value="' + d + '"]'), [String(ent), String(dest)]);
+  await p.waitForFunction(d => !document.querySelector('#destination').disabled && !!document.querySelector('#destination option[value="' + d + '"]'), String(dest));
   await p.selectOption('#destination', String(dest));
 }
 async function ligne(p, code) { return p.$('#lignes tbody tr:has(td.code:text-is("' + code + '"))'); }
@@ -150,8 +159,8 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   const nb0 = nbFactures();
   await L.scanner(p, '#scan', 'EMP-000001');
   await p.waitForFunction(() => document.querySelector('#emplacement').value === '1');
-  L.verifier((await p.$$eval('#entreprise-dest option', o => o.map(x => x.value))).indexOf('1') === -1, 'l\'entreprise de la source n\'est pas proposée comme destinataire');
-  L.verifier(await p.$eval('#entreprise-dest', e => e.value) === '2', 'la seule autre entreprise est choisie d\'office');
+  L.verifier((await p.$$('.ie-trajet-carte input[value="1>1"]')).length === 0, 'l\'entreprise de la source n\'est pas proposée comme destinataire');
+  L.verifier(await p.$eval('.ie-trajet-carte input[value="1>2"]', e => e.checked), 'la seule autre entreprise est choisie d\'office (carte « Beauchemin → Boutique Chaleur » cochée)');
   await p.waitForFunction(() => !!document.querySelector('#destination option[value="5"]'));
   await L.scanner(p, '#scan', 'EMP-000005');                                       // un code de l'autre entreprise = la destination
   await p.waitForFunction(() => document.querySelector('#destination').value === '5');
@@ -166,7 +175,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(norm(await p.textContent('#lignes td.ie-cout')) === '12,50 $', 'coût unitaire (au coût) en lecture seule : 12,50 $');
   L.verifier((await p.$$('#lignes td.ie-cout input')).length === 0, 'le coût n\'est pas un champ de saisie');
   L.verifier((await tx(p, '#ie-total')).includes(fr(10 * 12.5)), 'total général : ' + await tx(p, '#ie-total'));
-  L.verifier((await tx(p, '#lignes thead')).includes('Coût unitaire (au coût)') && (await tx(p, '#lignes thead')).includes('Disponible'), 'colonnes « Disponible » et « Coût unitaire (au coût) »');
+  L.verifier((await tx(p, '#lignes thead')).includes('Coût unitaire') && (await tx(p, '#lignes thead')).includes('Disponible'), 'colonnes « Disponible » et « Coût unitaire »');
   L.verifier(await p.$eval('#ie-avert', e => e.hidden), 'aucun avertissement quand le stock est exact');
   await p.dblclick('#btn-enregistrer');
   await p.waitForFunction(() => !document.querySelector('#ie-succes').hidden);
@@ -192,7 +201,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(e3 && e3.includes('Stock insuffisant pour « P-0013 — Coude de cheminée 6 po » à « Entrepôt principal » : disponible 0, demandé 1'), 'message du service affiché : ' + e3);
   L.verifier(nbFactures() === nb1, 'aucune facture créée');
   L.verifier(parseFloat(stockQte(13, 1)) === 0, 'stock inchangé');
-  await p.click('#lignes tbody tr button');
+  await p.click('#lignes tbody tr button[title="Retirer la ligne"]');
   await p.waitForFunction(() => document.querySelector('#ie-total').textContent.trim() === '');
   L.verifier((await p.$$('#lignes tbody tr')).length === 0 && await p.$eval('#ie-avert', e => e.hidden), 'ligne retirée : avertissement et total effacés');
 
@@ -227,15 +236,15 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(j1.status === 200 && j2.status === 200 && j2.json.doublon === true && j1.json.numero === j2.json.numero && nbFactures() === nbJ + 1, 'même jeton : une seule facture (doublon signalé)');
   // l'interface : destination absente / date future / quantité invalide
   await ouvrirFacture(p);
-  await p.selectOption('#emplacement', '1');
-  await p.waitForFunction(() => !document.querySelector('#entreprise-dest').disabled);
+  await choisirTrajet(p, 1, 2, 5);
   await ajouterAuScan(p, 'P-0001', 1);
   await p.selectOption('#destination', '');
   await p.click('#btn-enregistrer');
   await p.waitForFunction(() => !document.querySelector('#ie-erreur').hidden);
-  L.verifier((await erreur(p)).includes('Choisissez l\'emplacement de destination'), 'destination obligatoire : ' + await erreur(p));
+  L.verifier((await erreur(p)).includes('Choisissez où mettre les pièces'), 'destination obligatoire : ' + await erreur(p));
   L.verifier(await p.$eval('#destination', e => e.classList.contains('is-invalid')), 'champ fautif marqué');
   await choisirTrajet(p, 1, 2, 5);
+  await ouvrirOptions(p);
   await p.fill('#date', DEMAIN);
   await p.click('#btn-enregistrer');
   await p.waitForFunction(() => !document.querySelector('#ie-erreur').hidden);
@@ -251,13 +260,12 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   const idPiege = outil('piece', 'P-0099', XSS1, '1', '5');
   await ouvrirFacture(p);
   await choisirTrajet(p, 1, 2, 5);
+  await ouvrirOptions(p);
   await p.fill('#note', XSS2);
-  await p.click('.ie-carte .select2-selection');                      // recherche par nom : la liste déroulante contient le nom piégé
-  await p.waitForSelector('.select2-search__field');
-  await p.fill('.select2-search__field', 'P-0099');
-  await p.waitForSelector('.select2-results__option:has-text("P-0099")');
-  L.verifier((await p.$$('.select2-results img')).length === 0 && (await tx(p, '.select2-results')).includes('<img src=x onerror=alert(1)>'), 'liste déroulante : le nom piégé est du texte');
-  await p.click('.select2-results__option:has-text("P-0099")');
+  await p.fill('#scan', 'P-0099');                                    // recherche par nom dans le champ de scan : la liste de suggestions contient le nom piégé
+  await p.waitForSelector('.mv-suggestions li:has-text("P-0099")');
+  L.verifier((await p.$$('.mv-suggestions img')).length === 0 && (await tx(p, '.mv-suggestions')).includes('<img src=x onerror=alert(1)>'), 'liste de suggestions : le nom piégé est du texte');
+  await p.click('.mv-suggestions li:has-text("P-0099")');
   await p.waitForSelector('#lignes tbody tr');
   await attendreApercu(p);
   L.verifier(await p.$eval('#lignes tbody tr', e => e.textContent.includes('<img src=x onerror=alert(1)>')), 'le nom piégé est affiché comme du texte');
@@ -295,6 +303,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   console.log('6. Factures rétroactives, sens inverse');
   await ouvrirFacture(p);
   await choisirTrajet(p, 1, 2, 5);
+  await ouvrirOptions(p);
   await p.fill('#date', PREC);
   await L.scanner(p, '#scan', '012345678905');                                      // alias de P-0001
   await p.waitForSelector('#lignes tbody tr');
@@ -308,7 +317,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await attendreApercu(p);
   L.verifier(await p.$eval('#emplacement', e => e.value) === '2' && await p.$eval('#lignes tbody tr input', e => e.value) === '1', 'préremplissage : source (&emplacement_id=2) et pièce (&piece_id=9, quantité 1)');
   L.verifier(norm(await p.textContent('#lignes td.ie-cout')) === '53,40 $', 'coût de Chaleur (émettrice) : 53,40 $');
-  await p.selectOption('#emplacement', '1');
+  await choisirTrajet(p, 1, 2, 5);                                                   // l'autre carte : la source devient Beauchemin
   await attendreApercu(p);
   L.verifier(norm(await p.textContent('#lignes td.ie-cout')) === '52,9714 $', 'changer de source change le coût : celui de Beauchemin, 4 décimales : ' + norm(await p.textContent('#lignes td.ie-cout')));
   await ouvrirFacture(p, '&piece_id=999999');
@@ -321,13 +330,12 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier((await p.$$('.content-wrapper .alert-warning:not([hidden])')).length === 0, 'préremplissage : valeurs invalides ignorées');
   await ouvrirFacture(p);
   await choisirTrajet(p, 2, 1, 3);                                                   // sens inverse : Chaleur → cube de Beauchemin
+  await ouvrirOptions(p);
   await p.fill('#date', PREC);
-  // recherche par nom (Select2) plutôt qu'au scanner
-  await p.click('.ie-carte .select2-selection');
-  await p.waitForSelector('.select2-search__field');
-  await p.fill('.select2-search__field', 'propane');
-  await p.waitForSelector('.select2-results__option:has-text("P-0009")');
-  await p.click('.select2-results__option:has-text("P-0009")');
+  // recherche par nom (suggestions du champ de scan) plutôt qu'au scanner
+  await p.fill('#scan', 'propane');
+  await p.waitForSelector('.mv-suggestions li:has-text("P-0009")');
+  await p.click('.mv-suggestions li:has-text("P-0009")');
   await p.waitForSelector('#lignes tbody tr');
   await enregistrer(p);
   const numB = numeroDe(await succes(p));
@@ -350,9 +358,9 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
     L.verifier(norm(await p.textContent('#sens-ba .ie-total-sens-montant')) === fr(ba), 'total Chaleur → Beauchemin = ' + fr(ba));
     const net = Math.round((parseFloat(ab) - parseFloat(ba)) * 100) / 100;
     const solde = await tx(p, '#solde');
-    if (net > 0) { L.verifier(solde === 'Boutique Chaleur doit ' + fr(net.toFixed(2)) + ' à Beauchemin pour ' + periode, 'solde en grand : ' + solde); }
-    else if (net < 0) { L.verifier(solde === 'Beauchemin doit ' + fr((-net).toFixed(2)) + ' à Boutique Chaleur pour ' + periode, 'solde en grand : ' + solde); }
-    else { L.verifier(solde.startsWith('Aucun solde pour ' + periode), 'aucun solde : ' + solde); }
+    if (net > 0) { L.verifier(solde === 'Boutique Chaleur doit ' + fr(net.toFixed(2)) + ' à Beauchemin', 'solde en grand : ' + solde); }
+    else if (net < 0) { L.verifier(solde === 'Beauchemin doit ' + fr((-net).toFixed(2)) + ' à Boutique Chaleur', 'solde en grand : ' + solde); }
+    else { L.verifier(solde.startsWith('Aucun solde'), 'aucun solde : ' + solde); }
     // pièces regroupées : quantité et total par pièce = agrégat SQL indépendant
     for (const [de, vers, id] of [[1, 2, '#sens-ab'], [2, 1, '#sens-ba']]) {
       const attendu = lignesSql("SELECT p.code, SUM(l.quantite), SUM(l.total_ligne) FROM document_lignes l JOIN documents d ON d.id = l.document_id JOIN pieces p ON p.id = l.piece_id WHERE d.type = 'facture_interne' AND d.statut = 'valide' AND d.entreprise_id = " + de + ' AND d.entreprise_dest_id = ' + vers + " AND d.date_document BETWEEN '" + d1 + "' AND '" + d2 + "' GROUP BY p.code ORDER BY p.code");
@@ -373,9 +381,9 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   }
   const bPrec = await verifierBilan(A_PREC, M_PREC);
   L.verifier(bPrec.ab === '29.00' && bPrec.ba === '53.40', 'mois précédent : 29,00 $ de Beauchemin, 53,40 $ de Chaleur');
-  L.verifier((await tx(p, '#solde')) === 'Beauchemin doit 24,40 $ à Boutique Chaleur pour ' + MOIS[M_PREC - 1] + ' ' + A_PREC, 'sens inverse : c\'est Beauchemin qui doit 24,40 $ : ' + await tx(p, '#solde'));
+  L.verifier((await tx(p, '#solde')) === 'Beauchemin doit 24,40 $ à Boutique Chaleur', 'sens inverse : c\'est Beauchemin qui doit 24,40 $ : ' + await tx(p, '#solde'));
   L.verifier(!!(await p.$('#sens-ab a[href*="facture_interne_voir"]')), 'les numéros de factures du bilan sont des liens');
-  L.verifier(!!(await p.$('#lien-annulees-aucune')), 'aucune facture annulée ce mois-ci : mention neutre');
+  L.verifier(!(await p.$('#lien-annulees')), 'aucune facture annulée ce mois-ci : aucune mention');
   await verifierBilan(A_NOW, M_NOW);
   L.verifier(await p.$('#b-suiv') === null && !!(await p.$('#b-suiv-off')), 'pas de « mois suivant » au-delà du mois courant');
   await Promise.all([p.waitForNavigation(), p.click('#b-prec')]);
@@ -386,6 +394,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier((await tx(p, '.ie-bilan-titre')).includes(MOIS[M_NOW - 1] + ' ' + A_NOW), 'navigation « mois suivant »');
   // Correction #38 : changer une liste n'envoie plus le formulaire tout seul (au clavier, une flèche rechargeait la page et le focus était perdu)
   const urlAvant = p.url();
+  await p.click('#b-plus');                                                  // « Plus d'options » : autre mois, autre année
   await p.focus('#b-mois');
   await p.selectOption('#b-mois', String(M_PREC));
   await attendre(400);
@@ -396,8 +405,8 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier((await p.$$('#b-a')).length === 0, 'deux entreprises seulement : paire fixe (aucun sélecteur)');
   // mois sans facture
   await L.aller(p, 'bilan_mensuel&annee=2020&mois=3');
-  L.verifier((await tx(p, '#solde')).startsWith('Aucun solde pour mars 2020') && (await tx(p, '#solde')).includes('Aucune facture interne valide'), 'mois vide : « Aucun solde » : ' + await tx(p, '#solde'));
-  L.verifier((await tx(p, '#sens-ab')).includes('Aucune facture dans ce sens'), 'mois vide : message utile');
+  L.verifier((await tx(p, '#solde')).startsWith('Aucun solde') && (await tx(p, '#solde')).includes('Aucune facture en mars 2020.'), 'mois vide : « Aucun solde » : ' + await tx(p, '#solde'));
+  L.verifier((await tx(p, '#sens-ab')).includes('Aucune facture.'), 'mois vide : une ligne');
   await L.aller(p, 'bilan_mensuel&annee=abc&mois=99');
   L.verifier((await tx(p, '.ie-bilan-titre')).includes(MOIS[M_NOW - 1] + ' ' + A_NOW), 'période invalide : retour au mois courant');
 
@@ -427,8 +436,8 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier((await p.$('#flash-annule')) === null, 'le message d\'annulation ne réapparaît pas au rechargement');
   L.verifier(dialogues.length === 0 && (await p.$$('#facture img')).length === 0, 'motif piégé : aucun script exécuté');
   await L.aller(p, 'bilan_mensuel&annee=' + A_PREC + '&mois=' + M_PREC);
-  L.verifier((await tx(p, '#sens-ab .ie-total-sens-montant')) === '0,00 $' && (await tx(p, '#solde')) === 'Beauchemin doit 53,40 $ à Boutique Chaleur pour ' + MOIS[M_PREC - 1] + ' ' + A_PREC, 'le bilan n\'inclut plus la facture annulée : ' + await tx(p, '#solde'));
-  L.verifier((await tx(p, '#lien-annulees')) === '1 facture annulée en ' + MOIS[M_PREC - 1] + ' ' + A_PREC, 'lien « factures annulées » du mois affiché (correction #26) : ' + await tx(p, '#lien-annulees'));
+  L.verifier((await tx(p, '#sens-ab .ie-total-sens-montant')) === '0,00 $' && (await tx(p, '#solde')) === 'Beauchemin doit 53,40 $ à Boutique Chaleur', 'le bilan n\'inclut plus la facture annulée : ' + await tx(p, '#solde'));
+  L.verifier((await tx(p, '#lien-annulees')) === '1 facture annulée', 'lien « factures annulées » du mois affiché (correction #26) : ' + await tx(p, '#lien-annulees'));
   await Promise.all([p.waitForNavigation(), p.click('#lien-annulees')]);
   await p.waitForLoadState('networkidle');
   await lignesListe(p, 1);
@@ -494,6 +503,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   t = await texteLignesListe(p);
   L.verifier(t.length === 2 && t.some(x => x.includes(numA) && x.includes('ANNULÉE')) && t.some(x => x.includes(numB) && x.includes('Valide')), 'filtre mois/année : les 2 factures rétroactives (une annulée) : ' + JSON.stringify(t));
   L.verifier((await tx(p, '#ie-totaux')).includes('1 facture valide') && (await tx(p, '#ie-totaux')).includes('53,40 $') && (await tx(p, '#ie-totaux')).includes('1 annulée non comptée'), 'ligne de totaux hors annulées : ' + await tx(p, '#ie-totaux'));
+  await ouvrirOptionsListe(p);
   await p.selectOption('#f-statut', 'valide');
   await lignesListe(p, 1);
   await p.selectOption('#f-statut', '');
@@ -508,7 +518,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(t.length === 1 && t[0].includes(numB), 'recherche par numéro');
   await p.fill('#f-recherche', 'Erreur inconnue zzz');
   await p.waitForSelector('#table-factures .dataTables_empty');
-  L.verifier((await tx(p, '#table-factures .dataTables_empty')).includes('Aucune facture interne pour ces filtres'), 'liste vide : message utile');
+  L.verifier((await tx(p, '#table-factures .dataTables_empty')) === 'Aucune facture.', 'liste vide : une ligne');
   await p.fill('#f-recherche', XSS2.slice(0, 12));          // « <img src=x o » : cherché dans la note
   await attendre(700);
   await p.fill('#f-recherche', 'Centre-ville');              // nom d'emplacement
@@ -522,10 +532,10 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await L.aller(p, 'factures_internes');
   await p.selectOption('#f-annee', '');
   await lignesListe(p, Math.min(25, toutes));
-  await p.click('#table-factures thead th:nth-child(5)');
-  await p.waitForFunction(() => document.querySelector('#table-factures thead th:nth-child(5)').className.includes('sorting_'));
+  await p.click('#table-factures thead th:nth-child(4)');                // colonnes affichées : numéro, date, de → vers, total, statut
+  await p.waitForFunction(() => document.querySelector('#table-factures thead th:nth-child(4)').className.includes('sorting_'));
   await attendre(400);
-  const colTotal = (await p.$$eval('#table-factures tbody tr td:nth-child(5)', c => c.map(x => parseFloat(x.textContent.replace(/[  \s$]/g, '').replace(',', '.')))));
+  const colTotal = (await p.$$eval('#table-factures tbody tr td:nth-child(4)', c => c.map(x => parseFloat(x.textContent.replace(/[  \s$]/g, '').replace(',', '.')))));
   L.verifier(colTotal.length > 1 && colTotal.every((v, i) => i === 0 || colTotal[i - 1] >= v), 'tri par total (décroissant) : ' + JSON.stringify(colTotal));
 
   // ==== 10. Valeur de l'inventaire ===================================================================================================
@@ -539,7 +549,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   const totGen = (parseFloat(valSql(1)) + parseFloat(valSql(2))).toFixed(2);
   L.verifier((await tx(p, '#valeur-total-general')) === fr(totGen), 'total général = ' + fr(totGen));
   const sansCout = ent => sql("SELECT COUNT(DISTINCT s.piece_id) FROM stock s JOIN emplacements e ON e.id = s.emplacement_id LEFT JOIN stock_couts sc ON sc.entreprise_id = e.entreprise_id AND sc.piece_id = s.piece_id WHERE s.quantite > 0 AND e.entreprise_id = " + ent + " AND COALESCE(sc.cout_moyen, 0) = 0");
-  L.verifier(sansCout(1) === '2' && sansCout(2) === '1' && cartes[0][1].includes('2 pièces en stock sans coût connu') && cartes[1][1].includes('1 pièce en stock sans coût connu'), 'avertissement : pièces en stock sans coût connu (2 chez Beauchemin, 1 chez Chaleur) : ' + cartes[0][1] + ' | ' + cartes[1][1]);
+  L.verifier(sansCout(1) === '2' && sansCout(2) === '1' && cartes[0][1].includes('2 pièces sans coût connu') && cartes[1][1].includes('1 pièce sans coût connu'), 'avertissement : pièces en stock sans coût connu (2 chez Beauchemin, 1 chez Chaleur) : ' + cartes[0][1] + ' | ' + cartes[1][1]);
   for (const emp of [1, 3, 4, 2, 5]) {
     const v = sql("SELECT ROUND(COALESCE(SUM(s.quantite * COALESCE(sc.cout_moyen, 0)), 0), 2) FROM stock s JOIN emplacements e ON e.id = s.emplacement_id LEFT JOIN stock_couts sc ON sc.entreprise_id = e.entreprise_id AND sc.piece_id = s.piece_id WHERE s.emplacement_id = " + emp);
     L.verifier((await tx(p, '.ie-ligne-emplacement[data-id="' + emp + '"]')).includes(fr(v)), 'valeur de l\'emplacement ' + emp + ' = ' + fr(v));
@@ -644,8 +654,9 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await p.emulateMedia({ media: 'screen' });
   const tab = await nouvelleSession(b, 'gestionnaire1', { width: 768, height: 1024 });
   await ouvrirFacture(tab);
+  await ouvrirOptions(tab);
   const tailles = {};
-  for (const s of ['#emplacement', '#entreprise-dest', '#destination', '#date', '#scan', '#btn-enregistrer']) { tailles[s] = (await (await tab.$(s)).boundingBox()).height; }
+  for (const s of ['.ie-trajet-carte', '#emplacement', '#destination', '#date', '#scan', '#btn-enregistrer']) { tailles[s] = (await (await tab.$(s)).boundingBox()).height; }
   L.verifier(Object.values(tailles).every(h => h >= 43.5), 'tablette : zones cliquables ≥ 44 px : ' + JSON.stringify(tailles));
   L.verifier(await tab.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'tablette : pas de défilement horizontal (facture interne)');
   await choisirTrajet(tab, 1, 2, 5);
@@ -715,11 +726,11 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(optsSrc.join(',') === '1,3,4', 'une seule entreprise : seuls ses emplacements sont proposés comme source : ' + optsSrc);
   await gb.selectOption('#emplacement', '1');
   await gb.waitForFunction(() => !document.querySelector('#destination').disabled && document.querySelectorAll('#destination option').length > 1);
-  L.verifier(await gb.$eval('#entreprise-dest', e => e.value) === '2' && (await gb.$$eval('#destination option', o => o.map(x => x.value))).includes('5'), 'destinataire : l\'autre entreprise, auto-sélectionnée, avec ses emplacements');
+  L.verifier(await gb.$eval('.ie-trajet-carte input[value="1>2"]', e => e.checked) && (await gb.$$eval('.ie-trajet-carte', c => c.length)) === 1 && (await gb.$$eval('#destination option', o => o.map(x => x.value))).includes('5'), 'destinataire : l\'autre entreprise, choisie d\'office (une seule carte), avec ses emplacements');
   // correction #14 : le code d'un emplacement de l'AUTRE entreprise (à laquelle gest_bea n'a pas accès) choisit la destination
   await L.scanner(gb, '#scan', 'EMP-000002');
   await gb.waitForFunction(() => document.querySelector('#destination').value === '2');
-  L.verifier((await tx(gb, '#toasts')).includes('Destination : Entrepôt principal (Boutique Chaleur)') && await gb.$eval('#entreprise-dest', e => e.value) === '2', 'scan d\'un emplacement de l\'autre entreprise (sans accès) : devient la destination : ' + await tx(gb, '#toasts'));
+  L.verifier((await tx(gb, '#toasts')).includes('Destination : Entrepôt principal (Boutique Chaleur)') && await gb.$eval('.ie-trajet-carte input[value="1>2"]', e => e.checked), 'scan d\'un emplacement de l\'autre entreprise (sans accès) : devient la destination : ' + await tx(gb, '#toasts'));
   r = await api(gb, 'app/ajax/facture_emplacement_code.php?code=EMP-000002');
   L.verifier(r.status === 200 && r.json.trouve && r.json.emplacement.id === 2 && !('code_barres' in r.json.emplacement) && !/EMP-/.test(r.texte.replace('EMP-000002', '')), 'facture_emplacement_code : ne livre que id, nom, type, entreprise');
   r = await api(gb, 'app/ajax/facture_emplacement_code.php?code=EMP-999999');
@@ -771,9 +782,10 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await L.aller(gt, 'bilan_mensuel&annee=' + A_PREC + '&mois=' + M_PREC + '&a=1&b=2');
   L.verifier(!(await tx(gt, '.content-wrapper')).includes('FIN-') && !(await tx(gt, '.content-wrapper')).includes('53,40'), 'bilan Beauchemin/Chaleur : rien n\'est montré à l\'entreprise étrangère');
   await ouvrirFacture(gt);
+  L.verifier((await gt.$$eval('.ie-trajet-carte input', i => i.map(x => x.value))).join(',') === ids3[0] + '>1,' + ids3[0] + '>2', 'destinataires possibles : les deux autres entreprises (une carte chacune, aucune choisie d\'office)');
+  await gt.click('label.ie-trajet-carte:has(input[value="' + ids3[0] + '>1"])');
+  await gt.waitForFunction(() => document.querySelectorAll('#emplacement option').length > 1);
   L.verifier((await gt.$$eval('#emplacement option', o => o.map(x => x.value).filter(Boolean))).join(',') === ids3[1] && await gt.$eval('#emplacement', e => e.value) === ids3[1], 'entreprise étrangère : seul son emplacement comme source, présélectionné');
-  await gt.waitForFunction(() => !document.querySelector('#entreprise-dest').disabled);
-  L.verifier((await gt.$$eval('#entreprise-dest option', o => o.map(x => x.value).filter(Boolean))).join(',') === '1,2', 'destinataires possibles : les deux autres entreprises');
   // admin : le bilan propose la paire quand il y a plus de deux entreprises
   const ad = await nouvelleSession(b, 'admin');
   r = await api(ad, 'app/action/facture_save.php', { emplacement_id: 1, entreprise_dest_id: 2, emplacement_dest_id: parseInt(ids3[1], 10), lignes: [{ piece_id: 1, quantite: '1' }] });
@@ -788,9 +800,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier((await tx(ad, '#solde')).startsWith('Aucun solde pour') && (await tx(ad, '.ie-bilan-paire')).includes('Entreprise Tierce') && ad.url().includes('b=3'), 'Beauchemin ↔ Entreprise Tierce : aucun solde : ' + await tx(ad, '#solde'));
   L.verifier((await ad.getAttribute('#b-prec', 'href')).includes('a=1&b=3') && (await ad.getAttribute('#btn-csv', 'href')).includes('a=1&b=3'), 'la paire est conservée dans la navigation et l\'export');
   await ouvrirFacture(ad);
-  await ad.selectOption('#emplacement', '1');
-  await ad.waitForFunction(() => !document.querySelector('#entreprise-dest').disabled);
-  L.verifier((await ad.$$eval('#entreprise-dest option', o => o.map(x => x.value).filter(Boolean))).join(',') === '2,3', 'admin : source Beauchemin → destinataires 2 et 3');
+  L.verifier((await ad.$$eval('.ie-trajet-carte input[data-src="1"]', i => i.map(x => x.getAttribute('data-dest')))).join(',') === '2,3', 'admin : source Beauchemin → destinataires 2 et 3');
   await choisirTrajet(ad, 1, 3, ids3[1]);
   await ajouterAuScan(ad, 'P-0005', 1);
   await enregistrer(ad);
@@ -803,7 +813,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await lignesListe(gt, 1);
   L.verifier((await texteLignesListe(gt))[0].includes(num14), 'l\'entreprise destinataire voit la facture qu\'elle a reçue (et seulement celle-là)');
   await L.aller(gt, 'facture_interne_voir&id=' + idDoc(num14));
-  L.verifier((await tx(gt, '.ie-titre')) === 'FACTURE INTERNE' && !(await gt.$('#btn-annuler')) && (await tx(gt, '#annulation-emettrice')).includes('Seule l\'entreprise émettrice (Beauchemin) peut annuler'), 'la destinataire ouvre la facture, sans bouton d\'annulation (réservé à l\'émettrice), avec l\'explication');
+  L.verifier((await tx(gt, '.ie-titre')) === 'FACTURE INTERNE' && !(await gt.$('#btn-annuler')) && (await gt.getAttribute('#annulation-emettrice', 'title')).includes('Seule l\'entreprise émettrice (Beauchemin) peut annuler'), 'la destinataire ouvre la facture, sans bouton d\'annulation (réservé à l\'émettrice), avec l\'infobulle');
   await L.aller(ad, 'facture_interne_voir&id=' + idDoc(num14));
   L.verifier(!!(await ad.$('#btn-annuler')) && !(await ad.$('#annulation-emettrice')), 'l\'administrateur (accès à l\'émettrice) garde le bouton d\'annulation');
   L.verifier(reelles(gt).length === 0 && reelles(ad).length === 0, 'aucune erreur console (entreprise tierce, admin) : ' + JSON.stringify(reelles(gt).concat(reelles(ad))));
@@ -837,7 +847,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await choisirTrajet(p, 1, 2, 5);
   await ajouterAuScan(p, 'P-0001', 1);
   await attendreApercu(p);
-  L.verifier((await tx(p, '#entreprise-dest')).includes(PIEGE[0]) && (await tx(p, '#destination')).includes(PIEGE[1]) && (await tx(p, '#lignes')).includes(PIEGE[3]), 'saisie : noms piégés (entreprise, emplacement, unité) affichés en texte dans les listes et les lignes');
+  L.verifier((await tx(p, '.ie-trajet-choix')).includes(PIEGE[0]) && (await tx(p, '#destination')).includes(PIEGE[1]) && (await tx(p, '#lignes')).includes(PIEGE[3]), 'saisie : noms piégés (entreprise, emplacement, unité) affichés en texte dans les listes et les lignes');
   L.verifier(dialogues.length === 0, 'aucun script exécuté (alert) sur toutes les pages : ' + JSON.stringify(dialogues));
   L.verifier((await p.$$('.content-wrapper img[src="x"], .content-wrapper u')).length === 0, 'aucune balise injectée dans la page de saisie');
   for (const route of ['facture_interne_voir&id=' + idPiege2, 'factures_internes', 'bilan_mensuel', 'valeur_inventaire']) {
@@ -888,6 +898,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await p.keyboard.press('Enter');
   await p.waitForSelector('#lignes tbody tr:has(td.code:text-is("P-0013"))', { timeout: 5000 }).catch(() => {});
   L.verifier(!!(await ligne(p, 'P-0013')) && await p.$eval('#destination', e => e.value) === '5', '#1 un code scanné pendant que le focus est sur une liste : ligne ajoutée, destination inchangée');
+  await ouvrirOptions(p);
   await p.focus('#date');
   await p.keyboard.type('P-0002');
   await p.keyboard.press('Enter');
@@ -907,7 +918,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await p.selectOption('#destination', '');
   await p.click('#btn-enregistrer');
   await p.waitForFunction(() => !document.querySelector('#ie-erreur').hidden);
-  L.verifier((await tx(p, '#ie-erreur')).includes('destination') && await p.evaluate(() => document.activeElement.id) === 'scan', '#4 refus « destination manquante » : focus dans le champ de scan : ' + await p.evaluate(() => document.activeElement.id));
+  L.verifier((await tx(p, '#ie-erreur')).includes('où mettre') && await p.evaluate(() => document.activeElement.id) === 'scan', '#4 refus « destination manquante » : focus dans le champ de scan : ' + await p.evaluate(() => document.activeElement.id));
   await L.scanner(p, '#scan', 'P-0003');
   await p.waitForSelector('#lignes tbody tr:has(td.code:text-is("P-0003"))', { timeout: 5000 }).catch(() => {});
   L.verifier(!!(await ligne(p, 'P-0003')), '#4 le code scanné après le refus n\'est pas perdu');
@@ -917,6 +928,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await p.click('#btn-enregistrer');
   await p.waitForFunction(() => !document.querySelector('#ie-erreur').hidden && /Stock insuffisant/.test(document.querySelector('#ie-erreur').textContent), null, { timeout: 8000 });
   L.verifier(await p.evaluate(() => document.activeElement.id) === 'scan', '#4 refus du service (stock insuffisant) : focus dans le champ de scan');
+  await ouvrirOptions(p);
   await p.fill('#date', '1999-12-31');
   await p.click('#btn-enregistrer');
   await p.waitForFunction(() => /1er janvier 2000/.test(document.querySelector('#ie-erreur').textContent));
@@ -936,11 +948,12 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await p.fill('#lignes tbody tr:has(td.code:text-is("P-0001")) input', '1');
 
   // ---- #36, #39 : résumé émetteur → destinataire, listes lisibles, libellés ----------------------------------------------------------------
-  const recap = await tx(p, '#ie-recap');
-  L.verifier(/^Émetteur : Beauchemin\s*Destinataire : Boutique Chaleur — coûts au coût moyen de Beauchemin$/.test(recap), '#36 résumé « Émetteur → Destinataire » au-dessus des lignes : ' + recap);
-  L.verifier((await p.$eval('#emplacement', e => e.options[e.selectedIndex].textContent)).startsWith('Beauchemin — Entrepôt principal'), '#36 la source affichée porte le nom de l\'entreprise émettrice');
-  L.verifier((await tx(p, '.ie-carte')).includes('calculés automatiquement au coût moyen de l\'entreprise émettrice (non modifiables)') && !(await tx(p, '.ie-carte')).includes('par le serveur'), '#39 texte d\'aide sans jargon technique');
-  L.verifier((await p.$$eval('#emplacement, #entreprise-dest, #destination, #date', e => e.map(x => x.getAttribute('aria-required')))).join() === 'true,true,true,true' && (await tx(p, '.ie-carte')).includes('Les champs marqués d\'un'), '#30 champs obligatoires déclarés (aria-required) et légende des astérisques');
+  const carteChoisie = await tx(p, 'label.ie-trajet-carte.ie-choisie');
+  L.verifier(carteChoisie === 'Beauchemin Boutique Chaleur' && await p.$eval('#ie-trajet-choix', e => e.getAttribute('role')) === 'radiogroup', '#36 « qui facture à qui » : la carte choisie nomme l\'entreprise émettrice puis la destinataire : ' + carteChoisie);
+  L.verifier(await p.$eval('#emplacement', e => e.options[e.selectedIndex].textContent) === 'Entrepôt principal', '#36 la source est limitée aux emplacements de l\'entreprise émettrice');
+  const texteCarte = await tx(p, '.ie-carte');
+  L.verifier(!texteCarte.includes('calculés automatiquement') && !texteCarte.includes('Les champs marqués d\'un') && !texteCarte.includes('Au scanner') && !texteCarte.includes('sans marge'), 'aucun paragraphe explicatif sur la page de saisie : ' + texteCarte.slice(0, 160));
+  L.verifier((await p.$$eval('#emplacement, #destination, #date, #ie-trajet-choix', e => e.map(x => x.getAttribute('aria-required')))).join() === 'true,true,true,true', '#30 champs obligatoires déclarés (aria-required) : source, destination, date et choix « qui facture à qui »');
   L.verifier((await p.$eval('#lignes table caption', e => e.textContent)).includes('Pièces de la facture interne'), '#30 le tableau des lignes a un titre pour les lecteurs d\'écran');
 
   // ---- #13 : la colonne « Disponible » suit le stock réel de la source ---------------------------------------------------------------------
@@ -1060,12 +1073,12 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   for (const [m, attendu, de] of [[4, 'avril', 'd\''], [8, 'août', 'd\''], [10, 'octobre', 'd\''], [3, 'mars', 'de ']]) {
     await L.aller(p, 'bilan_mensuel&annee=2020&mois=' + m);
     const titre = await tx(p, '.ie-bilan-titre');
-    L.verifier(titre === 'Bilan ' + de + attendu + ' 2020', '#25 titre du bilan : « ' + titre + ' »');
-    L.verifier((await tx(p, '.ie-bilan-pied')).includes('datées ' + de + attendu + ' 2020'), '#25 pied du bilan : datées ' + de + attendu + ' 2020');
+    L.verifier(titre === attendu + ' 2020', '#25 mois affiché entre les flèches : « ' + titre + ' »');
+    L.verifier((await tx(p, '.ie-impression-entete')).startsWith('Bilan ' + de + attendu + ' 2020'), '#25 en-tête d\'impression : Bilan ' + de + attendu + ' 2020 : ' + await tx(p, '.ie-impression-entete'));
     L.verifier((await p.title()).startsWith('Bilan ' + de + attendu + ' 2020'), '#42 titre d\'onglet : ' + await p.title());
   }
-  L.verifier((await tx(p, '#lien-annulees-aucune')) === 'Aucune facture annulée pour mars 2020.' && (await tx(p, '#solde')).includes('Aucune facture interne valide entre ces deux entreprises pour mars 2020.'), '#26 textes du mois consulté (plus de « ce mois-ci ») : ' + await tx(p, '#lien-annulees-aucune'));
-  for (const [route, attendu] of [['factures_internes', 'Factures internes'], ['facture_interne', 'Facture interne'], ['valeur_inventaire', 'Valeur de l\'inventaire'], ['facture_interne_voir&id=' + idA, 'Facture interne ' + numA]]) {
+  L.verifier(!(await p.$('#lien-annulees')) && (await tx(p, '#solde')).includes('Aucune facture en mars 2020.'), '#26 texte du mois consulté (plus de « ce mois-ci ») : ' + await tx(p, '#solde'));
+  for (const [route, attendu] of [['factures_internes', 'Factures'], ['facture_interne', 'Nouvelle facture'], ['valeur_inventaire', 'Valeur du stock'], ['facture_interne_voir&id=' + idA, 'Facture interne ' + numA]]) {
     await L.aller(p, route);
     L.verifier((await p.title()).startsWith(attendu) && (await p.title()) !== 'Beauchemin — Gestion d\'inventaire', '#42 titre d\'onglet propre à ' + route + ' : ' + await p.title());
   }
@@ -1088,14 +1101,15 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await L.aller(p, 'factures_internes');
   await p.selectOption('#f-annee', '');
   await p.waitForFunction(() => document.querySelectorAll('#table-factures tbody tr:not(.dataTables_empty)').length >= 1);
+  await ouvrirOptionsListe(p);
   await p.context().setOffline(true);
   await p.selectOption('#f-statut', 'valide');
-  await p.waitForFunction(() => /Impossible de charger la liste/.test(document.querySelector('#table-factures tbody').textContent), null, { timeout: 8000 });
-  L.verifier(!/Valide|ANNUL/.test(await tx(p, '#table-factures tbody')) && (await tx(p, '#ie-totaux')).includes('Impossible de charger la liste des factures internes'), '#5 hors ligne : plus aucune ligne périmée, message en français dans le tableau et sous le tableau');
+  await p.waitForFunction(() => /Impossible de charger les factures/.test(document.querySelector('#table-factures tbody').textContent), null, { timeout: 8000 });
+  L.verifier(!/Valide|ANNUL/.test(await tx(p, '#table-factures tbody')) && (await tx(p, '#ie-totaux')).includes('Impossible de charger les factures'), '#5 hors ligne : plus aucune ligne périmée, message en français dans le tableau et sous le tableau');
   await p.context().setOffline(false);
   await p.route('**/factures_internes_data.php', route => route.fulfill({ status: 500, contentType: 'application/json', body: '{"ok":false,"erreur":"Erreur interne."}' }));
   await p.selectOption('#f-statut', 'annule');
-  await p.waitForFunction(() => /Impossible de charger la liste/.test(document.querySelector('#table-factures tbody').textContent), null, { timeout: 8000 });
+  await p.waitForFunction(() => /Impossible de charger les factures/.test(document.querySelector('#table-factures tbody').textContent), null, { timeout: 8000 });
   await attendre(300);
   const toastsErr = await tx(p, '#toasts');
   L.verifier(!/DataTables|datatables\.net|Ajax error/i.test(toastsErr + await tx(p, '.content-wrapper')), '#5 erreur 500 : aucun texte technique anglais à l\'écran : ' + toastsErr);
@@ -1153,11 +1167,12 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   const large = suivre(await L.nouvellePage(b, { width: 1280, height: 900 }));
   await connecterCompte(large, 'gestionnaire1');
   await ouvrirFacture(large);
-  const tops = await large.$$eval('#emplacement, #entreprise-dest, #destination, #date', e => e.map(x => Math.round(x.getBoundingClientRect().top)));
-  L.verifier(tops[0] === tops[1] && tops[2] === tops[3] && tops[2] > tops[0], '#18 les champs de l\'en-tête sont alignés deux par deux (source/entreprise, destination/date) à 1280 px : ' + tops);
-  const larg1280 = await large.$$eval('#emplacement, #entreprise-dest, #destination, #date', e => e.map(x => Math.round(x.getBoundingClientRect().width)));
+  const tops = await large.$$eval('.ie-trajet-carte, #emplacement, #destination', e => e.map(x => Math.round(x.getBoundingClientRect().top)));
+  L.verifier(tops.length === 4 && tops[0] === tops[1] && tops[2] === tops[3] && tops[2] > tops[0], '#18 les deux cartes « qui facture à qui » sont côte à côte, puis source et destination côte à côte, à 1280 px : ' + tops);
+  const larg1280 = await large.$$eval('#emplacement, #destination', e => e.map(x => Math.round(x.getBoundingClientRect().width)));
   L.verifier(larg1280.every(w => w >= 150) && (await large.$$eval('.ie-entete-form label', l => l.every(x => x.scrollWidth <= x.clientWidth + 1))), '#18 #36 aucun libellé ni liste tronqué à 1280 px : ' + larg1280);
   await large.setViewportSize({ width: 1024, height: 800 });
+  await ouvrirOptions(large);
   const larg = await large.evaluate(() => ({ date: Math.round(document.querySelector('#date').getBoundingClientRect().width), src: Math.round(document.querySelector('#emplacement').getBoundingClientRect().width) }));
   L.verifier(larg.date >= 140 && larg.src >= 280, '#32 à 1024 px : date et source assez larges pour être lues : ' + JSON.stringify(larg));
   await L.aller(large, 'factures_internes');
@@ -1167,7 +1182,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(deborde <= 1, '#32 à 1024 px : le tableau des factures ne déborde pas de son cadre (' + deborde + ' px)');
   const phTxt = await large.getAttribute('#f-recherche', 'placeholder');
   L.verifier(phTxt === 'Numéro, note ou emplacement' && (await large.$eval('#f-recherche', e => e.scrollWidth <= e.clientWidth + 1)), '#39 placeholder de recherche complet : ' + phTxt);
-  L.verifier((await large.$$eval('#f-sens option', o => o.map(x => x.textContent))).join('|') === 'Émises et reçues|Émises par l\'entreprise affichée|Reçues par l\'entreprise affichée', '#39 libellés du filtre « Sens »');
+  L.verifier((await large.$$eval('#f-sens option', o => o.map(x => x.textContent))).join('|') === 'Toutes|Émises|Reçues', '#39 libellés du filtre « Sens »');
 
   // ---- #8, #35 : impression de la facture annulée et d'une longue facture ------------------------------------------------------------------------------
   await L.aller(p, 'facture_interne_voir&id=' + idA);
@@ -1210,8 +1225,8 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(r.status === 403 && /Seule l'entreprise émettrice peut annuler/.test(r.json.erreur) && sql("SELECT statut FROM documents WHERE id = " + idF22) === 'valide' && stockQte(13, 2) + '/' + stockQte(13, 1) === stockAvant46,
     '#46 gest_chal (destinataire) : annulation refusée (403, message en français), facture toujours valide, stock inchangé : ' + r.texte);
   await L.aller(gchal, 'facture_interne_voir&id=' + idF22);
-  L.verifier(await gchal.locator('#btn-annuler').count() === 0 && await gchal.locator('#modal-annuler').count() === 0 && /Seule l'entreprise émettrice \(Beauchemin\) peut annuler cette facture/.test(await tx(gchal, '#annulation-emettrice')),
-    '#46 le destinataire voit la facture sans bouton « Annuler » et avec l\'explication : ' + await tx(gchal, '#annulation-emettrice'));
+  L.verifier(await gchal.locator('#btn-annuler').count() === 0 && await gchal.locator('#modal-annuler').count() === 0 && /Seule l'entreprise émettrice \(Beauchemin\) peut annuler cette facture/.test(await gchal.getAttribute('#annulation-emettrice', 'title')),
+    '#46 le destinataire voit la facture sans bouton « Annuler » et avec l\'infobulle : ' + await gchal.getAttribute('#annulation-emettrice', 'title'));
   // Le gestionnaire de démonstration (accès aux deux entreprises) voit le détail du service et l'explication (#22 #28)
   r = await api(p, 'app/action/facture_annuler.php', { id: idF22, motif: 'essai' });
   L.verifier(r.status === 400 && /Annulation refusée : des pièces de cette facture ne sont plus à l'emplacement de destination de Boutique Chaleur/.test(r.json.erreur) && /Stock insuffisant/.test(r.json.erreur), '#22 #28 gestionnaire des deux entreprises : voit le détail du stock de la destination avec l\'explication : ' + r.texte);
@@ -1230,20 +1245,22 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await gbea.waitForLoadState('networkidle');
   const labA = await tx(gbea, 'label[for=b-a]'), labB = await tx(gbea, 'label[for=b-b]');
   L.verifier(labA === 'Entre l\'entreprise' && labB === 'et l\'entreprise', '#37 libellés « Entre l\'entreprise » / « et l\'entreprise »');
+  await gbea.click('#b-plus');
   await gbea.selectOption('#b-a', '1');
   L.verifier(await gbea.$eval('#b-b option[value="1"]', o => o.disabled), '#37 l\'entreprise choisie comme A n\'est pas proposée comme B');
   await L.aller(gbea, 'valeur_inventaire');
   const txtVal = await tx(gbea, '.ie-valeur-entete');
-  L.verifier(txtVal.includes('Entreprise affichée : Beauchemin.') && !txtVal.includes('changez') && !txtVal.includes('Pour en changer'), '#39 valeur d\'inventaire (une seule entreprise) : « Entreprise affichée : Beauchemin. » sans invitation à changer : ' + txtVal);
+  L.verifier(!txtVal.includes('Entreprise affichée') && !txtVal.includes('Pour en changer') && !txtVal.includes('coût moyen pondéré'), '#39 valeur du stock : aucun paragraphe explicatif (une seule entreprise) : ' + txtVal);
   await L.aller(p, 'valeur_inventaire');
-  L.verifier((await tx(p, '.ie-valeur-entete')).includes('Pour en changer, utilisez la liste en haut de l\'écran.'), '#39 valeur d\'inventaire (plusieurs entreprises) : indication de la liste du haut');
+  L.verifier(!(await tx(p, '.ie-valeur-entete')).includes('Pour en changer'), '#39 valeur du stock (plusieurs entreprises) : aucune indication permanente sur la liste du haut');
+  await ouvrirFacture(gt);
+  await L.scanner(gt, '#scan', 'EMP-000002');                          // gt n'a accès à aucune des deux autres entreprises et n'a choisi aucun trajet
+  await gt.waitForFunction(() => /qui facture à qui/.test((document.querySelector('#toasts') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
+  L.verifier((await tx(gt, '#toasts')).includes('Choisissez d\'abord qui facture à qui'), '#14 scan d\'un emplacement de l\'autre entreprise SANS trajet choisi : message clair : ' + await tx(gt, '#toasts'));
   await ouvrirFacture(gbea);
-  L.verifier((await tx(gbea, '.ie-aide-scan')).includes('un code d\'emplacement (EMP-…) choisit la source, puis un code d\'emplacement de l\'entreprise destinataire choisit la destination'), '#45 aide au scan exacte (elle est vraie pour une seule entreprise depuis la correction #14)');
-  await gbea.selectOption('#emplacement', '');
-  await gbea.waitForFunction(() => document.querySelector('#entreprise-dest').disabled);
-  await L.scanner(gbea, '#scan', 'EMP-000002');
-  await gbea.waitForFunction(() => /source de votre entreprise/.test((document.querySelector('#toasts') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
-  L.verifier((await tx(gbea, '#toasts')).includes('Choisissez d\'abord l\'emplacement source de votre entreprise'), '#14 scan d\'un emplacement de l\'autre entreprise SANS source : message clair : ' + await tx(gbea, '#toasts'));
+  await L.scanner(gbea, '#scan', 'EMP-000002');                        // gest_bea : un seul trajet possible, choisi d\'office : le code est la destination
+  await gbea.waitForFunction(() => document.querySelector('#destination').value === '2', null, { timeout: 5000 }).catch(() => {});
+  L.verifier(await gbea.$eval('#destination', e => e.value) === '2', '#14 un seul trajet possible : le code scanné de l\'autre entreprise devient la destination');
   L.verifier(reelles(tabl7).length === 0 && reelles(large).length === 0 && reelles(gbea).length === 0 && reelles(gchal).length === 0, 'aucune erreur de console (tablette, grand écran, gest_bea, gest_chal) : ' + JSON.stringify(reelles(tabl7).concat(reelles(large), reelles(gbea), reelles(gchal))));
   L.verifier(dialogues.length === 0, 'aucun script exécuté pendant la section 17');
 

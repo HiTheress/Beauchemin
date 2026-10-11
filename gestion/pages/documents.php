@@ -75,7 +75,7 @@ $pre_q = mb_substr($get('q'), 0, 100);
             <th scope="col" data-col="numero">Numéro</th>
             <th scope="col" data-col="type">Type</th>
             <th scope="col" data-col="date">Date</th>
-            <?php if ($plusieurs) { ?><th scope="col" data-col="entreprise">Entreprise</th><?php } ?>
+            <?php if ($plusieurs) { ?><th scope="col" data-col="entreprise" class="d-none d-xl-table-cell">Entreprise</th><?php } ?>
             <th scope="col" data-col="emplacements">Emplacement</th>
             <?php if ($couts) { ?><th scope="col" data-col="total" class="nombre">Total</th><?php } ?>
           </tr></thead>

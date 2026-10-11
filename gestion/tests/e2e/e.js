@@ -109,6 +109,16 @@ async function chercher(p, table, texte) {
 async function attendreVrai(p, fn, arg) { try { await p.waitForFunction(fn, arg, { timeout: 4000 }); return true; } catch (e) { return false; } }
 /** Fenêtre entièrement ouverte (animation terminée) : le focus est entré dans la fenêtre. */
 async function modalePrete(p, sel) { await p.waitForSelector(sel + '.show'); await p.waitForFunction(s => document.querySelector(s).contains(document.activeElement), sel); }
+/** Ouvre la fiche d'une ligne (un clic sur son nom) et attend qu'elle soit remplie : champ = sélecteur du champ « nom », valeur = ce qu'il doit contenir. */
+async function ouvrirFiche(p, ligne, modal, champ, valeur) {
+  await ligne.locator('button[data-action=modifier]').click();
+  await p.waitForSelector(modal + '.show');
+  await p.waitForFunction(([c, v]) => document.querySelector(c).value === v, [champ, valeur]);
+  await p.waitForFunction(m => document.querySelector(m).contains(document.activeElement), modal);      // fenêtre entièrement ouverte (le focus y est entré)
+}
+const ficheUtilisateur = (p, ligne, nom) => ouvrirFiche(p, ligne, '#modal-utilisateur', '#u-nom', nom);
+const ficheEntreprise = (p, ligne, nom) => ouvrirFiche(p, ligne, '#modal-entreprise', '#en-nom', nom);
+const ficheEmplacement = (p, ligne, nom) => ouvrirFiche(p, ligne, '#modal-emplacement', '#em-nom', nom);
 async function lignesTable(p, table) { return p.$$eval(table + ' tbody tr', trs => trs.map(t => t.innerText.replace(/\s+/g, ' ').trim())); }
 const dernierJournal = (action) => sql("SELECT details FROM journal WHERE action = '" + action + "' ORDER BY id DESC LIMIT 1");
 const nbJournal = (action) => parseInt(sql("SELECT COUNT(*) FROM journal WHERE action = '" + action + "'"), 10);
@@ -142,9 +152,10 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   const ligneAdmin = rows.find(r => r.startsWith('admin'));
   L.verifier(/vous/.test(ligneAdmin) && /Administrateur/.test(ligneAdmin) && /Toutes/.test(ligneAdmin), 'ligne admin : « vous », rôle, toutes les entreprises (' + ligneAdmin + ')');
   const ligneG = rows.find(r => r.startsWith('gestionnaire1'));
-  L.verifier(/Gestionnaire/.test(ligneG) && /Beauchemin, Boutique Chaleur/.test(ligneG) && /Actif/.test(ligneG) && /jamais|20\d\d-/.test(ligneG), 'ligne gestionnaire1 : rôle, entreprises, statut');
+  L.verifier(/Gestionnaire/.test(ligneG) && /Beauchemin, Boutique Chaleur/.test(ligneG) && /Actif/.test(ligneG), 'ligne gestionnaire1 : rôle, entreprises, état');
   const ligneSoi = a.locator('#table-utilisateurs tbody tr', { has: a.locator('.badge-info') });
-  L.verifier(await ligneSoi.locator('button[data-action=desactiver]').count() === 0, 'pas de bouton « Désactiver » sur sa propre ligne');
+  L.verifier(await ligneSoi.count() === 1 && !/Désactiver/.test(await ligneSoi.textContent()), 'sa propre ligne est repérée par « vous » et n\'offre aucune désactivation');
+  L.verifier(await a.locator('#table-utilisateurs tbody button').count() === await a.locator('#table-utilisateurs tbody tr').count(), 'un seul bouton par ligne : le nom, qui ouvre la fiche');
   let brut = await liste(a, 'app/ajax/utilisateurs_data.php', { draw: '1', start: '0', length: '50' });
   L.verifier(brut.status === 200 && !/mot_de_passe|\$2y\$/.test(brut.texte), 'le JSON de la liste ne contient aucun mot de passe ni empreinte');
   // chaque colonne triable répond sans erreur (alias DataTable = columns[].data)
@@ -156,10 +167,13 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
     }
   }
   // filtre de statut
-  await a.selectOption('#f-statut', 'inactifs');
+  L.verifier(await a.locator('#f-statut').count() === 0, 'liste des utilisateurs : recherche et bouton d\'ajout seulement (pas de filtre d\'état)');
+  brut = await liste(a, 'app/ajax/utilisateurs_data.php', { draw: '1', start: '0', length: '50', statut: 'inactifs' });
+  L.verifier(brut.status === 200 && brut.json.data.length === 0, 'API : le filtre « inactifs » reste disponible (aucun désactivé pour l\'instant)');
+  await a.fill('#f-recherche', 'zzzzzz');
   await a.waitForFunction(() => /Aucun utilisateur/.test(document.querySelector('#table-utilisateurs').textContent));
-  L.verifier(true, 'filtre « Désactivés » : liste vide avec message');
-  await a.selectOption('#f-statut', 'tous');
+  L.verifier(true, 'recherche sans résultat : une ligne « Aucun utilisateur trouvé. »');
+  await a.fill('#f-recherche', '');
   await attendreTable(a, '#table-utilisateurs', 'gestionnaire1');
 
   // =====================================================================================================================
@@ -167,13 +181,14 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await a.click('#btn-nouveau');
   await a.waitForSelector('#modal-utilisateur.show');
   L.verifier(await a.inputValue('#u-role') === 'employe', 'rôle par défaut : employé (le moins de droits)');
-  L.verifier(/Consulte les pièces/.test(await tx(a, '#u-role-aide')), 'explication du rôle employé affichée');
+  L.verifier(JSON.stringify(await a.$$eval('#u-role option', os => os.map(o => o.textContent.trim()))) === JSON.stringify(['Administrateur', 'Gestionnaire', 'Employé']) && await a.locator('#u-role-aide').count() === 0, 'rôles décrits par leur nom seulement (aucun paragraphe d\'explication)');
+  L.verifier(/^[A-Za-z2-9]{4}(-[A-Za-z2-9]{4}){3}$/.test(await a.inputValue('#u-mdp')), 'un mot de passe est déjà proposé à l\'ouverture');
   await a.selectOption('#u-role', 'gestionnaire');
-  L.verifier(/Voit les coûts/.test(await tx(a, '#u-role-aide')), 'explication du rôle gestionnaire');
+  L.verifier(await a.isVisible('#u-entreprises-groupe'), 'rôle gestionnaire : choix des entreprises');
   await a.selectOption('#u-role', 'admin');
-  L.verifier(/Accès complet/.test(await tx(a, '#u-role-aide')) && await a.isDisabled('#u-ent-1') && await a.isVisible('#u-entreprises-admin'), 'rôle administrateur : explication, cases d\'entreprise désactivées');
+  L.verifier(await a.isHidden('#u-entreprises-groupe') && await a.isDisabled('#u-ent-1'), 'rôle administrateur : le choix des entreprises disparaît (il les voit toutes)');
   await a.selectOption('#u-role', 'employe');
-  L.verifier(!(await a.isDisabled('#u-ent-1')), 'rôle employé : cases d\'entreprise actives');
+  L.verifier(await a.isVisible('#u-entreprises-groupe') && !(await a.isDisabled('#u-ent-1')), 'rôle employé : cases d\'entreprise actives');
   // champs vides
   await a.click('#utilisateur-enregistrer');
   await a.waitForFunction(() => !document.querySelector('[data-erreur-pour="nom_utilisateur"]').hidden);
@@ -187,6 +202,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await a.waitForFunction(() => !document.querySelector('[data-erreur-pour="entreprise_ids"]').hidden);
   L.verifier(/au moins une entreprise/.test(await tx(a, '[data-erreur-pour=entreprise_ids]')), 'employé sans entreprise refusé');
   await a.check('#u-ent-1', { force: true });
+  await a.fill('#u-mdp', '');
   await a.click('#utilisateur-enregistrer');
   await a.waitForFunction(() => !document.querySelector('[data-erreur-pour="mot_de_passe"]').hidden);
   L.verifier(/mot de passe est obligatoire|au moins 10/.test(await tx(a, '[data-erreur-pour=mot_de_passe]')), 'mot de passe obligatoire');
@@ -213,16 +229,17 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(await a.getAttribute('#u-mdp', 'type') === 'text', 'le mot de passe généré est visible');
   await a.click('#u-mdp-gen');
   L.verifier(await a.inputValue('#u-mdp') !== generé, 'chaque génération donne un autre mot de passe');
-  await viderToasts(a);
-  await a.click('#u-mdp-copier');
-  await a.waitForFunction(() => /Copié|Copie automatique impossible/.test((document.getElementById('toasts') || { textContent: '' }).textContent));
-  L.verifier(true, 'bouton Copier : retour à l\'utilisateur');
+  L.verifier(await a.locator('#u-mdp-copier').count() === 0, 'formulaire d\'ajout : « Générer » et « Afficher » seulement (« Copier » est dans la fenêtre du résultat)');
   const mdpTech = await a.inputValue('#u-mdp');
   secrets.push(mdpTech);
   await a.click('#utilisateur-enregistrer');
   await a.waitForSelector('#modal-mdp.show');
   L.verifier(await a.inputValue('#mdp-champ') === mdpTech && await a.getAttribute('#mdp-champ', 'readonly') !== null, 'mot de passe affiché (lecture seule) après la création');
   L.verifier(/Compte créé/.test(await tx(a, '#modal-mdp-titre')) && /ne sera plus affiché/.test(await tx(a, '#mdp-note')), 'message : le mot de passe ne sera plus affiché');
+  await viderToasts(a);
+  await a.click('#mdp-copier');
+  await a.waitForFunction(() => /Copié|Copie automatique impossible/.test((document.getElementById('toasts') || { textContent: '' }).textContent));
+  L.verifier(true, 'bouton Copier : retour à l\'utilisateur');
   await a.click('#mdp-fermer');
   await a.waitForSelector('#modal-mdp', { state: 'hidden' });
   await a.waitForFunction(() => document.querySelector('#mdp-champ').value === '');
@@ -330,7 +347,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await a.locator('#table-utilisateurs tbody tr', { has: a.locator('.badge-info') }).locator('button[data-action=modifier]').click();
   await a.waitForSelector('#modal-utilisateur.show');
   await a.waitForFunction(() => document.querySelector('#u-nom').value === 'admin');
-  L.verifier(await a.isDisabled('#u-role') && await a.isDisabled('#u-actif') && await a.isVisible('#u-actif-aide'), 'sa propre fiche : rôle et activation verrouillés avec explication');
+  L.verifier(await a.isDisabled('#u-role') && /propre rôle/.test(await a.getAttribute('#u-role', 'title')) && await a.isHidden('#u-btn-desactiver') && await a.isHidden('#u-btn-reactiver'), 'sa propre fiche : rôle verrouillé (infobulle), ni « Désactiver » ni « Réactiver »');
   await a.click('#modal-utilisateur .btn-outline-secondary[data-dismiss=modal]');
   await a.waitForSelector('#modal-utilisateur', { state: 'hidden' });
   // dernier administrateur : admin2 (actif) désactive admin ; ensuite admin2 ne peut plus se désactiver
@@ -367,16 +384,23 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(sql("SELECT tentatives_echec FROM utilisateurs WHERE nom_utilisateur='verrou1'") === '5', 'le compteur d\'échecs du compte vaut 5');
   await L.aller(a, 'utilisateurs');
   lg = await chercher(a, '#table-utilisateurs', 'verrou1');
-  L.verifier(/5 échecs de connexion/.test(await lg.textContent()) && await lg.locator('button[data-action=deverrouiller]').count() === 1, 'liste : « 5 échecs de connexion » et bouton « Déverrouiller »');
+  L.verifier(/5 échecs de connexion/.test(await lg.textContent()), 'liste : « 5 échecs de connexion »');
+  await ficheUtilisateur(a, lg, 'verrou1');
+  L.verifier(await a.isVisible('#u-btn-deverrouiller'), 'fiche : bouton « Déverrouiller » proposé');
+  await a.keyboard.press('Escape');
+  await a.waitForSelector('#modal-utilisateur', { state: 'hidden' });
   // Le verrou du COMPTE (20 échecs au total, depuis plusieurs adresses) ne peut pas être atteint depuis une seule : on le pose en base
   sql("UPDATE utilisateurs SET tentatives_echec = 0, verrouille_jusqua = DATE_ADD(NOW(), INTERVAL 10 MINUTE) WHERE nom_utilisateur='verrou1'");
   await a.fill('#f-recherche', ''); await a.fill('#f-recherche', 'verrou1');
   await a.waitForFunction(() => { const r = [...document.querySelectorAll('#table-utilisateurs tbody tr')].find(x => x.textContent.includes('verrou1')); return r && /Verrouillé/.test(r.textContent); });
   lg = await chercher(a, '#table-utilisateurs', 'verrou1');
   L.verifier(/Verrouillé/.test(await lg.textContent()) && /jusqu'à \d\d:\d\d/.test(await lg.textContent()), 'liste : « Verrouillé » avec l\'heure de fin');
-  await lg.locator('button[data-action=deverrouiller]').click();
+  await ficheUtilisateur(a, lg, 'verrou1');
+  await a.click('#u-btn-deverrouiller');
   await attendreToast(a, 'déverrouillé');
-  await a.waitForFunction(() => { const r = [...document.querySelectorAll('#table-utilisateurs tbody tr')].find(x => x.textContent.includes('verrou1')); return r && !/Verrouillé/.test(r.textContent) && !r.querySelector('button[data-action=deverrouiller]'); });
+  await a.keyboard.press('Escape');
+  await a.waitForSelector('#modal-utilisateur', { state: 'hidden' });
+  await a.waitForFunction(() => { const r = [...document.querySelectorAll('#table-utilisateurs tbody tr')].find(x => x.textContent.includes('verrou1')); return r && !/Verrouillé/.test(r.textContent); });
   L.verifier(sql("SELECT CONCAT(tentatives_echec, '/', IFNULL(verrouille_jusqua,'null')) FROM utilisateurs WHERE nom_utilisateur='verrou1'") === '0/null', 'compteur et verrou remis à zéro');
   L.verifier(nbJournal('utilisateur.deverrouille') === 1, 'journal : utilisateur.deverrouille');
   // Le refus « cette adresse sur ce compte » (5 échecs en 15 minutes) est lu dans le journal par User::login : on fait vieillir ces lignes pour simuler l'attente
@@ -397,7 +421,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await L.aller(a, 'utilisateurs');
   lg = await chercher(a, '#table-utilisateurs', 'mdp2');
   sql("UPDATE utilisateurs SET verrouille_jusqua = DATE_ADD(NOW(), INTERVAL 10 MINUTE) WHERE nom_utilisateur='mdp2'");
-  await lg.locator('button[data-action=mdp]').click();
+  await ficheUtilisateur(a, lg, 'mdp2');
+  await a.click('#u-btn-mdp');
   await a.waitForSelector('#modal-mdp.show');
   L.verifier(/Réinitialiser/.test(await tx(a, '#modal-mdp-titre')) && /^[A-Za-z2-9-]{19}$/.test(await a.inputValue('#mdp-champ')), 'fenêtre de réinitialisation : mot de passe proposé');
   await a.fill('#mdp-champ', 'court');
@@ -445,7 +470,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(!/pas la permission/.test(await s1.textContent('body')), 'sess1 voit la réception');
   await L.aller(a, 'utilisateurs');
   lg = await chercher(a, '#table-utilisateurs', 'sess1');
-  await lg.locator('button[data-action=desactiver]').click();
+  await ficheUtilisateur(a, lg, 'sess1');
+  await a.click('#u-btn-desactiver');
   const msgConf = await confirmerModal(a, true);
   L.verifier(/sess1/.test(msgConf) && /plus se connecter/.test(msgConf), 'confirmation avant de désactiver : ' + msgConf.slice(0, 60));
   await attendreToast(a, 'désactivé');
@@ -457,7 +483,9 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(!(await connecterComme(s1, 'sess1', MDP)).ok, 'et il ne peut plus se reconnecter');
   // réactivation depuis la liste
   lg = await chercher(a, '#table-utilisateurs', 'sess1');
-  await lg.locator('button[data-action=activer]').click();
+  await ficheUtilisateur(a, lg, 'sess1');
+  L.verifier(await a.isHidden('#u-btn-desactiver') && await a.isVisible('#u-btn-reactiver'), 'fiche d\'un compte désactivé : « Réactiver » seulement');
+  await a.click('#u-btn-reactiver');
   await attendreToast(a, 'réactivé');
   L.verifier((await connecterComme(s1, 'sess1', MDP)).ok, 'après réactivation, il se reconnecte');
 
@@ -594,7 +622,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier((await xssUser.textContent('#profil-nom-complet')).includes(XSS1), 'profil : le nom est affiché comme texte');
   await L.aller(a, 'utilisateurs');
   lg = await chercher(a, '#table-utilisateurs', 'xss.user');
-  await lg.locator('button[data-action=desactiver]').click();
+  await ficheUtilisateur(a, lg, 'xss.user');
+  await a.click('#u-btn-desactiver');
   const msgX = await confirmerModal(a, false);
   L.verifier(msgX.includes('xss.user'), 'dialogue de confirmation : texte seulement');
   L.verifier(dialogues.length === 0, 'aucune boîte de dialogue JavaScript (alert) ne s\'est ouverte');
@@ -606,7 +635,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   rows = await lignesTable(a, '#table-entreprises');
   L.verifier(rows.length === 3, 'trois entreprises (dont celle de test XSS) : ' + rows.length);
   const lBea = rows.find(x => x.startsWith('Beauchemin BEA'));
-  L.verifier(/^Beauchemin BEA\s+3 emplacements actifs\s+14 pièces en stock\s+\d+ utilisateurs?\s+Active/.test(lBea), 'ligne BEA : nom, code, 3 emplacements, 14 pièces en stock, utilisateurs, statut (' + lBea + ')');
+  L.verifier(/^Beauchemin BEA\b.*Active$/.test(lBea) && !/emplacement|pièces en stock/.test(lBea), 'ligne BEA : nom, code, état, sans décompte (' + lBea + ')');
   for (const col of ['code', 'nom', 'adresse', 'nb_emplacements', 'nb_pieces', 'nb_utilisateurs', 'actif']) {
     const i = ['code', 'nom', 'adresse', 'nb_emplacements', 'nb_pieces', 'nb_utilisateurs', 'actif'].indexOf(col);
     const rr2 = await liste(a, 'app/ajax/entreprises_data.php', { draw: '1', start: '0', length: '10', 'order[0][column]': String(i), 'order[0][dir]': 'desc', ['columns[' + i + '][data]']: col });
@@ -648,15 +677,15 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await a.click('#table-entreprises tbody tr button[data-action=modifier]');
   await a.waitForSelector('#modal-entreprise.show');
   await a.waitForFunction(() => document.querySelector('#en-code').value === 'TST');
-  L.verifier(await a.inputValue('#en-adresse') === '1 rue du Test, Québec' && await a.isVisible('#en-actif-groupe') && await a.isChecked('#en-actif'), 'fiche pré-remplie, case « active » visible');
+  L.verifier(await a.inputValue('#en-adresse') === '1 rue du Test, Québec' && await a.isVisible('#en-btn-desactiver') && await a.isHidden('#en-btn-reactiver') && await a.locator('#en-actif').count() === 0, 'fiche pré-remplie ; « Désactiver l\'entreprise » proposé (plus de case « active »)');
   await a.fill('#en-nom', 'Entreprise Test 2');
   await a.click('#entreprise-enregistrer');
   await a.waitForSelector('#modal-entreprise', { state: 'hidden' });
   await attendreTable(a, '#table-entreprises', 'Entreprise Test 2');
   L.verifier(/"nom":\["Entreprise Test","Entreprise Test 2"\]/.test(dernierJournal('entreprise.modifie')), 'journal : entreprise.modifie avec avant/après');
   // désactivation refusée : stock (Beauchemin)
-  await chercher(a, '#table-entreprises', 'Beauchemin');
-  await a.click('#table-entreprises tbody tr button[data-action=desactiver]');
+  await ficheEntreprise(a, await chercher(a, '#table-entreprises', 'Beauchemin'), 'Beauchemin');
+  await a.click('#en-btn-desactiver');
   await confirmerModal(a, true);
   await a.waitForSelector('#modal-refus.show');
   const refus = await tx(a, '#modal-refus-message');
@@ -683,9 +712,11 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(r.status === 400 && /désactivée/.test(r.json.erreur), 'on ne crée pas d\'emplacement dans une entreprise désactivée');
   // réactivation par la liste
   await L.aller(a, 'entreprises');
-  await chercher(a, '#table-entreprises', 'TST');
-  L.verifier(/Désactivée/.test(await a.textContent('#table-entreprises tbody tr')), 'liste : statut « Désactivée »');
-  await a.click('#table-entreprises tbody tr button[data-action=activer]');
+  const ligneTst = await chercher(a, '#table-entreprises', 'TST');
+  L.verifier(/Désactivée/.test(await a.textContent('#table-entreprises tbody tr')), 'liste : état « Désactivée »');
+  await ficheEntreprise(a, ligneTst, 'Entreprise Test 2');
+  L.verifier(await a.isHidden('#en-btn-desactiver') && await a.isVisible('#en-btn-reactiver'), 'fiche d\'une entreprise désactivée : « Réactiver » seulement');
+  await a.click('#en-btn-reactiver');
   await attendreToast(a, 'réactivée');
   L.verifier(sql("SELECT actif FROM entreprises WHERE id=" + idTst) === '1' && nbJournal('entreprise.reactive') === 1 && nbJournal('entreprise.desactive') === 1, 'réactivée ; journal : entreprise.desactive et entreprise.reactive');
   // dernière entreprise active
@@ -725,10 +756,11 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
     }
   }
   // filtres + recherche au scanner
-  await a.selectOption('#f-type', 'cube');
-  await a.waitForFunction(n => document.querySelectorAll('#table-emplacements tbody tr').length === n, nbCube);
-  L.verifier(true, 'filtre par type « Cube de service » : ' + nbCube + ' lignes (dont celui de test)');
-  await a.selectOption('#f-type', '');
+  L.verifier(await a.locator('#f-type').count() === 0 && await a.locator('#f-statut').count() === 0, 'liste des emplacements : recherche, entreprise et bouton d\'ajout seulement');
+  let rf = await liste(a, 'app/ajax/emplacement_data.php', { draw: '1', start: '0', length: '50', type: 'cube' });
+  L.verifier(rf.status === 200 && rf.json.data.length === nbCube && rf.json.data.every(x => x.type === 'cube'), 'API : filtre par type « cube » : ' + nbCube + ' lignes (dont celui de test)');
+  rf = await liste(a, 'app/ajax/emplacement_data.php', { draw: '1', start: '0', length: '50', statut: 'inactifs' });
+  L.verifier(rf.status === 200 && rf.json.data.length === 0, 'API : filtre « inactifs » : aucun pour l\'instant');
   await a.selectOption('#f-entreprise', '2');
   await a.waitForFunction(() => document.querySelectorAll('#table-emplacements tbody tr').length === 2);
   L.verifier(true, 'filtre par entreprise 2 : 2 lignes');
@@ -795,7 +827,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await ligneNouv.locator('button[data-action=modifier]').click();
   await a.waitForSelector('#modal-emplacement.show');
   await a.waitForFunction(() => document.querySelector('#em-nom').value === 'cube 12 — marc');
-  L.verifier(!(await a.isDisabled('#em-entreprise')) && await a.isVisible('#em-actif-groupe'), 'emplacement sans historique : entreprise modifiable');
+  L.verifier(!(await a.isDisabled('#em-entreprise')) && await a.isVisible('#em-btn-desactiver') && await a.isVisible('#em-etiquette') && await a.isHidden('#em-entreprise-aide'), 'emplacement sans historique : entreprise modifiable ; « Désactiver » et « Imprimer l\'étiquette » dans la fiche');
   L.verifier(await a.isHidden('#em-code-avert'), 'pas d\'avertissement tant que le code est inchangé');
   await a.fill('#em-code', 'CUBE-NOUV-7');
   L.verifier(await a.isVisible('#em-code-avert'), 'avertissement : les étiquettes déjà imprimées ne fonctionneront plus');
@@ -827,7 +859,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await a.click('#modal-emplacement .btn-outline-secondary[data-dismiss=modal]');
   await a.waitForSelector('#modal-emplacement', { state: 'hidden' });
   // désactivation refusée : stock restant
-  await a.locator('#table-emplacements tbody tr', { hasText: 'EMP-000003' }).locator('button[data-action=desactiver]').click();
+  await ficheEmplacement(a, a.locator('#table-emplacements tbody tr', { hasText: 'EMP-000003' }), 'Cube 12 — Marc');
+  await a.click('#em-btn-desactiver');
   await confirmerModal(a, true);
   await a.waitForSelector('#modal-refus.show');
   const refusE = await tx(a, '#modal-refus-message');
@@ -840,7 +873,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   // désactiver un emplacement vide, puis réactiver ; message avec formes plurielles via l'API
   await L.aller(a, 'emplacements');
   await chercher(a, '#table-emplacements', 'CUBE-NOUV-7');
-  await a.locator('#table-emplacements tbody tr', { hasText: 'CUBE-NOUV-7' }).locator('button[data-action=desactiver]').click();
+  await ficheEmplacement(a, a.locator('#table-emplacements tbody tr', { hasText: 'CUBE-NOUV-7' }), 'Cube test');
+  await a.click('#em-btn-desactiver');
   await confirmerModal(a, true);
   await attendreToast(a, 'désactivé');
   L.verifier(sql("SELECT actif FROM emplacements WHERE id=" + idNouv) === '0' && nbJournal('emplacement.desactive') === 1, 'emplacement vide désactivé ; journal : emplacement.desactive');
@@ -848,7 +882,9 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(!r.json.emplacements.some(x => x.id === idNouv), 'il disparaît des listes de saisie');
   r = await appel(g, 'app/ajax/emplacements_liste.php?inactifs=1', null);
   L.verifier(r.json.emplacements.some(x => x.id === idNouv), '… mais reste dans les données (inactifs inclus)');
-  await a.locator('#table-emplacements tbody tr', { hasText: 'CUBE-NOUV-7' }).locator('button[data-action=activer]').click();
+  await ficheEmplacement(a, a.locator('#table-emplacements tbody tr', { hasText: 'CUBE-NOUV-7' }), 'Cube test');
+  L.verifier(await a.isHidden('#em-btn-desactiver') && await a.isVisible('#em-btn-reactiver'), 'fiche d\'un emplacement désactivé : « Réactiver » seulement');
+  await a.click('#em-btn-reactiver');
   await attendreToast(a, 'réactivé');
   L.verifier(sql("SELECT actif FROM emplacements WHERE id=" + idNouv) === '1' && nbJournal('emplacement.reactive') === 1, 'réactivé ; journal : emplacement.reactive');
   r = await appel(a, 'app/action/emplacement_activer.php', { id: 4, actif: false });
@@ -861,9 +897,11 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   // étiquette
   await L.aller(a, 'emplacements');
   await chercher(a, '#table-emplacements', 'EMP-000004');
-  const href = await a.getAttribute('#table-emplacements tbody tr a[href*="etiquettes"]', 'href');
-  L.verifier(href === 'index.php?page=etiquettes&emplacement_id=4', 'bouton « Étiquette » : ' + href);
-  await a.click('#table-emplacements tbody tr a[href*="etiquettes"]');
+  L.verifier(await a.locator('#table-emplacements tbody a[href*="etiquettes"]').count() === 0, 'la liste n\'a plus de bouton « Étiquette » (il est dans la fiche)');
+  await ficheEmplacement(a, a.locator('#table-emplacements tbody tr', { hasText: 'EMP-000004' }), 'Cube 14 — Luc');
+  const href = await a.getAttribute('#em-etiquette', 'href');
+  L.verifier(href === 'index.php?page=etiquettes&emplacement_id=4' && /Imprimer l'étiquette/.test(await tx(a, '#em-etiquette')), 'bouton « Imprimer l\'étiquette » de la fiche : ' + href);
+  await a.click('#em-etiquette');
   await a.waitForLoadState('networkidle');
   L.verifier(/page=etiquettes/.test(a.url()) && !/pas la permission/i.test(await a.textContent('.content-wrapper')), 'la page des étiquettes s\'ouvre');
   r = await appel(a, 'app/ajax/emplacement_code_proposer.php', null);
@@ -897,6 +935,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await a.waitForFunction(() => { const t = document.querySelector('#table-journal tbody').textContent; return t.includes('zzz.inconnue') && !t.includes('Prix fournisseur'); });
   L.verifier(true, 'filtre « Aucun (système ou inconnu) »');
   await a.selectOption('#f-utilisateur', '');
+  L.verifier(await a.isHidden('#f-entite'), 'journal : le filtre « Objet concerné » est caché derrière « Plus de filtres »');
+  await a.click('#btn-plus-filtres');
   await a.selectOption('#f-entite', 'utilisateurs');
   await a.waitForFunction(() => { const t = document.querySelector('#table-journal tbody').textContent; return /Utilisateur \S/.test(t) && !/Pièce \S/.test(t); });
   L.verifier(true, 'filtre par objet concerné');
@@ -963,7 +1003,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier((await connecterComme(pe, 'mdp1', 'Ancien-Mot-2026')).ok, 'mdp1 connecté');
   await L.aller(pe, 'profil');
   L.verifier(/mdp1/.test(await tx(pe, '#profil-nom-utilisateur')) && /Employé/.test(await tx(pe, '#profil-role')) && /Beauchemin/.test(await tx(pe, '#profil-entreprises')) && !/Boutique/.test(await tx(pe, '#profil-entreprises')), 'infos : nom, rôle, entreprises');
-  L.verifier(/Consulte les pièces/.test(await tx(pe, '#profil-role')), 'explication du rôle');
+  L.verifier(await tx(pe, '#profil-role') === 'Employé' && await pe.locator('#p-nouveau-aide, .form-text').count() === 0, 'profil : le rôle sans explication, aucune règle de mot de passe affichée');
   const cookieAvant = (await pe.context().cookies()).find(c => /PHPSESSID/.test(c.name)).value;
   await pe.click('#profil-enregistrer');
   await pe.waitForFunction(() => !document.querySelector('[data-erreur-pour="actuel"]').hidden);
@@ -1023,27 +1063,16 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   // =====================================================================================================================
   console.log('14. Sauvegarde et restauration');
   await L.aller(a, 'backup_database');
-  L.verifier(/empreintes des mots de passe/.test(await tx(a, '#sauvegarde-avertissement')) && /lieu sûr/.test(await tx(a, '#sauvegarde-avertissement')), 'avertissement : le fichier contient les empreintes de mots de passe, à garder en lieu sûr');
   const nbTables = parseInt(sql("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='" + DB + "' AND table_type='BASE TABLE'"), 10);
-  L.verifier(await a.locator('input.checkbox_table').count() === nbTables && (await tx(a, '#sauvegarde-compte')).startsWith(nbTables + ' tables sur ' + nbTables), 'toutes les tables (' + nbTables + ') cochées par défaut');
+  L.verifier(await a.locator('input[type=checkbox]').count() === 0 && await a.locator('.btn-primary').count() === 1 && /Télécharger une sauvegarde/.test(await tx(a, '#btn-sauvegarde')), 'sauvegarde : un seul gros bouton « Télécharger une sauvegarde », aucune liste de tables');
+  L.verifier(/Aucune sauvegarde téléchargée/.test(await tx(a, '#sauvegarde-etat')), 'sauvegarde : pas encore de sauvegarde téléchargée, dit en une ligne');
   const listerSql = () => execSync('find . \\( -name "*.sql" -o -name "*.sql.gz" -o -name "*.dump" \\) -not -path "./.git/*" | sort', { cwd: RACINE }).toString();
   const sqlAvant = listerSql();
-  // sauvegarde partielle : confirmation
-  await a.uncheck('input.checkbox_table >> nth=0', { force: true });
-  await a.click('#btn-sauvegarde');
-  await a.waitForSelector('#modal-confirmer.show');
-  L.verifier(/INCOMPLÈTE/.test(await confirmerModal(a, false)), 'sauvegarde partielle : confirmation demandée (et annulable)');
-  await a.click('#btn-tout-cocher');
-  L.verifier((await tx(a, '#sauvegarde-compte')).startsWith(nbTables + ' tables'), '« Tout cocher »');
-  await a.click('#btn-tout-decocher');
-  await a.click('#btn-sauvegarde');
-  await a.waitForFunction(() => /au moins une table/.test(document.querySelector('#sauvegarde-etat').textContent));
-  L.verifier(true, 'aucune table cochée : message en français, rien n\'est envoyé');
-  await a.click('#btn-tout-cocher');
   const dernier = sql("SELECT MAX(id) FROM journal");
   const [tel] = await Promise.all([a.waitForEvent('download'), a.click('#btn-sauvegarde')]);
   const sauv = path.join(os.tmpdir(), 'sauvegarde-e2e.sql.gz');
   await tel.saveAs(sauv);
+  L.verifier(/confidentiel/.test(await tx(a, '#sauvegarde-etat')) && /lieu sûr/.test(await tx(a, '#sauvegarde-etat')), 'après le clic : « Fichier confidentiel … gardez-le en lieu sûr » (le fichier contient les mots de passe chiffrés)');
   const dump = zlib.gunzipSync(fs.readFileSync(sauv)).toString('utf8');      // .sql.gz : le même format que la sauvegarde nocturne (tools/restaurer.sh)
   L.verifier(/^sauvegarde_beauchemin_\d{4}-\d\d-\d\d_\d{6}\.sql\.gz$/.test(tel.suggestedFilename()), 'nom du fichier : ' + tel.suggestedFilename());
   L.verifier(dump.includes('CREATE TABLE `utilisateurs`') && /INSERT INTO `utilisateurs` \([^)]*`mot_de_passe`/.test(dump) && dump.includes("'gestionnaire1'"), 'la table des utilisateurs sort bien (structure et données)');
@@ -1053,6 +1082,9 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(dump.includes("'" + XSS1 + "'") || dump.includes(XSS1.replace(/'/g, "\\'")), 'les valeurs sont écrites entre apostrophes (échappées par PDO::quote), jamais interprétées');
   L.verifier(parseInt(sql("SELECT COUNT(*) FROM journal WHERE action='sauvegarde.telechargee' AND id > " + dernier), 10) === 1, 'journal : sauvegarde.telechargee');
   L.verifier(listerSql() === sqlAvant, 'aucun fichier de sauvegarde n\'a été écrit dans le dossier du site');
+  L.verifier(/complète/.test(dump.split('\n')[0]), 'le bouton produit une sauvegarde complète (sans liste de tables dans la requête)');
+  await L.aller(a, 'backup_database');
+  L.verifier(/^Dernière sauvegarde : \d{4}-\d\d-\d\d \d\d:\d\d \(admin\)$/.test(await tx(a, '#sauvegarde-etat')), 'sauvegarde : « Dernière sauvegarde : date (admin) » après un téléchargement (' + await tx(a, '#sauvegarde-etat') + ')');
   // jeton invalide / tables inconnues (la réponse est lue en octets puis décompressée si c'est un .gz)
   const posterSauvegarde = async (corps) => {
     const x = await a.evaluate(async (corps) => {
@@ -1302,7 +1334,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
     const contient = attendu ? (await a.innerText('#table-journal tbody')).includes(attendu) : true;
     L.verifier(n > 0 && contient, 'recherche « ' + mot + ' » : trouve ce qui est affiché à l\'écran (' + n + ' ligne(s))');
   }
-  L.verifier(/Action, nom, détail ou adresse IP/.test(await a.getAttribute('#f-recherche', 'placeholder')), 'placeholder de recherche sans jargon');
+  L.verifier(await a.getAttribute('#f-recherche', 'placeholder') === 'Rechercher' && await a.locator('#table-journal ~ p, .content-wrapper .card-body > p').count() === 0, 'journal : recherche sans texte d\'aide, aucune note sous le tableau');
   L.verifier(/Objet concerné/.test(await tx(a, '#table-journal thead')) && /Objet concerné/.test(await tx(a, 'label[for=f-entite]')), 'colonne et filtre « Objet concerné »');
 
   // =====================================================================================================================
@@ -1325,7 +1357,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await attendreToast(e20, 'Aucun résultat pour');
   L.verifier(true, 'code inconnu : message clair');
   // une frappe tombée sur la page est redirigée vers le champ (lecteur de codes-barres)
-  await e20.click('#f-statut');
+  await e20.click('#f-entreprise');
   await e20.keyboard.press('Escape');
   await e20.evaluate(() => { document.activeElement.blur(); });
   await e20.keyboard.type('x');
@@ -1358,12 +1390,12 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await L.aller(e21, 'utilisateurs');
   await e21.waitForSelector('#table-utilisateurs tbody tr');
   const visibles = await e21.evaluate(() => { const c = document.querySelector('.table-responsive').getBoundingClientRect(); return [...document.querySelectorAll('#table-utilisateurs tbody button')].every(b => { const r = b.getBoundingClientRect(); return r.right <= c.right + 1 && r.left >= c.left - 1 && b.textContent.trim().length > 2; }); });
-  L.verifier(visibles, 'utilisateurs (768 px) : tous les boutons d\'action sont visibles dans la carte et portent un texte');
-  const petitsUsers = await e21.evaluate(() => [...document.querySelectorAll('[data-admin] .btn, [data-admin] .form-control, .dataTables_length select, .adm-lien-nombre')].filter(e => e.offsetParent !== null).map(e => [e.id || e.className, e.getBoundingClientRect().height]).filter(x => x[1] < 43.5));
+  L.verifier(visibles, 'utilisateurs (768 px) : les noms cliquables sont visibles dans la carte');
+  const petitsUsers = await e21.evaluate(() => [...document.querySelectorAll('[data-admin] .btn, [data-admin] .form-control, .dataTables_length select, .adm-lien-nombre, .adm-nom')].filter(e => e.offsetParent !== null).map(e => [e.id || e.className, e.getBoundingClientRect().height]).filter(x => x[1] < 43.5));
   L.verifier(petitsUsers.length === 0, 'utilisateurs (768 px) : boutons, champs et sélecteurs ≥ 44 px' + (petitsUsers.length ? ' : ' + JSON.stringify(petitsUsers) : ''));
   await L.aller(e21, 'emplacements');
   await e21.waitForSelector('#table-emplacements tbody tr');
-  const petitsEmp = await e21.evaluate(() => [...document.querySelectorAll('[data-admin] .btn, .adm-lien-nombre, #f-recherche')].filter(e => e.offsetParent !== null).map(e => [e.id || e.className, e.getBoundingClientRect().width, e.getBoundingClientRect().height]).filter(x => x[2] < 43.5 || x[1] < 43.5));
+  const petitsEmp = await e21.evaluate(() => [...document.querySelectorAll('[data-admin] .btn, .adm-lien-nombre, .adm-nom, #f-recherche')].filter(e => e.offsetParent !== null).map(e => [e.id || e.className, e.getBoundingClientRect().width, e.getBoundingClientRect().height]).filter(x => x[2] < 43.5 || x[1] < 43.5));
   L.verifier(petitsEmp.length === 0, 'emplacements (768 px) : boutons, liens du nombre de pièces et champs ≥ 44 px' + (petitsEmp.length ? ' : ' + JSON.stringify(petitsEmp) : ''));
   for (const route of ['profil', 'backup_database']) {
     await L.aller(e21, route);
@@ -1376,6 +1408,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   const petitsModal = await e21.evaluate(() => [...document.querySelectorAll('#modal-utilisateur .btn, #modal-utilisateur .form-control, #modal-utilisateur .custom-control-label')].filter(e => e.offsetParent !== null).map(e => [e.id || e.className, e.getBoundingClientRect().height]).filter(x => x[1] < 43.5));
   L.verifier(petitsModal.length === 0, 'fenêtre utilisateur (768 px) : cases à cocher et boutons ≥ 44 px' + (petitsModal.length ? ' : ' + JSON.stringify(petitsModal) : ''));
   // erreurs : toutes d'un coup, accessibles
+  await e21.fill('#u-mdp', '');
   await e21.click('#utilisateur-enregistrer');
   await e21.waitForFunction(() => !document.querySelector('[data-erreur-pour="nom_utilisateur"]').hidden);
   const visiblesErr = await e21.evaluate(() => ['nom_utilisateur', 'nom_complet', 'entreprise_ids', 'mot_de_passe'].map(c => { const e = document.querySelector('#form-utilisateur [data-erreur-pour="' + c + '"]'); return !e.hidden && e.textContent.length > 5; }));
@@ -1472,7 +1505,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await e21.waitForSelector('#modal-utilisateur', { state: 'hidden' });
   L.verifier(true, 'Échap ferme la fenêtre après le déverrouillage');
   lg = await chercher(e21, '#table-utilisateurs', 'conc1');
-  await lg.locator('button[data-action=mdp]').click(); await e21.waitForSelector('#modal-mdp.show');
+  await ficheUtilisateur(e21, lg, 'conc1');
+  await e21.click('#u-btn-mdp'); await e21.waitForSelector('#modal-mdp.show');
   await e21.waitForFunction(() => document.activeElement && document.activeElement.id === 'mdp-champ');
   await e21.click('#mdp-valider');
   await e21.waitForFunction(() => /réinitialisé/.test(document.querySelector('#modal-mdp-titre').textContent));
@@ -1484,7 +1518,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(await attendreVrai(e21, () => document.activeElement && document.activeElement.tagName === 'BUTTON' && !!document.activeElement.getAttribute('data-id')), 'fermeture de la fenêtre du mot de passe : le focus revient sur un bouton de la ligne');
   // désactiver : le bouton est remplacé ; le focus reste dans la ligne
   lg = await chercher(e21, '#table-utilisateurs', 'conc1');
-  await lg.locator('button[data-action=desactiver]').click();
+  await ficheUtilisateur(e21, lg, 'conc1');
+  await e21.click('#u-btn-desactiver');
   await e21.waitForSelector('#modal-confirmer.show');
   await e21.click('#modal-confirmer-oui');
   await attendreToast(e21, 'désactivé');
@@ -1505,7 +1540,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await e21.fill('#f-recherche', '');
   lg = await chercher(e21, '#table-utilisateurs', 'verrou1');
   await viderToasts(e21);
-  await lg.locator('button[data-action=deverrouiller]').click();
+  await ficheUtilisateur(e21, lg, 'verrou1');
+  await e21.click('#u-btn-deverrouiller');
   await e21.waitForFunction(() => /Erreur inattendue/.test((document.getElementById('toasts') || { textContent: '' }).textContent));
   L.verifier(!/contactez l'administrateur/.test(await toastTexte(e21)) && /journal d'erreurs du serveur/.test(await toastTexte(e21)), 'message d\'erreur 500 : on ne demande pas à l\'administrateur de s\'adresser à lui-même');
   await e21.unroute('**/app/action/utilisateur_deverrouiller.php');
@@ -1516,8 +1552,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await L.aller(e21, 'utilisateurs');
   L.verifier(await e21.getAttribute('#f-recherche', 'placeholder') === 'Nom ou entreprise', 'placeholder de recherche : « Nom ou entreprise » (non tronqué)');
   await L.aller(e21, 'backup_database');
-  const etiquettes = await e21.$$eval('label.custom-control-label', ls => ls.map(l => l.textContent.trim()));
-  L.verifier(!etiquettes.some(x => /_/.test(x)) && etiquettes.includes('Historique des prix des fournisseurs') && etiquettes.includes('Accès des utilisateurs aux entreprises'), 'sauvegarde : tables nommées en français, sans noms techniques (' + etiquettes.slice(0, 4).join(' / ') + '…)');
+  L.verifier(await e21.locator('.content-wrapper p').count() === 1 && await e21.locator('.content-wrapper .alert-warning, .content-wrapper small, .content-wrapper ul').count() === 0, 'sauvegarde : aucun paragraphe d\'aide, aucune liste « À savoir »');
   await L.aller(e21, 'profil');
   L.verifier(/^\d{4}-\d\d-\d\d \d\d:\d\d$/.test(await tx(e21, '#profil-connexion')), 'profil : dernière connexion sans les secondes (' + await tx(e21, '#profil-connexion') + ')');
   // un seul message de succès au changement du mot de passe
@@ -1534,9 +1569,9 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier((await toastTexte(pg)).trim() === '', 'changement de mot de passe : un seul message de succès (le bandeau), pas de notification en double');
   // boutons d'action avec texte visible aux autres pages
   await L.aller(e21, 'entreprises'); await e21.waitForSelector('#table-entreprises tbody button');
-  L.verifier((await e21.$$eval('#table-entreprises tbody button', bs => bs.map(x => x.textContent.trim()))).every(x => x.length > 3), 'entreprises : boutons avec texte visible');
-  await L.aller(e21, 'emplacements'); await e21.waitForSelector('#table-emplacements tbody a.btn');
-  L.verifier((await e21.$$eval('#table-emplacements tbody .btn', bs => bs.map(x => x.textContent.trim()))).every(x => x.length > 3) && /Étiquette/.test(await tx(e21, '#table-emplacements tbody a.btn')), 'emplacements : boutons (dont « Étiquette ») avec texte visible');
+  L.verifier((await e21.$$eval('#table-entreprises tbody button', bs => bs.map(x => x.textContent.trim()))).every(x => x.length > 2), 'entreprises : le nom de chaque ligne est un bouton avec texte visible');
+  await L.aller(e21, 'emplacements'); await e21.waitForSelector('#table-emplacements tbody button.adm-nom');
+  L.verifier((await e21.$$eval('#table-emplacements tbody button', bs => bs.map(x => x.textContent.trim()))).every(x => x.length > 2), 'emplacements : le nom de chaque ligne est un bouton avec texte visible');
 
   // titres d'onglet distincts
   const titres = [];
@@ -1561,7 +1596,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   await e21.pdf({ path: pdf, format: 'Letter', margin: { top: '12mm', bottom: '12mm', left: '12mm', right: '12mm' } });
   const txtPdf = spawnSync('pdftotext', ['-layout', pdf, '-']).stdout.toString();
   L.verifier(/Adresse/.test(txtPdf) && /\bIP\b/.test(txtPdf) && /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/.test(txtPdf), 'PDF lettre du journal : colonne « Adresse IP » complète (valeurs visibles) : ' + txtPdf.slice(0, 200).replace(/\s+/g, ' '));
-  L.verifier(/Détails/.test(txtPdf) && /Journal d'activité — imprimé le/.test(txtPdf), 'PDF lettre du journal : colonne Détails et en-tête (titre, date) présents');
+  L.verifier(/Détails/.test(txtPdf) && /Journal — imprimé le/.test(txtPdf), 'PDF lettre du journal : colonne Détails et en-tête (titre, date) présents');
   L.verifier(!/↑↓/.test(txtPdf), 'PDF lettre du journal : sans flèches de tri');
   await e21.emulateMedia({ media: 'screen' });
   fs.unlinkSync(pdf);

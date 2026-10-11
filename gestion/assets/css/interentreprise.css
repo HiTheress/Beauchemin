@@ -28,7 +28,7 @@
 .ie-carte label.ie-trajet-carte.ie-suggere { border-style: dashed; border-color: var(--accent); }
 .ie-carte label.ie-trajet-carte:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; }
 .ie-trajet-fleche { flex: 0 0 auto; color: var(--accent-ink, var(--accent)); font-size: 1.3rem; }
-.ie-trajet-nom { min-width: 0; overflow-wrap: anywhere; }
+.ie-trajet-nom { flex: 1 1 0; min-width: 0; overflow-wrap: break-word; }
 .ie-trajet.is-invalid .ie-trajet-carte { border-color: #dc3545; }
 
 /* Facture interne : champ de scan et lignes */
@@ -167,7 +167,21 @@
 
 @media (max-width: 575.98px) {
   .ie-liste-nouveau { order: -1; width: 100%; }
-  .ie-carte label.ie-trajet-carte { font-size: 1.1rem; }
+  /* Téléphone : chaque facture devient une carte (numéro et statut, parties, date et total) au lieu d'un tableau qui déborde */
+  #table-factures, #table-factures tbody { display: block; width: 100%; }
+  #table-factures thead { display: none; }
+  #table-factures tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "num statut" "parties parties" "date total"; gap: .1rem .75rem; align-items: center; padding: .6rem .25rem; border-bottom: 1px solid var(--line, #dee2e6); }
+  #table-factures tbody tr td { display: block; border: 0; padding: .1rem 0; }
+  #table-factures tbody tr td:nth-child(1) { grid-area: num; }
+  #table-factures tbody tr td:nth-child(2) { grid-area: date; color: #495057; }
+  #table-factures tbody tr td:nth-child(3) { grid-area: parties; font-weight: 600; }
+  #table-factures tbody tr td:nth-child(4) { grid-area: total; text-align: right; font-weight: 600; }
+  #table-factures tbody tr td:nth-child(5) { grid-area: statut; text-align: right; }
+  #table-factures tbody tr td.dataTables_empty { grid-area: 1 / 1 / 2 / 3; text-align: left; }
+  .ie-sens .card-body { padding: .75rem .5rem; }
+  .ie-bilan-factures th, .ie-bilan-factures td, .ie-bilan-pieces th, .ie-bilan-pieces td { padding-left: .3rem; padding-right: .3rem; }
+  .ie-carte label.ie-trajet-carte { font-size: 1rem; gap: .4rem; padding: .6rem .5rem; }
+  .ie-trajet-fleche { font-size: 1.1rem; }
 }
 
 @media print {

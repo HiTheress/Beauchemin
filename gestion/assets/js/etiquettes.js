@@ -122,9 +122,15 @@
       var inp = el('input', { type: 'text', inputmode: 'numeric', class: 'form-control et-copies-input', 'aria-label': 'Copies de ' + it.code, value: it.copies });
       var fb = el('div', { class: 'invalid-feedback', id: 'et-cop-' + (++cptLigne) }, 'Entrez un nombre de 1 à ' + MAX_COPIES + '.');
       inp.setAttribute('aria-describedby', fb.id);
-      inp.classList.toggle('is-invalid', !copiesValides(it));
+      /* le message n'est pas un frère direct du champ (il y a le groupe − / +) : on l'affiche nous-mêmes */
+      function marquerCopies() {
+        var bon = copiesValides(it);
+        inp.classList.toggle('is-invalid', !bon);
+        fb.style.display = bon ? 'none' : 'block';
+      }
+      marquerCopies();
       function copiesChangees() {
-        inp.classList.toggle('is-invalid', !copiesValides(it));
+        marquerCopies();
         majCompte(); programmerApercu();
       }
       inp.addEventListener('input', function () { it.copies = inp.value; copiesChangees(); });
