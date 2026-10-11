@@ -20,7 +20,7 @@
   display: grid;
   gap: var(--gap);
 }
-html[data-marque="bea"] .wk { --green: #5cb03f; --sky: #2db2d1; --amber: #f2a900; }
+html[data-marque="bea"] .wk { --green: #5cb03f; --sky: #2db2d1; --amber: #f2a900; }   /* vert foncé = couleur principale ; vert vif et cyan = logo */
 html[data-marque="bch"] .wk { --amber: #c9a24d; --red: #ff6a3d; }
 
 .wk, .wk *, .wk *::before, .wk *::after { box-sizing: border-box; }

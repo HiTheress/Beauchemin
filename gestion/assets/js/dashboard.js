@@ -84,7 +84,7 @@
     q('gr-types-vide').hidden = types.length > 0;
     zoneT.hidden = types.length === 0;
     if (types.length) {
-      var couleurs = ['indigo', 'green', 'amber', 'sky', 'red'];
+      var couleurs = ['indigo', 'sky', 'amber', 'green', 'red'];
       w.UI.hbars('#gr-types', { thick: true, max: maxT, rows: types.map(function (t, i) { return { label: t.libelle, value: entier(t.n), color: couleurs[i % couleurs.length] }; }) });
       // le nombre à droite de chaque barre
       Array.prototype.forEach.call(zoneT.querySelectorAll('.hbars__row'), function (ligne, i) { var b = el('b', '', String(entier(types[i].n))); ligne.appendChild(b); });
@@ -102,13 +102,13 @@
         height: 170, mode: 'grouped', style: 'solid', yTicks: 4, yAxisWidth: 46, barWidth: 16, label: 'Factures internes émises et reçues',
         yFormat: function (v) { return v >= 1000 ? (v / 1000) + ' k' : String(v); },
         xLabels: lignes.map(function (x) { return court(x.nom, 12); }),
-        series: [{ name: 'Émis', data: lignes.map(function (x) { return nombre(x.emis); }), color: 'indigo' }, { name: 'Reçu', data: lignes.map(function (x) { return nombre(x.recu); }), color: 'amber' }]
+        series: [{ name: 'Émis', data: lignes.map(function (x) { return nombre(x.emis); }), color: 'indigo' }, { name: 'Reçu', data: lignes.map(function (x) { return nombre(x.recu); }), color: 'sky' }]
       });
     }
     var v = r.valeur || [];
     var maxV = 0;
     v.forEach(function (x) { if (nombre(x.valeur) > maxV) { maxV = nombre(x.valeur); } });
-    var couleurs = ['indigo', 'amber', 'green', 'sky'];
+    var couleurs = ['indigo', 'sky', 'amber', 'green'];
     q('gr-valeur').innerHTML = v.length ? v.map(function (x, i) {
       var pct = maxV > 0 ? Math.round(100 * nombre(x.valeur) / maxV) : 0;
       return '<div class="progress__row" style="--c:var(--' + couleurs[i % couleurs.length] + ');--v:' + pct + '%"><span>' + w.esc(x.nom) + '</span><b>' + w.esc(w.fmtArgent(x.valeur)) + '</b><i class="bar"></i></div>';

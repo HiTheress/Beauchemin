@@ -117,7 +117,7 @@ $aujourdhui = date('Y-m-d');
         <?php if ($gest) { ?>
         <section class="widget" aria-labelledby="ds-t-fact">
           <h2 class="widget__title" id="ds-t-fact">Factures internes du mois</h2>
-          <div class="legend"><span class="legend__item" style="--c:var(--indigo)">Émis</span><span class="legend__item" style="--c:var(--amber)">Reçu</span></div>
+          <div class="legend"><span class="legend__item" style="--c:var(--indigo)">Émis</span><span class="legend__item" style="--c:var(--sky)">Reçu</span></div>
           <div id="gr-fact"></div>
         </section>
         <section class="widget" aria-labelledby="ds-t-val">

@@ -39,18 +39,18 @@
   --focus: var(--accent-hover);
 }
 html[data-marque="bea"] {
-  --accent: #2a4477;       /* bleu marine du logo */
-  --accent-hover: #1f3560;
-  --accent-ink: #1f3560;
-  --accent-soft: #e8edf7;
-  --accent-ring: rgba(42, 68, 119, .25);
-  --accent-2: #5cb03f;     /* vert du logo */
-  --accent-2-soft: #e8f4e3;
-  --accent-3: #2db2d1;     /* turquoise du logo */
-  --bg: #f8f9f8;
-  --side: #eef2f6;
-  --line: #dfe5ec;
-  --line-soft: #eaeef3;
+  --accent: #35802a;       /* vert du « B » du logo, assombri pour le texte blanc (contraste 4,9:1) */
+  --accent-hover: #2a6821;
+  --accent-ink: #2a6821;
+  --accent-soft: #e4f2df;
+  --accent-ring: rgba(53, 128, 42, .28);
+  --accent-2: #5cb03f;     /* vert vif du logo */
+  --accent-2-soft: #e4f6f9;
+  --accent-3: #2db2d1;     /* cyan du logo */
+  --bg: #f8faf9;
+  --side: #eef4f3;
+  --line: #dde7e6;
+  --line-soft: #e8f0ef;
 }
 html[data-marque="bch"] {
   --accent: #c8161d;       /* rouge (version assombrie du rouge du logo pour le texte blanc) */
@@ -229,7 +229,7 @@ html body.login-page { display: flex; min-height: 100vh; align-items: stretch; b
   --n-in: inset 5px 5px 11px var(--sh-dark), inset -5px -5px 11px var(--sh-light);
   --ombre: var(--n-out); --ombre-douce: var(--n-out-sm);
 }
-html[data-marque="bea"] { --bg: #e6edf5; --surface: #eff4fa; --side: #e6edf5; --sh-dark: rgba(140, 160, 190, .62); }
+html[data-marque="bea"] { --bg: #e7f0ef; --surface: #f0f7f6; --side: #e7f0ef; --line: #d3e1e0; --line-soft: #deeae9; --line-strong: #bfd2d1; --sh-dark: rgba(122, 156, 160, .6); }
 html[data-marque="bch"] { --bg: #efe8e5; --surface: #f6f1ee; --side: #efe8e5; --line: #e0d6d0; --line-soft: #e8dfda; --line-strong: #d3c6be; --sh-dark: rgba(184, 160, 150, .6); }
 
 html body, html body .content-wrapper, html body .wrapper { background: var(--bg); }
@@ -267,33 +267,38 @@ html body .content-wrapper { background: var(--bg); }
 .btn-group > .btn:last-child { border-radius: 0 999px 999px 0; }
 html body .btn-primary.active, html body .btn-outline-primary.active, html body .btn-group-toggle .btn.active { background-color: var(--accent) !important; background-image: linear-gradient(135deg, color-mix(in srgb, var(--accent) 72%, #fff), var(--accent)) !important; border: 0 !important; color: var(--on-accent) !important; box-shadow: 0 8px 18px var(--accent-ring) !important; }
 
-/* Champs : creusés */
-.form-control, .custom-select, .input-group-text { background-color: var(--bg); border: 0; border-radius: var(--radius-sm); box-shadow: var(--n-in); color: var(--ink); min-height: 2.75rem; padding: .4rem .75rem; }
-.form-control:focus, .custom-select:focus { background-color: var(--bg); box-shadow: var(--n-in), 0 0 0 3px var(--accent-ring); border: 0; }
+/* Champs : fond blanc, fine bordure, coins arrondis, halo de couleur au focus */
+.form-control, .custom-select { background-color: #fff; border: 1.5px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: none; color: var(--ink); min-height: 2.75rem; padding: .4rem .8rem; }
+.form-control:hover, .custom-select:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong)); }
+.form-control:focus, .custom-select:focus { background-color: #fff; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); outline: 0; }
+.form-control[readonly], .form-control:disabled, .custom-select:disabled { background-color: var(--surface); color: var(--muted); }
 .form-control-sm, .custom-select-sm { min-height: 2.2rem; padding: .25rem .7rem; }
 .custom-select { padding-right: 1.75rem; }
 textarea.form-control { border-radius: var(--radius-sm); }
-.input-group > .form-control:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.input-group-text { background: var(--surface); border: 1.5px solid var(--line-strong); color: var(--muted); box-shadow: none; }
+.input-group > .form-control:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0; }
 .input-group > .form-control:not(:first-child) { border-top-left-radius: 0; border-bottom-left-radius: 0; }
-.input-group-text { color: var(--muted); }
-.input-group { background: var(--bg); border-radius: var(--radius-sm); box-shadow: var(--n-in); flex-wrap: nowrap; }
-.input-group > .form-control, .input-group .input-group-text { box-shadow: none; background: transparent; }
+.input-group > .form-control:first-child { border-top-left-radius: var(--radius-sm); border-bottom-left-radius: var(--radius-sm); }
+.input-group > .input-group-append > .input-group-text, .input-group > .input-group-append > .btn { border-top-right-radius: var(--radius-sm); border-bottom-right-radius: var(--radius-sm); }
+.input-group > .input-group-prepend > .input-group-text { border-top-left-radius: var(--radius-sm); border-bottom-left-radius: var(--radius-sm); }
+.input-group:focus-within .form-control, .input-group:focus-within .input-group-text { border-color: var(--accent); }
+.input-group:focus-within { box-shadow: 0 0 0 3px var(--accent-ring); border-radius: var(--radius-sm); }
 .input-group > .form-control:focus { box-shadow: none; }
-.input-group:focus-within { box-shadow: var(--n-in), 0 0 0 3px var(--accent-ring); }
-.input-group > .input-group-append > .btn, .input-group > .input-group-prepend > .btn { box-shadow: var(--n-out-sm); margin: .3rem .35rem .3rem 0; min-height: 2.2rem; }
-.select2-container--default .select2-selection--single, .select2-container--default .select2-selection--multiple { background-color: var(--bg); border: 0; border-radius: var(--radius-sm); box-shadow: var(--n-in); min-height: 2.75rem; display: flex; align-items: center; }
-.select2-container--default .select2-selection--single .select2-selection__rendered { padding-left: .85rem; line-height: 1.5; color: var(--ink); }
+.select2-container--default .select2-selection--single, .select2-container--default .select2-selection--multiple { background-color: #fff; border: 1.5px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: none; min-height: 2.75rem; display: flex; align-items: center; }
+.select2-container--default.select2-container--focus .select2-selection--single, .select2-container--default.select2-container--open .select2-selection--single, .select2-container--default.select2-container--focus .select2-selection--multiple { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.select2-container--default .select2-selection--single .select2-selection__rendered { padding-left: .8rem; line-height: 1.5; color: var(--ink); }
 .select2-container--default .select2-selection--single .select2-selection__arrow { height: 100%; right: .4rem; }
-.select2-dropdown { background: var(--surface); border: 0; border-radius: var(--radius-sm); box-shadow: var(--n-out); overflow: hidden; }
-.select2-search--dropdown .select2-search__field { background: var(--bg); border: 0; border-radius: 12px; box-shadow: var(--n-in); }
-.custom-control-label::before { background: var(--bg); border: 0; box-shadow: var(--n-in); }
-.custom-checkbox .custom-control-label::before { border-radius: 8px; }
-.custom-control-input:checked ~ .custom-control-label::before { background: var(--accent); box-shadow: 0 4px 10px var(--accent-ring); }
+.select2-dropdown { background: #fff; border: 1.5px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: var(--n-out); overflow: hidden; }
+.select2-search--dropdown .select2-search__field { background: #fff; border: 1.5px solid var(--line-strong); border-radius: 12px; box-shadow: none; }
+.select2-search--dropdown .select2-search__field:focus { border-color: var(--accent); outline: 0; }
+.custom-control-label::before { background: #fff; border: 1.5px solid var(--line-strong); box-shadow: none; }
+.custom-checkbox .custom-control-label::before { border-radius: 7px; }
+.custom-control-input:checked ~ .custom-control-label::before { background: var(--accent); border-color: var(--accent); box-shadow: none; }
 input[type=checkbox], input[type=radio] { accent-color: var(--accent); }
 
 /* Menu : icônes en tuiles (creuses = repos, relevées et colorées = actif) */
 html body .main-sidebar, html body .main-sidebar.sidebar-dark-primary { background: var(--side); border: 0; box-shadow: 8px 0 24px -12px var(--sh-dark); }
-html body .main-sidebar .brand-link::after { display: none; }
+html body .main-sidebar .brand-link::after { left: 1.3rem; right: 1.3rem; bottom: .3rem; height: 3px; border-radius: 3px; background: linear-gradient(90deg, var(--accent-3) 0 40%, var(--accent-2) 40% 70%, var(--accent) 70% 100%); }
 html body .main-sidebar .brand-link { border-bottom: 0; padding: 1.1rem 1.1rem .9rem; }
 .brand-link .marque-logo, .brand-link .marque-duo img { box-shadow: var(--n-out-sm); border: 0; border-radius: 18px; }
 
@@ -325,10 +330,10 @@ html body .main-header.navbar { background: transparent; border: 0; box-shadow: 
 /* Zone de scan : grande carte, champ creusé */
 .scan-box { border: 2px solid transparent; border-radius: 30px; background: var(--surface); box-shadow: var(--n-out); padding: 1.3rem 1.5rem; }
 .scan-box:focus-within { box-shadow: var(--n-out), 0 0 0 4px var(--accent-ring); }
-.scan-box input.scan-input { border-radius: 20px; box-shadow: var(--n-in); }
+.scan-box input.scan-input { border-radius: 20px; box-shadow: none; }
 .scan-box.ok { box-shadow: var(--n-out), 0 0 0 4px rgba(40, 167, 69, .3); }
 .scan-box.erreur { box-shadow: var(--n-out), 0 0 0 4px rgba(220, 53, 69, .3); }
-.scan-box input.scan-input:focus, .scan-box .form-control:focus { box-shadow: var(--n-in), 0 0 0 3px var(--accent-ring); }
+.scan-box input.scan-input:focus, .scan-box .form-control:focus { box-shadow: 0 0 0 3px var(--accent-ring); }
 
 /* Tableau de bord : cartes pastel (bleu, pêche, rose, vert) comme dans le modèle */
 .ds-carte { border: 0; }
@@ -396,3 +401,10 @@ body.sidebar-collapse .main-sidebar:not(:hover) .nav-treeview { display: none !i
 html body .main-sidebar .nav-sidebar .nav-item > .nav-link { padding: .55rem .85rem !important; font-size: 1rem !important; border-radius: 16px !important; }
 html body .main-sidebar .nav-sidebar .nav-treeview > .nav-item > .nav-link { padding: .4rem .75rem !important; font-size: .93rem !important; border-radius: 12px !important; }
 body.sidebar-collapse .main-sidebar:not(:hover) .nav-sidebar .nav-item > .nav-link { padding: .6rem !important; }
+
+/* Cartes pastel du tableau de bord : teintes de l'entreprise (cyan + vert pour Beauchemin, or + rose pour Boutique Chaleur) */
+html[data-marque="bea"] .row > div:nth-child(1) > .ds-carte { background: linear-gradient(145deg, #e0f5fa, #c6eaf3); }
+html[data-marque="bea"] .row > div:nth-child(4) > .ds-carte { background: linear-gradient(145deg, #e6f5df, #d0ebc4); }
+html[data-marque="bch"] .row > div:nth-child(1) > .ds-carte { background: linear-gradient(145deg, #fbf3da, #f4e2ad); }
+html[data-marque="bch"] .row > div:nth-child(4) > .ds-carte { background: linear-gradient(145deg, #fde9e2, #f8d2c6); }
+html body .main-sidebar .sidebar > nav { margin-top: .75rem !important; }
