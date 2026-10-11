@@ -8,9 +8,10 @@ Il sert à **tester et à former l'équipe**, pas à la production (pour le serv
 Un ordinateur (Windows, Mac ou Linux) avec **Docker** :
 
 * Windows / Mac : installer [Docker Desktop](https://www.docker.com/products/docker-desktop/) (gratuit pour une petite entreprise), puis l'ouvrir une fois.
+  Sous Windows, si un message demande une distribution Linux (WSL) : ouvrir PowerShell **en administrateur**, taper `wsl --install`, puis redémarrer l'ordinateur.
 * Linux : `sudo apt install docker.io docker-compose-v2` (Ubuntu/Debian).
 
-Il faut aussi le code : `git clone <URL-du-dépôt>` puis `cd Beauchemin` (ou télécharger le dossier en ZIP depuis GitHub et l'ouvrir).
+Il faut aussi le code : décompresser le fichier ZIP fourni (par exemple dans `C:\Beauchemin`), ou `git clone <URL-du-dépôt>`.
 
 ## Démarrer
 
