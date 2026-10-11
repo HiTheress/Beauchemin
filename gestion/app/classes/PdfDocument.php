@@ -201,7 +201,7 @@ class PdfDocument extends FPDF
 		}
 		$lt = $this->GetStringWidth($t);
 		$dx = ($align === 'R') ? $w - $lt : (($align === 'C') ? ($w - $lt) / 2 : 0);
-		$this->Text($x + $dx, $y + $h / 2 + 0.3 * $this->FontSizePt * 25.4 / 72, $t);
+		$this->Text($x + $dx, $y + $h / 2 + 0.3 * $this->FontSize, $t);
 	}
 
 	// ==================================================================================================================
@@ -229,6 +229,17 @@ class PdfDocument extends FPDF
 	protected function police($style = '', $taille = 9)
 	{
 		$this->SetFont('Helvetica', $style, $taille);
+	}
+
+	/** Police réduite (jusqu'à $min points) pour que le texte UTF-8 tienne dans $largeurMax mm. */
+	protected function policeAjustee($style, $taille, $largeurMax, $utf8, $min = 7)
+	{
+		for ($t = $taille; $t >= $min; $t -= 0.5) {
+			$this->police($style, $t);
+			if ($this->largeurTexte($utf8) <= $largeurMax) {
+				return;
+			}
+		}
 	}
 
 	protected function _arc($x1, $y1, $x2, $y2, $x3, $y3)
@@ -412,12 +423,12 @@ class PdfDocument extends FPDF
 		$haut = 11;
 		// Logos à gauche : émetteur, flèche, destinataire
 		if ($e['marque_dest']) {
-			$bw = 43;
-			$w1 = $this->logo($e['marque'], self::MARGE, $haut, $bw, 18);
+			$bw = 44;
+			$this->logo($e['marque'], self::MARGE, $haut, $bw, 18);
 			$xf = self::MARGE + $bw + 2;
-			$this->fleche($xf, $xf + 11, $haut + 9, $e['marque']['fort'], $e['symbole'] === 'double');
-			$this->logo($e['marque_dest'], $xf + 13, $haut, $bw, 18);
-			$gauche = self::MARGE + $bw * 2 + 28;
+			$this->fleche($xf, $xf + 10, $haut + 9, $e['marque']['fort'], $e['symbole'] === 'double');
+			$this->logo($e['marque_dest'], $xf + 12, $haut, $bw, 18);
+			$gauche = $xf + 12 + $bw + 4;
 		} else {
 			$this->logo($e['marque'], self::MARGE, $haut, 66, 19);
 			$gauche = self::MARGE + 72;
@@ -425,23 +436,18 @@ class PdfDocument extends FPDF
 		// Titre, numéro, date, statut à droite
 		$largeurTitre = $droite - $gauche;
 		$this->texteCouleur($e['marque']['fort']);
-		for ($taille = 20; $taille >= 11; $taille -= 0.5) {
-			$this->police('B', $taille);
-			if ($this->largeurTexte($e['titre']) <= $largeurTitre) {
-				break;
-			}
-		}
+		$this->policeAjustee('B', 20, $largeurTitre, $e['titre'], 11);
 		$this->ecrire($gauche, $haut - 1, $largeurTitre, 8.5, $e['titre'], 'R');
 		$y = $haut + 8.5;
 		if ($e['sous_titre'] !== '') {
 			$this->texteCouleur(array(31, 30, 29));
-			$this->police('B', 11);
+			$this->policeAjustee('B', 11, $largeurTitre, $e['sous_titre'], 7);
 			$this->ecrire($gauche, $y, $largeurTitre, 5.5, $e['sous_titre'], 'R');
 			$y += 5.8;
 		}
 		if ($e['ligne3'] !== '') {
 			$this->texteCouleur(self::GRIS);
-			$this->police('', 9.5);
+			$this->policeAjustee('', 9.5, $largeurTitre, $e['ligne3'], 6.5);
 			$this->ecrire($gauche, $y, $largeurTitre, 4.8, $e['ligne3'], 'R');
 			$y += 5.2;
 		}
@@ -702,6 +708,101 @@ class PdfDocument extends FPDF
 		$this->SetY($y + 8, false);
 	}
 
+	/** Ligne de texte gris, petit (légende, « Aucune facture. »). */
+	public function legende($utf8)
+	{
+		$this->reserver(7);
+		$y = $this->GetY();
+		$this->texteCouleur(self::GRIS);
+		$this->police('', 8.5);
+		$this->ecrire(self::MARGE, $y, self::LARGEUR, 5, $utf8);
+		$this->SetY($y + 6, false);
+	}
+
+	/**
+	 * Solde du bilan : phrase à gauche, montant en grand à droite (sans montant : « Aucun solde » et une ligne dessous).
+	 */
+	public function soldeBloc($texte, $montant, $sous)
+	{
+		$m = $this->entete['marque'];
+		$wMontant = 0;
+		if ($montant !== '') {
+			$this->police('B', 22);
+			$wMontant = $this->largeurTexte($montant) + 6;
+		}
+		$wTexte = self::LARGEUR - 16 - $wMontant;
+		$this->police('B', 14);
+		$lignes = $this->lignesDe($texte, $wTexte);
+		$h = 11 + count($lignes) * 6.4 + ($sous !== '' ? 6 : 0);
+		$this->reserver($h + 4);
+		$y = $this->GetY() + 1;
+		$this->remplirCouleur(array(247, 249, 248));
+		$this->traitCouleur($m['fort']);
+		$this->SetLineWidth(0.5);
+		$this->rectArrondi(self::MARGE, $y, self::LARGEUR, $h, 2.5, 'FD');
+		$this->SetLineWidth(0.2);
+		$this->remplirCouleur($m['c1']);
+		$this->Rect(self::MARGE + 0.8, $y + 3, 2.2, $h - 6, 'F');
+		$this->texteCouleur(self::GRIS);
+		$this->police('B', 7.8);
+		$this->ecrire(self::MARGE + 8, $y + 2.6, 60, 3.6, 'SOLDE DU MOIS');
+		$this->texteCouleur($m['fort']);
+		$this->police('B', 14);
+		$yy = $y + 7.4;
+		foreach ($lignes as $l) {
+			$this->Text(self::MARGE + 8, $yy + 4.6, $l);
+			$yy += 6.4;
+		}
+		if ($sous !== '') {
+			$this->texteCouleur(self::GRIS);
+			$this->police('', 9.5);
+			$this->ecrire(self::MARGE + 8, $yy + 0.6, $wTexte, 5, $sous);
+		}
+		if ($montant !== '') {
+			$this->texteCouleur($m['fort']);
+			$this->police('B', 22);
+			$this->ecrire(self::MARGE + self::LARGEUR - 8 - $wMontant + 6, $y, $wMontant - 6, $h, $montant, 'R');
+		}
+		$this->SetY($y + $h + 5, false);
+	}
+
+	/** Titre d'un sens du bilan : « Beauchemin → Boutique Chaleur » (flèche tracée) et le total du sens à droite. */
+	public function titreSens($de, $vers, $total)
+	{
+		$m = $this->entete['marque'];
+		$this->espace(1);
+		$this->reserver(24);
+		$y = $this->GetY();
+		$h = 9.5;
+		$this->remplirCouleur(array(240, 244, 242));
+		$this->Rect(self::MARGE, $y, self::LARGEUR, $h, 'F');
+		$this->remplirCouleur($m['c1']);
+		$this->Rect(self::MARGE, $y, 1.4, $h, 'F');
+		$this->police('B', 10.5);
+		$wTotal = $this->largeurTexte('Total : ' . $total);
+		$libre = self::LARGEUR - 12 - $wTotal - 16;
+		$taille = 11.5;
+		for (; $taille >= 7; $taille -= 0.5) {
+			$this->police('B', $taille);
+			if ($this->largeurTexte($de) + $this->largeurTexte($vers) <= $libre) {
+				break;
+			}
+		}
+		$x = self::MARGE + 5;
+		$this->texteCouleur($m['fort']);
+		$this->police('B', $taille);
+		$wd = $this->largeurTexte($de);
+		$this->ecrire($x, $y, $wd, $h, $de);
+		$this->fleche($x + $wd + 3, $x + $wd + 12, $y + $h / 2, $m['fort']);
+		$this->police('B', $taille);
+		$this->texteCouleur($m['fort']);
+		$this->ecrire($x + $wd + 15, $y, $this->largeurTexte($vers) + 1, $h, $vers);
+		$this->police('B', 10.5);
+		$this->texteCouleur(array(31, 30, 29));
+		$this->ecrire(self::MARGE + self::LARGEUR - 5 - $wTotal, $y, $wTotal, $h, 'Total : ' . $total, 'R');
+		$this->SetY($y + $h + 3, false);
+	}
+
 	/**
 	 * Tableau. $cols : array(array('titre'=>, 'w'=>mm (0 = le reste), 'align'=>'L'|'R'|'C', 'style'=>''|'B')).
 	 * $lignes : array de cellules (UTF-8), ou array('cells'=>[…], 'sous'=>texte gris sous la ligne). L'en-tête des colonnes se répète à chaque page ;
@@ -828,6 +929,20 @@ class PdfDocument extends FPDF
 		$n = preg_replace('/[^A-Za-z0-9._-]+/', '_', (string) $base);
 		$n = trim($n, '._');
 		return ($n === '' ? 'document' : substr($n, 0, 80)) . '.pdf';
+	}
+
+	/** Refus d'un téléchargement : texte brut court (jamais de détail sur ce qui existe), code HTTP, fin du script. */
+	public static function refuser($status, $message)
+	{
+		while (ob_get_level() > 0) {
+			ob_end_clean();
+		}
+		http_response_code((int) $status);
+		header('Content-Type: text/plain; charset=utf-8');
+		header('Cache-Control: private, no-store');
+		header('X-Content-Type-Options: nosniff');
+		echo $message;
+		exit;
 	}
 
 	/**
