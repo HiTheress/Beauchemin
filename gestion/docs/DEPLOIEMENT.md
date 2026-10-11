@@ -69,7 +69,7 @@ Il n'existe **aucun compte par défaut**. Connectez-vous ensuite, puis créez le
   (aucune erreur PHP affichée aux utilisateurs, cookies de session sécurisés, déconnexion après 8 h d'inactivité, fuseau horaire du Québec).
 * **HTTPS est obligatoire** : sans lui, les mots de passe circulent en clair et la lecture par **caméra** (téléphone/tablette) est refusée par les navigateurs.
 
-Vérification : `https://inventaire.exemple.com/login.php` s'affiche ; `…/pages/dashboard.php`, `…/app/config/config.php` et `…/database/schema.sql` répondent **404**.
+Vérification : `https://inventaire.exemple.com/login.php` s'affiche ; `…/pages/dashboard.php`, `…/app/config/config.php`, `…/app/lib/fpdf/fpdf.php` et `…/database/schema.sql` répondent **404**.
 
 ## 7. Sauvegardes (indispensable)
 

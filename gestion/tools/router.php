@@ -3,7 +3,7 @@
 // Reproduit les mêmes interdictions que .htaccess / nginx en production : on ne doit pouvoir appeler directement
 // ni les gabarits (pages/, inc/), ni les classes, ni la configuration, ni les outils, tests et schémas.
 $chemin = rawurldecode((string) parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
-$interdit = '#(^|/)(pages|inc|tests|tools|docs|database|deploy)(/|$)|(^|/)app/(classes|config|database)(/|$)|(^|/)app/(functions|init)\.php$|(^|/)\.[^/]#';
+$interdit = '#(^|/)(pages|inc|tests|tools|docs|database|deploy)(/|$)|(^|/)app/(classes|config|database|lib)(/|$)|(^|/)app/(functions|init)\.php$|(^|/)\.[^/]#';
 if (preg_match($interdit, $chemin) || strpos($chemin, "\0") !== false) {
 	http_response_code(404);
 	header('Content-Type: text/plain; charset=utf-8');

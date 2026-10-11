@@ -77,12 +77,21 @@
 .doc-barre .btn { min-height: 44px; margin: 0; }
 
 /* ---------- Bilan : solde ---------- */
-.doc-solde { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1.5rem; margin-bottom: 1.25rem; padding: 1rem 1.4rem; background: var(--doc-teinte); border: 2px solid var(--doc-fort); border-left-width: 10px; border-radius: 18px; }
+.doc-solde { margin-bottom: 1.25rem; padding: 1rem 1.4rem; background: var(--doc-teinte); border: 2px solid var(--doc-fort); border-left-width: 10px; border-radius: 18px; }
 .doc-solde-texte { font-size: 1.5rem; font-weight: 800; line-height: 1.25; color: var(--doc-fort); overflow-wrap: anywhere; }
-.doc-solde-montant { font-size: 2.1rem; font-weight: 800; white-space: nowrap; color: var(--doc-fort); }
-.doc-solde-sous { width: 100%; color: var(--muted, #66655f); }
+.doc-solde-montant { font-size: 1.15em; font-weight: 900; white-space: nowrap; color: var(--doc-fort); }
+.doc-solde-sous { margin-top: .25rem; color: var(--muted, #66655f); }
 .doc-solde-nul { border-color: #6c757d; background: transparent; }
 .doc-solde-nul .doc-solde-texte { color: var(--ink, #1f1e1d); }
+
+/* ---------- Bilan : un sens (A vers B) ---------- */
+.doc-sens { margin: 0 0 1.6rem; }
+.doc-sens-entete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem 1rem; margin-bottom: .85rem; padding: .6rem 1rem; background: var(--doc-teinte); border-left: 5px solid var(--doc-c1); border-radius: 12px; }
+.doc-sens-titre { margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--doc-fort); overflow-wrap: anywhere; }
+.ie-total-sens { font-size: 1.1rem; }
+.doc-table tfoot th.doc-total-texte { padding-right: 1rem; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted, #66655f); }
+.ie-bilan-pieces tfoot th.doc-total-montant { border: 2px solid var(--doc-fort); border-radius: 14px; }
+.ie-sous-section { margin: 1rem 0 .5rem; font-size: .95rem; font-weight: 700; color: var(--doc-fort); }
 
 @media (max-width: 767.98px) {
   .doc > .card-body { padding: 1.25rem 1rem 1rem; }
@@ -90,7 +99,6 @@
   .doc-filigrane { font-size: 3.5rem; }
   .doc-titre, .doc-nom-marque { font-size: 1.5rem; }
   .doc-solde-texte { font-size: 1.25rem; }
-  .doc-solde-montant { font-size: 1.7rem; }
 }
 @media (max-width: 575.98px) {
   .doc-entete { flex-direction: column; align-items: flex-start; }
@@ -110,6 +118,8 @@
 }
 @media print {
   .doc, .doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .content-wrapper[data-doc] .content, .content-wrapper[data-doc] .container-fluid { padding: 0 !important; margin: 0 !important; max-width: none; }
+  .content-wrapper[data-doc] { margin-top: 0 !important; }       /* AdminLTE réserve la hauteur de la barre du haut, masquée à l'impression */
   .content-wrapper[data-doc] .content-header, .content-wrapper[data-doc] .breadcrumb, .content-wrapper[data-doc] .no-print { display: none !important; }
   .doc { max-width: none; margin: 0; overflow: visible; background: #fff !important; border: 0 !important; border-radius: 0; box-shadow: none !important; }
   .doc > .card-body { padding: 0 !important; }
@@ -120,6 +130,7 @@
   .doc-filigrane { position: fixed; z-index: 0; font-size: 90pt; color: rgba(220, 53, 69, .15) !important; border-color: rgba(220, 53, 69, .15) !important; }
   .doc-bandeau-annule { background: #fdecea !important; border: 1px solid #f5c2c7; color: #58151c; }
   .doc .table { font-size: 9.5pt; }
+  .doc .doc-table { border-collapse: separate !important; }          /* Bootstrap impose « collapse » à l'impression : les coins arrondis du total disparaîtraient */
   .doc-table-wrap { overflow: visible !important; }
   .doc-table th, .doc-table td { padding: 1.6mm 2mm !important; white-space: normal; }
   .doc-table td.nombre, .doc-table th.nombre, .doc-table td.code { white-space: nowrap; }
@@ -139,5 +150,4 @@
   .doc-signatures { margin-top: 12mm; }
   .doc-pied-logiciel { display: none; }
   .doc-solde { border-radius: 4mm; }
-  .doc-solde-montant { font-size: 20pt; }
 }

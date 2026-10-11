@@ -4,7 +4,7 @@ DirectoryIndex index.php
 
 # Seuls index.php, login.php, app/action/*.php et app/ajax/*.php sont des points d'entrée.
 RedirectMatch 404 (^|/)(pages|inc|tests|tools|docs|database|deploy)(/|$)
-RedirectMatch 404 (^|/)app/(classes|config|database)(/|$)
+RedirectMatch 404 (^|/)app/(classes|config|database|lib)(/|$)
 RedirectMatch 404 (^|/)app/(functions|init)\.php$
 RedirectMatch 404 (^|/)\.[^/]
 

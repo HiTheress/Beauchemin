@@ -79,15 +79,8 @@
 .dataTables_wrapper .page-link { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
 .dataTables_wrapper .dataTables_length select { min-height: 44px; }
 
-/* Détail d'un document */
-.mv-entete dt { font-weight: 600; color: #495057; }
-.mv-entete dd { margin-bottom: .4rem; }
-.mv-note { white-space: pre-wrap; }
-.mv-bandeau-annule { background: #fdecea; border: 1px solid #f5c2c7; color: #58151c; font-size: 1.05rem; }
-.mv-badge-annule { font-size: 1rem; letter-spacing: .08em; padding: .35rem .6rem; }
-.mv-document.mv-annule { border-top: 3px solid #dc3545; }
+/* Détail d'un document : l'en-tête, le tableau et le total sont dans documents.css ; ici les mouvements créés */
 .mv-mouv-annulation td { background: #fff5f5; }
-.mv-total-ligne th { font-size: 1.05rem; }
 
 @media (max-width: 767.98px) {
   .mv-actions .btn-lg { width: 100%; }
@@ -119,10 +112,7 @@
 
 @media print {
   .mv-barre, .modal, .mv-filtres { display: none !important; }
-  .mv-impression-entete { font-size: 10pt; color: #555; margin-bottom: .5rem; }
   .mv-carte { break-inside: avoid; }
-  .mv-bandeau-annule { border: 2px solid #000; background: var(--surface); color: #000; }
-  .badge { border: 1px solid #000; color: #000 !important; background: var(--surface) !important; }
   .table { font-size: 10.5pt; }
 }
 
@@ -141,7 +131,7 @@ html { scroll-padding-bottom: 6rem; }
 
 /* Impression : tout tient dans la largeur de la page (pas de défilement dans les tableaux) */
 @media print {
-  .mv-document, .mv-carte, .content-wrapper .container-fluid { width: 100% !important; max-width: 100% !important; }
+  .mv-carte, .content-wrapper .container-fluid { width: 100% !important; max-width: 100% !important; }
   .table-responsive { overflow: visible !important; }
   .mv-table { width: 100% !important; }
   .mv-table th, .mv-table td { white-space: normal !important; padding: .25rem .4rem; }
