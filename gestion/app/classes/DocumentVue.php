@@ -111,8 +111,8 @@ final class DocumentVue
 		$infos = array(array('libelle' => 'Entreprise', 'valeur' => (string) $d['entreprise'], 'discret' => false));
 		if ($entre) {
 			$parties = array(
-				array('etiquette' => 'Émetteur', 'nom' => (string) $d['entreprise'], 'emplacement_libelle' => 'Emplacement source', 'emplacement' => $nomSrc, 'masque' => $masque),
-				array('etiquette' => 'Destinataire', 'nom' => (string) $d['entreprise_dest'], 'emplacement_libelle' => 'Emplacement de destination', 'emplacement' => $nomDest, 'masque' => $masque),
+				array('etiquette' => 'Émetteur', 'slug' => $marque['slug'], 'nom' => (string) $d['entreprise'], 'emplacement_libelle' => 'Emplacement source', 'emplacement' => $nomSrc, 'masque' => $masque),
+				array('etiquette' => 'Destinataire', 'slug' => $marqueDest['slug'], 'nom' => (string) $d['entreprise_dest'], 'emplacement_libelle' => 'Emplacement de destination', 'emplacement' => $nomDest, 'masque' => $masque),
 			);
 			$infos = array();
 		} elseif ($type === 'transfert') {
@@ -316,7 +316,7 @@ final class DocumentVue
 			echo '<div class="doc-parties ie-parties">';
 			foreach ($m['parties'] as $i => $p) {
 				$id = ($i === 0) ? 'ie-emetteur' : 'ie-destinataire';
-				echo '<section class="doc-partie ie-partie" aria-labelledby="' . $id . '"><h3 id="' . $id . '">' . e($p['etiquette']) . '</h3><p class="doc-partie-nom ie-partie-nom">' . e($p['nom']) . '</p>'
+				echo '<section class="doc-partie doc-' . e($p['slug']) . ' ie-partie" aria-labelledby="' . $id . '"><h3 id="' . $id . '">' . e($p['etiquette']) . '</h3><p class="doc-partie-nom ie-partie-nom">' . e($p['nom']) . '</p>'
 					. '<p class="mb-0">' . e($p['emplacement_libelle']) . ' : ' . ($p['emplacement'] === null ? '<span class="text-muted">' . e($p['masque']) . '</span>' : '<strong>' . e($p['emplacement']) . '</strong>') . '</p></section>';
 			}
 			echo '</div>';
@@ -345,7 +345,7 @@ final class DocumentVue
 		}
 		echo '</tbody>';
 		if ($m['couts']) {
-			echo '<tfoot><tr class="doc-ligne-total"><th colspan="' . ($cols - 1) . '" class="text-right">Total</th><th class="nombre" id="' . ($facture ? 'total-facture' : 'total-document') . '">' . e($m['total']) . '</th></tr></tfoot>';
+			echo '<tfoot><tr class="doc-ligne-total"><th colspan="' . ($cols - 2) . '"></th><th class="doc-total-label">Total</th><th class="nombre doc-total-montant" id="' . ($facture ? 'total-facture' : 'total-document') . '">' . e($m['total']) . '</th></tr></tfoot>';
 		}
 		echo '</table></div>';
 

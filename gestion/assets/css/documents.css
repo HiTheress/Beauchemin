@@ -1,0 +1,143 @@
+/* Documents (facture interne, réception, déplacement, utilisation, correction du stock, bilan du mois) :
+   en-tête avec logos, filet de couleur de l'entreprise émettrice, tableau soigné, total encadré, impression A4.
+   Les couleurs de l'entreprise (.doc-bea, .doc-bch, .doc-neutre) viennent du CODE de l'entreprise émettrice ; le reste suit le thème (theme.css). */
+
+.doc-bea { --doc-fort: #044c92; --doc-c1: #4aa84a; --doc-c2: #2db2d1; --doc-teinte: rgba(74, 168, 74, .09); }
+.doc-bch { --doc-fort: #9b1118; --doc-c1: #d0021b; --doc-c2: #c9a24d; --doc-teinte: rgba(208, 2, 27, .06); }
+.doc-neutre { --doc-fort: var(--ink, #1f1e1d); --doc-c1: var(--accent, #b5532f); --doc-c2: var(--line-strong, #d2cebf); --doc-teinte: var(--accent-soft, #f7e8df); }
+
+/* ---------- Feuille ---------- */
+.doc { position: relative; overflow: hidden; max-width: 920px; margin: 0 auto 1.25rem; background: #fff; color: var(--ink, #1f1e1d); }
+.doc > .card-body { position: relative; z-index: 1; padding: 2rem 2.25rem 1.5rem; }
+.doc-annule { box-shadow: var(--ombre, none), inset 0 4px 0 #dc3545; }
+
+/* ---------- En-tête : logos à gauche, titre et informations à droite ---------- */
+.doc-entete { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem 2rem; }
+.doc-logos { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+.doc-logo { display: block; width: auto; height: auto; max-width: 230px; max-height: 64px; border-radius: 6px; }
+.doc-logos-duo .doc-logo { max-width: 170px; max-height: 58px; }
+.doc-nom-marque { font-size: 1.9rem; font-weight: 800; line-height: 1.1; color: var(--doc-fort); overflow-wrap: anywhere; }
+.doc-fleche { flex: 0 0 auto; font-size: 1.6rem; color: var(--doc-fort); }
+.doc-titre-bloc { margin-left: auto; text-align: right; }
+.doc-titre { margin: 0 0 .35rem; font-size: 1.9rem; font-weight: 800; letter-spacing: .06em; line-height: 1.1; color: var(--doc-fort); }
+.doc-meta { display: grid; grid-template-columns: auto auto; justify-content: end; gap: .15rem .9rem; margin: 0; }
+.doc-meta dt { font-weight: 600; text-align: right; color: var(--muted, #66655f); }
+.doc-meta dd { margin: 0; text-align: left; }
+.doc .badge-success { background: #1e7e34; color: #fff; }
+.doc .badge-danger { background: #bd2130; color: #fff; }
+.doc-filet { height: 6px; margin: 1rem 0 1.4rem; border-radius: 3px; background: linear-gradient(90deg, var(--doc-c1) 0 62%, var(--doc-c2) 62% 100%); }
+
+/* ---------- Annulation ---------- */
+.doc-bandeau-annule { margin-bottom: 1.1rem; background: #fdecea; border: 1px solid #f5c2c7; color: #58151c; font-size: 1.05rem; box-shadow: none; }
+.doc-badge-annule { font-size: 1rem; letter-spacing: .08em; padding: .35rem .6rem; }
+.doc-filigrane { position: absolute; top: 50%; left: 50%; z-index: 0; transform: translate(-50%, -50%) rotate(-20deg); padding: 0 1.5rem; font-size: 6.5rem; font-weight: 900; letter-spacing: .1em; white-space: nowrap; color: rgba(220, 53, 69, .16); border: .45rem solid rgba(220, 53, 69, .16); pointer-events: none; user-select: none; }
+
+/* ---------- Émetteur et destinataire ---------- */
+.doc-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; }
+.doc-partie { padding: .8rem 1.1rem; background: #fafaf8; border: 1px solid var(--line, #dee2e6); border-left: 5px solid var(--doc-c1); border-radius: 16px; min-width: 0; }
+.doc-partie h3 { margin: 0 0 .2rem; font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted, #66655f); }
+.doc-partie-nom { margin: 0 0 .25rem; font-size: 1.3rem; font-weight: 800; color: var(--doc-fort); overflow-wrap: anywhere; }
+.doc-partie p { overflow-wrap: anywhere; }
+
+/* ---------- Informations (emplacement, fournisseur, référence, motif) ---------- */
+.doc-infos { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .75rem 1.5rem; margin: 0 0 1.25rem; }
+.doc-info { min-width: 0; }
+.doc-info dt { margin: 0; font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted, #66655f); }
+.doc-info dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+
+/* ---------- Tableau des pièces ---------- */
+.doc-table-wrap { margin: 0 0 .5rem; }
+.doc-table { width: 100%; margin: 0; border-collapse: separate; border-spacing: 0; }
+.doc-table th, .doc-table td { vertical-align: middle; border-top: 0; }
+.doc-table thead th { padding: .55rem .75rem; background: var(--doc-fort); color: #fff; border: 0; font-size: .82rem; letter-spacing: .03em; white-space: nowrap; }
+.doc-table thead th:first-child { border-radius: 12px 0 0 12px; }
+.doc-table thead th:last-child { border-radius: 0 12px 12px 0; }
+.doc-table tbody td { padding: .5rem .75rem; border-bottom: 1px solid var(--line-soft, #e5e7e5); overflow-wrap: anywhere; }
+.doc-table tbody tr:nth-child(even) td { background: rgba(0, 0, 0, .028); }
+.doc-table td.code { font-family: var(--sans, inherit); font-weight: 700; white-space: nowrap; }
+.doc-table td.code a { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink, #1f1e1d); text-decoration: none; }
+.doc-table td.code a:hover { text-decoration: underline; }
+.doc-table .nombre { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.doc-table tbody td:last-child.nombre { font-weight: 700; }
+.doc-table tfoot th { padding: .7rem .85rem; border: 0; background: transparent; }
+.doc-table tfoot .doc-total-label { border: 2px solid var(--doc-fort); border-right: 0; border-radius: 14px 0 0 14px; background: var(--doc-teinte); font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted, #66655f); }
+.doc-table tfoot .doc-total-montant { border: 2px solid var(--doc-fort); border-left: 0; border-radius: 0 14px 14px 0; background: var(--doc-teinte); font-size: 1.35rem; font-weight: 800; color: var(--doc-fort); }
+.doc-table tfoot tr { margin-top: .5rem; }
+
+/* ---------- Note, signatures, pied ---------- */
+.doc-note { margin-top: 1.1rem; padding: .8rem 1.1rem; background: #fafaf8; border: 1px solid var(--line, #dee2e6); border-radius: 16px; }
+.doc-note-texte { white-space: pre-wrap; overflow-wrap: anywhere; }
+.doc-signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; margin-top: 2.75rem; }
+.doc-trait { height: 2.4rem; margin-bottom: .3rem; border-bottom: 1px solid #343a40; }
+.doc-signature { color: #343a40; font-size: .92rem; overflow-wrap: anywhere; }
+.doc-pied { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem 1.5rem; margin: 1.5rem 0 0; padding-top: .6rem; border-top: 1px solid var(--line, #dee2e6); font-size: .82rem; color: var(--muted, #66655f); }
+
+/* ---------- Barre d'actions (écran seulement) ---------- */
+.doc-barre { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.doc-barre .btn { min-height: 44px; margin: 0; }
+
+/* ---------- Bilan : solde ---------- */
+.doc-solde { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1.5rem; margin-bottom: 1.25rem; padding: 1rem 1.4rem; background: var(--doc-teinte); border: 2px solid var(--doc-fort); border-left-width: 10px; border-radius: 18px; }
+.doc-solde-texte { font-size: 1.5rem; font-weight: 800; line-height: 1.25; color: var(--doc-fort); overflow-wrap: anywhere; }
+.doc-solde-montant { font-size: 2.1rem; font-weight: 800; white-space: nowrap; color: var(--doc-fort); }
+.doc-solde-sous { width: 100%; color: var(--muted, #66655f); }
+.doc-solde-nul { border-color: #6c757d; background: transparent; }
+.doc-solde-nul .doc-solde-texte { color: var(--ink, #1f1e1d); }
+
+@media (max-width: 767.98px) {
+  .doc > .card-body { padding: 1.25rem 1rem 1rem; }
+  .doc-parties, .doc-signatures { grid-template-columns: 1fr; }
+  .doc-filigrane { font-size: 3.5rem; }
+  .doc-titre, .doc-nom-marque { font-size: 1.5rem; }
+  .doc-solde-texte { font-size: 1.25rem; }
+  .doc-solde-montant { font-size: 1.7rem; }
+}
+@media (max-width: 575.98px) {
+  .doc-entete { flex-direction: column; align-items: flex-start; }
+  .doc-titre-bloc { margin-left: 0; text-align: left; }
+  .doc-meta { justify-content: start; }
+  .doc-meta dt { text-align: left; }
+  .doc-table thead th, .doc-table tbody td { padding-left: .4rem; padding-right: .4rem; }
+  .doc-table tfoot th { padding-left: .4rem; padding-right: .4rem; }
+}
+
+/* ---------- Impression : A4, l'en-tête et ses filets de couleur s'impriment ---------- */
+@page {
+  size: A4 portrait;
+  margin: 13mm 12mm 17mm;
+  @bottom-left { content: "Logiciel de gestion d'inventaire — Beauchemin / Boutique Chaleur"; font: 8pt Figtree, Helvetica, Arial, sans-serif; color: #66655f; }
+  @bottom-right { font: 8pt Figtree, Helvetica, Arial, sans-serif; color: #66655f; }
+}
+@media print {
+  .doc, .doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .content-wrapper[data-doc] .content-header, .content-wrapper[data-doc] .breadcrumb, .content-wrapper[data-doc] .no-print { display: none !important; }
+  .doc { max-width: none; margin: 0; overflow: visible; background: #fff !important; border: 0 !important; border-radius: 0; box-shadow: none !important; }
+  .doc > .card-body { padding: 0 !important; }
+  .doc-logo { max-height: 18mm; max-width: 62mm; }
+  .doc-logos-duo .doc-logo { max-width: 46mm; max-height: 17mm; }
+  .doc-titre { font-size: 20pt; }
+  .doc-filet { margin: 4mm 0 5mm; height: 1.6mm; border-radius: 0; }
+  .doc-filigrane { position: fixed; z-index: 0; font-size: 90pt; color: rgba(220, 53, 69, .15) !important; border-color: rgba(220, 53, 69, .15) !important; }
+  .doc-bandeau-annule { background: #fdecea !important; border: 1px solid #f5c2c7; color: #58151c; }
+  .doc .table { font-size: 9.5pt; }
+  .doc-table-wrap { overflow: visible !important; }
+  .doc-table th, .doc-table td { padding: 1.6mm 2mm !important; white-space: normal; }
+  .doc-table td.nombre, .doc-table th.nombre, .doc-table td.code { white-space: nowrap; }
+  .doc-table td.code a { min-height: 0; }
+  .doc-table thead { display: table-header-group; }
+  /* Chromium répète le <tfoot> au bas de CHAQUE page : le « Total » n'apparaît qu'une fois, à la fin. */
+  .doc-table tfoot { display: table-row-group; }
+  .doc-table tr, .doc-parties, .doc-partie, .doc-note, .doc-signatures, .doc-solde, .doc-info { break-inside: avoid; }
+  /* Bootstrap peint les cellules en blanc à l'impression : le filigrane (derrière le contenu) serait masqué */
+  .doc .table td, .doc .table th, .doc .table tfoot th { background-color: transparent !important; }
+  .doc .doc-table thead th { background-color: var(--doc-fort) !important; color: #fff !important; }
+  .doc .doc-table tbody tr:nth-child(even) td { background-color: rgba(0, 0, 0, .035) !important; }
+  .doc .doc-table tfoot th.doc-total-label, .doc .doc-table tfoot th.doc-total-montant { background-color: var(--doc-teinte) !important; }
+  .doc .badge { border: 0 !important; box-shadow: none !important; }
+  .doc .badge-success { background: #1e7e34 !important; color: #fff !important; }
+  .doc .badge-danger { background: #bd2130 !important; color: #fff !important; }
+  .doc-signatures { margin-top: 12mm; }
+  .doc-pied-logiciel { display: none; }
+  .doc-solde { border-radius: 4mm; }
+  .doc-solde-montant { font-size: 20pt; }
+}
