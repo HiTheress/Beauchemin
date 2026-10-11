@@ -53,7 +53,7 @@
       series: [{ name: 'Mouvements', data: jours.map(function (j) { return entier(j.n); }), color: 'indigo' }]
     });
     q('gr-graph').setAttribute('aria-label', 'Mouvements par jour : ' + jours.map(function (j) { return j.lettre + ' ' + entier(j.n); }).join(', '));
-    q('gr-total').textContent = w.fmtQte(a.total);
+    q('gr-total').textContent = w.fmtQte(a.nombre);
 
     var lect = q('gr-lectures');
     lect.textContent = '';

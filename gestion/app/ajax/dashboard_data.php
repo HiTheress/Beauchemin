@@ -1,7 +1,7 @@
 <?php
 // Données du tableau de bord (employé+), pour l'entreprise affichée par la page : GET entreprise_id = un numéro, ou 0 pour « toutes mes
 // entreprises » (403 si non permise) ; absent : l'entreprise choisie dans la barre du haut (sinon toutes celles de l'utilisateur). Réponse : {ok:true, portee:{ids, noms, libelle}, montants:bool, aujourdhui:'AAAA-MM-JJ', role,
-//   activite:{du, au, jours:[{date, lettre, n}], total, moyenne, par_type:[{type, libelle, n}]}  (nombre de lignes de mouvement, jamais de montant),
+//   activite:{du, au, jours:[{date, lettre, n}], nombre, moyenne, par_type:[{type, libelle, n}]}  (nombre de lignes de mouvement, jamais de montant),
 //   cartes:{pieces_actives, pieces_en_stock, sous_minimum, mouvements_jour, documents_jour},
 //   derniers_documents:[{id, numero, type, type_libelle, statut, date, entreprise, entreprise_dest, emplacement, emplacement_dest, utilisateur[, total]}],
 //   plus_bas:[{entreprise, piece_id, code, nom, unite, minimum, quantite, manque}]  (5 plus grands manques),
@@ -118,7 +118,7 @@ Suivi::executer(function ($ctx) {
 			'mouvements_jour' => (int) $jour['n'],
 			'documents_jour' => (int) $jour['docs'],
 		),
-		'activite' => array('du' => $debut, 'au' => $aujourdhui, 'jours' => $jours, 'total' => $totalAct, 'moyenne' => round($totalAct / 7, 1), 'par_type' => $parType),
+		'activite' => array('du' => $debut, 'au' => $aujourdhui, 'jours' => $jours, 'nombre' => $totalAct, 'moyenne' => round($totalAct / 7, 1), 'par_type' => $parType),
 		'derniers_documents' => $docs,
 		'plus_bas' => array_slice($sous, 0, 5),
 	);

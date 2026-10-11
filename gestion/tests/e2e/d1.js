@@ -1259,7 +1259,7 @@ async function section(nom, fn) {
     await ps.evaluate(() => document.activeElement.blur()); await attendre(400); const inactif = await etatScan();
     verifier(actif.ombre !== 'none' && actif.ombre !== inactif.ombre && actif.bordure !== inactif.bordure && actif.fond !== inactif.fond, 'constat 31 : le champ de scan actif se distingue nettement de l\'inactif : ' + JSON.stringify([actif, inactif]));
     verifier(/inactif/.test(inactif.invite) && /Scannez/.test(actif.invite), 'constat 31 : le texte d\'invite dit « Champ inactif » sans le focus');
-    await ps.focus('#emp-choix');
+    await ps.focus('#emp-choix'); await attendre(500);   // la transition du halo (0,15 s) doit être finie
     const anneau = await ps.$eval('#emp-choix', el => (getComputedStyle(el).getPropertyValue('--accent-ring').match(/\d+/g) || []).slice(0, 3).join(', '));   // la couleur de marque suit l'entreprise active
     verifier(anneau !== '' && (await ps.$eval('#emp-choix', el => getComputedStyle(el).boxShadow)).includes('rgba(' + anneau), 'constat 31 : la liste d\'emplacements a un halo de focus visible (couleur de marque ' + anneau + ')');
     // fiche d'une pièce (gestionnaire) : accessibilité, libellés, contrastes

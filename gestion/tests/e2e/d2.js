@@ -843,9 +843,9 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     verifier((await entetes(e, '.content-wrapper table')).every(t => t !== 'Total'), 'pas de colonne « Total »');
     const r = await appel(e, 'app/ajax/dashboard_data.php', null);
     verifier(r.status === 200 && r.json.montants === false && !('valeur' in r.json) && !('factures' in r.json) && r.json.derniers_documents.every(d => !('total' in d)), 'JSON brut : ni valeur, ni factures, ni total');
-    // aucune clé d'argent, à aucune profondeur ; « activite.total » est un nombre de mouvements (pas un montant)
+    // aucune clé d'argent, à aucune profondeur ; « activite.nombre » est un nombre de mouvements (aucun nom d'argent)
     const cles = (o, chemin = '') => (o && typeof o === 'object') ? Object.entries(o).flatMap(([k, v]) => [chemin + '.' + k, ...cles(v, Array.isArray(o) ? chemin : chemin + '.' + k)]) : [];
-    const argent = cles(r.json).filter(c => /(^|\.)(total|valeur|emis|recu|solde|cout[a-z_]*|prix[a-z_]*)$/.test(c) && c !== '.activite.total');
+    const argent = cles(r.json).filter(c => /(^|\.)(total|valeur|emis|recu|solde|cout[a-z_]*|prix[a-z_]*)$/.test(c));
     verifier(argent.length === 0 && !/"valeur"|"emis"|"recu"|cout/.test(r.texte), 'JSON brut de l\'employé : aucun champ de coût : ' + argent.join(','));
     verifier(!r.texte.includes('Boutique Centre-ville') && !r.json.portee.noms.includes('Boutique Chaleur'), 'JSON brut : aucune donnée de Boutique Chaleur (emplacements masqués)');
     // l'employé de Boutique Chaleur ne voit que son entreprise
