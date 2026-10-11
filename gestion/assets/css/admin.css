@@ -54,12 +54,12 @@ table.adm-table thead th { padding-right: 1.3rem; }          /* place des flèch
 
 /* Focus clavier bien visible (la bordure bleu pâle de Bootstrap ne se voit presque pas) */
 [data-admin] .form-control:focus, [data-admin] .custom-select:focus, .modal .form-control:focus {
-  border-color: #0056b3; box-shadow: none; outline: 3px solid #0056b3; outline-offset: 1px;
+  border-color: var(--focus); box-shadow: none; outline: 3px solid var(--focus); outline-offset: 1px;
 }
 [data-admin] .custom-control-input:focus ~ .custom-control-label::before, .modal .custom-control-input:focus ~ .custom-control-label::before {
-  border-color: #0056b3; box-shadow: none; outline: 3px solid #0056b3; outline-offset: 2px;
+  border-color: var(--focus); box-shadow: none; outline: 3px solid var(--focus); outline-offset: 2px;
 }
-[data-admin] .btn:focus-visible, .modal .btn:focus-visible, [data-admin] a:focus-visible { outline: 3px solid #0056b3; outline-offset: 2px; box-shadow: none; }
+[data-admin] .btn:focus-visible, .modal .btn:focus-visible, [data-admin] a:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; box-shadow: none; }
 
 /* Impression (lettre, marges de 12 mm) : le tableau occupe toute la largeur, rien n'est coupé */
 @media print {

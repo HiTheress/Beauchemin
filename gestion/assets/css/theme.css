@@ -1,0 +1,290 @@
+/* Thème visuel — sobre, chaleureux, aux couleurs de l'entreprise active.
+   <html data-marque="bea|bch|neutre"> est posé par le serveur selon l'entreprise choisie en haut à droite.
+   Beauchemin : vert + bleu · Boutique Chaleur : rouge + or · « Toutes les entreprises » : neutre terre cuite. */
+
+:root {
+  --bg: #faf9f5;            /* fond de page */
+  --surface: #ffffff;       /* cartes, champs */
+  --side: #f3f1ea;          /* menu latéral */
+  --line: #e7e4d9;          /* bordures */
+  --line-soft: #f0ede4;
+  --line-strong: #d2cebf;
+  --ink: #1f1e1d;           /* texte */
+  --ink-2: #4a4944;
+  --muted: #66655f;         /* texte discret (≥ 5:1 sur le fond) */
+  --radius: 22px;
+  --radius-sm: 14px;
+  --ombre: 0 1px 2px rgba(31, 30, 29, .04), 0 10px 28px rgba(31, 30, 29, .07);
+  --ombre-douce: 0 1px 2px rgba(31, 30, 29, .05), 0 4px 12px rgba(31, 30, 29, .06);
+  --serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Couleurs de marque (neutre par défaut) */
+  --accent: #b5532f;
+  --accent-hover: #9a4425;
+  --accent-ink: #8a3d21;
+  --accent-soft: #f7e8df;
+  --accent-ring: rgba(181, 83, 47, .25);
+  --accent-2: #b5532f;
+  --accent-2-soft: #f7e8df;
+  --accent-3: #b5532f;
+  --on-accent: #ffffff;
+  --focus: var(--accent-hover);
+}
+html[data-marque="bea"] {
+  --accent: #2a4477;       /* bleu marine du logo */
+  --accent-hover: #1f3560;
+  --accent-ink: #1f3560;
+  --accent-soft: #e8edf7;
+  --accent-ring: rgba(42, 68, 119, .25);
+  --accent-2: #5cb03f;     /* vert du logo */
+  --accent-2-soft: #e8f4e3;
+  --accent-3: #2db2d1;     /* turquoise du logo */
+  --bg: #f8f9f8;
+  --side: #eef2f6;
+  --line: #dfe5ec;
+  --line-soft: #eaeef3;
+}
+html[data-marque="bch"] {
+  --accent: #c8161d;       /* rouge (version assombrie du rouge du logo pour le texte blanc) */
+  --accent-hover: #a01016;
+  --accent-ink: #a01016;
+  --accent-soft: #fbe8e8;
+  --accent-ring: rgba(200, 22, 29, .25);
+  --accent-2: #c9a24d;     /* or du logo (décoratif : jamais pour du texte sur fond clair) */
+  --accent-2-soft: #f8f0dc;
+  --accent-3: #e21b23;     /* rouge vif du logo */
+  --bg: #fbf9f6;
+  --side: #f6efe9;
+  --line: #ebe2d8;
+  --line-soft: #f3ece3;
+}
+
+/* ---------- Base ---------- */
+html body, html body .content-wrapper, html body .wrapper { background: var(--bg); color: var(--ink); font-family: var(--sans); }
+html body { font-size: 1rem; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent-ink); }
+a:hover { color: var(--accent-hover); }
+h1, h2, h3, .card-title, .modal-title { font-family: var(--serif); font-weight: 500; letter-spacing: -.01em; color: var(--ink); }
+.content-header h1 { font-size: 2rem; font-weight: 500; }
+.content-header .breadcrumb { background: transparent; }
+.text-muted { color: var(--muted) !important; }
+::selection { background: var(--accent-soft); }
+
+/* ---------- Barre du haut ---------- */
+html body .main-header.navbar { background: var(--bg); border-bottom: 1px solid var(--line); }
+.main-header .nav-link { color: var(--ink-2); }
+.main-header .nav-link:hover { color: var(--accent-ink); }
+#entreprise-courante { border-radius: 999px; border: 1px solid var(--line-strong); background-color: var(--surface); padding-left: .9rem; font-weight: 500; }
+
+/* ---------- Menu latéral (clair, chaleureux) ---------- */
+html body .main-sidebar, html body .main-sidebar.sidebar-dark-primary { background: var(--side); border-right: 1px solid var(--line); box-shadow: none; }
+html body .main-sidebar .brand-link { position: relative; display: flex; align-items: center; gap: .5rem; height: auto; min-height: 4.2rem; padding: .85rem 1.1rem 1rem; background: transparent; border-bottom: 1px solid var(--line); color: var(--ink); }
+html body .main-sidebar .brand-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; background: linear-gradient(90deg, var(--accent-3) 0 45%, var(--accent-2) 45% 72%, var(--accent) 72% 100%); }
+.brand-link img { display: block; max-width: 100%; height: auto; }
+.brand-link .marque-logo { width: 100%; max-width: 220px; height: auto; border-radius: 10px; }
+.brand-link .marque-logo.sur-blanc { background: #fff; padding: .45rem .6rem; box-sizing: border-box; border: 1px solid var(--line); }
+.brand-link .marque-duo { display: flex; flex-direction: column; gap: .35rem; }
+.brand-link .marque-duo img { width: 170px; border-radius: 8px; }
+.brand-link .marque-duo img.sur-blanc { background: #fff; padding: .3rem .45rem; box-sizing: border-box; border: 1px solid var(--line); }
+.brand-link .marque-icones { display: none; gap: .3rem; }
+.brand-link .marque-icones img { width: 28px; height: 28px; }
+/* menu replié : seulement les emblèmes */
+body.sidebar-collapse .main-sidebar:not(:hover) .brand-link .marque-logo, body.sidebar-collapse .main-sidebar:not(:hover) .brand-link .marque-duo { display: none; }
+body.sidebar-collapse .main-sidebar:not(:hover) .brand-link .marque-icones { display: flex; flex-direction: column; }
+body.sidebar-collapse .main-sidebar:not(:hover) .brand-link { padding-left: .8rem; padding-right: .8rem; }
+
+html body .main-sidebar .nav-header { color: var(--muted); font-size: .7rem; font-weight: 600; letter-spacing: .09em; padding: 1.1rem 1.1rem .35rem; }
+html body .main-sidebar .nav-sidebar .nav-link, html body .main-sidebar .nav-sidebar .nav-link p { color: var(--ink-2); }
+html body .main-sidebar .nav-sidebar .nav-link .nav-icon { color: var(--muted); }
+html body .main-sidebar .nav-sidebar .nav-link { position: relative; border-radius: var(--radius-sm); margin: 1px .6rem; width: auto; padding: .55rem .8rem; }
+html body .main-sidebar .nav-sidebar .nav-link:hover { background: rgba(31, 30, 29, .05); }
+html body .main-sidebar .nav-sidebar .nav-link.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; box-shadow: none; }
+html body .main-sidebar .nav-sidebar .nav-link.active p, html body .main-sidebar .nav-sidebar .nav-link.active .nav-icon { color: var(--accent-ink); }
+html body .main-sidebar .nav-sidebar .nav-link.active::before { content: ""; position: absolute; left: -.6rem; top: 20%; bottom: 20%; width: 4px; border-radius: 0 4px 4px 0; background: var(--accent-2); }
+html body .main-sidebar .nav-sidebar .nav-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* Le thème hérité impose des fonds avec !important ou une forte spécificité : on les écrase ici. */
+html body.layout-navbar-fixed .wrapper .main-sidebar.sidebar-dark-primary .brand-link:not([class*="navbar"]) { background-color: transparent; }
+html body .main-sidebar .nav-sidebar .nav-link.active, html body .nav-pills .nav-link.active, html body .nav-pills .show > .nav-link { background-color: var(--accent-soft) !important; color: var(--accent-ink); border-radius: var(--radius-sm); }
+html body .main-sidebar .nav-sidebar > .nav-item > .nav-link, html body .main-sidebar .nav-sidebar > .nav-item > .nav-link.active { border-radius: var(--radius-sm) !important; box-shadow: none !important; }
+html body .nav-pills .nav-link { border-radius: var(--radius-sm); }
+/* boutons actifs (groupes à bascule, onglets) : couleur de marque plutôt que le bleu d'origine */
+html body .btn-primary.active, html body .btn-outline-primary.active, html body .btn-group-toggle .btn.active,
+html body .btn-outline-primary:not(:disabled):not(.disabled).active, html body .btn-primary:not(:disabled):not(.disabled).active { background-color: var(--accent) !important; border-color: var(--accent) !important; color: var(--on-accent) !important; }
+
+/* ---------- Cartes ---------- */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: none; }
+.card-header { background: transparent; border-bottom: 1px solid var(--line); border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); padding: .9rem 1.25rem; }
+.card-footer { background: transparent; border-top: 1px solid var(--line); border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius); }
+.card-body { padding: 1.25rem; }
+.card-outline.card-primary { border-top: 3px solid var(--accent); }
+.small-box, .info-box { border-radius: var(--radius); box-shadow: none; border: 1px solid var(--line); }
+
+/* ---------- Boutons ---------- */
+.btn { border-radius: var(--radius-sm); font-weight: 500; transition: background-color .12s, border-color .12s, box-shadow .12s; }
+.btn:focus, .btn.focus { box-shadow: 0 0 0 3px var(--accent-ring); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn-primary:hover, .btn-primary:focus, .btn-primary:not(:disabled):not(.disabled):active { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-accent); }
+.btn-outline-primary { color: var(--accent-ink); border-color: var(--accent); background: transparent; }
+.btn-outline-primary:hover, .btn-outline-primary:not(:disabled):not(.disabled):active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn-default, .btn-secondary, .btn-light { background: var(--surface); border-color: var(--line-strong); color: var(--ink); }
+.btn-default:hover, .btn-secondary:hover, .btn-light:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.btn-outline-secondary { color: var(--ink-2); border-color: var(--line-strong); }
+.btn-outline-secondary:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.btn-link { color: var(--accent-ink); }
+.btn-warning { background: #f3c649; border-color: #e0b232; color: #3d2f00; }
+.btn-warning:hover { background: #e9b92f; border-color: #d4a017; color: #3d2f00; }
+.btn-lg { border-radius: 12px; }
+
+/* ---------- Champs ---------- */
+.form-control, .custom-select { border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background-color: var(--surface); color: var(--ink); }
+.form-control:focus, .custom-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); background-color: var(--surface); }
+.form-control::placeholder { color: var(--muted); opacity: 1; }
+.input-group-text { background: var(--side); border-color: var(--line-strong); color: var(--muted); }
+.input-group > .form-control:first-child, .input-group > .input-group-prepend > .input-group-text { border-top-left-radius: var(--radius-sm); border-bottom-left-radius: var(--radius-sm); }
+.input-group > .form-control:last-child, .input-group > .input-group-append > .input-group-text, .input-group > .input-group-append > .btn { border-top-right-radius: var(--radius-sm); border-bottom-right-radius: var(--radius-sm); }
+label { font-weight: 600; color: var(--ink-2); }
+.custom-control-input:checked ~ .custom-control-label::before { background-color: var(--accent); border-color: var(--accent); }
+.select2-container--default .select2-selection--single, .select2-container--default .select2-selection--multiple { border-radius: var(--radius-sm); border: 1px solid var(--line-strong); }
+.select2-container--default.select2-container--focus .select2-selection--single, .select2-container--default.select2-container--open .select2-selection--single { border-color: var(--accent); }
+.select2-container--default .select2-results__option--highlighted[aria-selected], .select2-container--default .select2-results__option--highlighted.select2-results__option--selectable { background: var(--accent); color: var(--on-accent); }
+.select2-dropdown { border-radius: var(--radius-sm); border-color: var(--line-strong); }
+
+/* ---------- Tableaux ---------- */
+.table { color: var(--ink); }
+.table thead th { border-top: 0; border-bottom: 1px solid var(--line-strong); font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: transparent; }
+.table td, .table th { border-top: 1px solid var(--line-soft); }
+.table-hover tbody tr:hover { background: var(--accent-soft); }
+.table-striped tbody tr:nth-of-type(odd) { background: rgba(31, 30, 29, .02); }
+.table-bordered, .table-bordered td, .table-bordered th { border-color: var(--line); }
+.dataTables_wrapper .dataTables_filter input, .dataTables_wrapper .dataTables_length select { border-radius: var(--radius-sm); }
+.page-link { color: var(--accent-ink); border-color: var(--line); }
+.page-link:hover { color: var(--accent-hover); background: var(--accent-soft); border-color: var(--line); }
+.page-item.active .page-link { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+/* ---------- Pastilles, alertes, fenêtres ---------- */
+.badge { border-radius: 999px; font-weight: 600; padding: .35em .7em; }
+.badge-primary { background: var(--accent); color: var(--on-accent); }
+.badge-info { background: var(--accent-2-soft); color: var(--ink); }
+.badge-warning { background: #f6dc8c; color: #4a3800; }
+.alert { border-radius: var(--radius); border-width: 1px; }
+.alert-info { background: var(--accent-2-soft); border-color: var(--line-strong); color: var(--ink); }
+.modal-content { border: 1px solid var(--line); border-radius: 26px; box-shadow: 0 24px 60px rgba(31, 30, 29, .22); }
+.modal-header, .modal-footer { border-color: var(--line); }
+.dropdown-menu { border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(31, 30, 29, .14); padding: .4rem; }
+.dropdown-item { border-radius: 8px; }
+.dropdown-item:hover, .dropdown-item:focus { background: var(--accent-soft); color: var(--accent-ink); }
+.nav-tabs .nav-link.active, .nav-pills .nav-link.active { color: var(--accent-ink); }
+.nav-pills .nav-link.active { background: var(--accent-soft); }
+.progress-bar { background: var(--accent); }
+
+/* ---------- Pièces propres à l'application ---------- */
+.content-wrapper { background: var(--bg); }
+.scan-box { border: 2px solid var(--accent); border-radius: var(--radius); background: var(--surface); }
+.scan-box:focus-within { box-shadow: 0 0 0 4px var(--accent-ring); }
+.badge-bas { background: #c0392b; color: #fff; }
+#toasts .alert { box-shadow: 0 12px 28px rgba(31, 30, 29, .16); border-radius: 12px; }
+.main-footer { background: transparent; border-top: 1px solid var(--line); color: var(--muted); }
+
+/* ---------- Page de connexion ---------- */
+html body.login-page { display: flex; min-height: 100vh; align-items: stretch; background: var(--bg); font-family: var(--sans); }
+.connexion { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); width: 100%; min-height: 100vh; }
+.connexion-marques { display: flex; flex-direction: column; justify-content: center; gap: 2.2rem; padding: 3rem clamp(1.5rem, 6vw, 5rem); background: var(--side); border-right: 1px solid var(--line); }
+.connexion-marques h1 { font-size: clamp(1.7rem, 3vw, 2.4rem); line-height: 1.2; max-width: 22ch; margin: 0; }
+.connexion-marques p { color: var(--muted); max-width: 40ch; margin: 0; }
+.connexion-logos { display: flex; flex-direction: column; gap: 1.1rem; }
+.connexion-logos .bloc { display: flex; align-items: center; padding: 1rem 1.2rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); width: fit-content; }
+.connexion-logos img { display: block; height: 56px; width: auto; max-width: 100%; border-radius: 8px; }
+.connexion-logos .bloc.rouge { padding: 0; overflow: hidden; border: 0; }
+.connexion-logos .bloc.rouge img { height: 96px; border-radius: 0; }
+.connexion-formulaire { display: flex; align-items: center; justify-content: center; padding: 2rem 1.25rem; }
+.connexion-formulaire .carte { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 2rem 1.75rem; }
+.connexion-formulaire h2 { font-size: 1.6rem; margin-bottom: .25rem; }
+.connexion-formulaire .sous-titre { color: var(--muted); margin-bottom: 1.4rem; }
+.connexion-formulaire .btn-block { padding: .65rem 1rem; font-size: 1.02rem; }
+@media (max-width: 860px) {
+  .connexion { grid-template-columns: 1fr; }
+  .connexion-marques { padding: 1.5rem; gap: 1.2rem; border-right: 0; border-bottom: 1px solid var(--line); }
+  .connexion-marques p { display: none; }
+  .connexion-logos { flex-direction: row; flex-wrap: wrap; }
+  .connexion-logos img { height: 34px; }
+}
+
+/* ---------- Impression : on garde le papier sobre et sans fond ---------- */
+@media print {
+  html body, html body .content-wrapper, html body .wrapper { background: #fff !important; color: #000; }
+  .card { border: 0 !important; }
+}
+
+/* ============================================================
+   Couche « douceur » : cartes flottantes, pastilles, grandes zones à toucher
+   ============================================================ */
+html body .content-wrapper { background: radial-gradient(900px 340px at 92% -8%, var(--accent-soft), transparent 70%), var(--bg); }
+.card { border-color: var(--line-soft); box-shadow: var(--ombre); }
+.card-header { padding: 1.1rem 1.5rem; }
+.card-body { padding: 1.5rem; }
+.small-box, .info-box { box-shadow: var(--ombre); }
+
+/* Boutons en pastille, léger relief */
+.btn { border-radius: 999px; padding: .5rem 1.2rem; min-height: 2.6rem; display: inline-flex; align-items: center; justify-content: center; gap: .45rem; }
+.btn-sm { padding: .3rem .9rem; min-height: 2.1rem; }
+.btn-lg { padding: .75rem 1.6rem; border-radius: 999px; }
+.btn-block { display: flex; }
+.btn-primary { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 86%, #fff), var(--accent)); box-shadow: 0 6px 16px var(--accent-ring); }
+.btn-primary:hover, .btn-primary:focus { background: var(--accent-hover); box-shadow: 0 6px 18px var(--accent-ring); }
+.btn-default, .btn-secondary, .btn-light, .btn-outline-secondary { box-shadow: var(--ombre-douce); }
+.btn-group > .btn, .btn-group-toggle > .btn { border-radius: 0; box-shadow: none; }
+.btn-group > .btn:first-child { border-top-left-radius: 999px; border-bottom-left-radius: 999px; }
+.btn-group > .btn:last-child { border-top-right-radius: 999px; border-bottom-right-radius: 999px; }
+.input-group-append .btn { border-radius: 0 999px 999px 0; }
+
+/* Champs plus généreux */
+.form-control, .custom-select { min-height: 2.75rem; padding: .5rem 1rem; }
+.form-control-sm, .custom-select-sm { min-height: 2.1rem; padding: .25rem .75rem; }
+textarea.form-control { min-height: 5rem; border-radius: var(--radius-sm); }
+.select2-container--default .select2-selection--single { min-height: 2.75rem; display: flex; align-items: center; }
+.select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 1.5; padding-left: 1rem; }
+.select2-container--default .select2-selection--single .select2-selection__arrow { height: 100%; }
+
+/* Menu : icônes dans des tuiles arrondies */
+html body .main-sidebar .nav-sidebar .nav-link { display: flex; align-items: center; padding: .4rem .6rem; margin: 2px .7rem; }
+html body .main-sidebar .nav-sidebar .nav-link .nav-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 2.2rem; width: 2.2rem; height: 2.2rem; margin: 0 .7rem 0 0; border-radius: 12px; background: var(--surface); color: var(--muted); font-size: .92rem; box-shadow: var(--ombre-douce); }
+html body .main-sidebar .nav-sidebar .nav-link p { margin: 0; flex: 1; }
+html body .main-sidebar .nav-sidebar .nav-link:hover .nav-icon { color: var(--accent-ink); }
+html body .main-sidebar .nav-sidebar .nav-link.active { background-color: var(--surface) !important; box-shadow: var(--ombre-douce) !important; }
+html body .main-sidebar .nav-sidebar .nav-link.active .nav-icon { background: var(--accent); color: var(--on-accent); box-shadow: 0 4px 10px var(--accent-ring); }
+html body .main-sidebar .nav-sidebar .nav-link.active::before { display: none; }
+body.sidebar-collapse .main-sidebar:not(:hover) .nav-sidebar .nav-link { margin: 2px .35rem; padding: .4rem; }
+body.sidebar-collapse .main-sidebar:not(:hover) .nav-sidebar .nav-link .nav-icon { margin-right: 0; }
+
+/* Barre du haut : sélecteur d'entreprise en pastille, plus présent */
+#entreprise-courante { min-height: 2.4rem; box-shadow: var(--ombre-douce); }
+
+/* Champ de scan : grande zone accueillante */
+.scan-box { border-width: 2px; border-radius: 24px; box-shadow: var(--ombre); padding: 1rem 1.25rem; }
+.scan-box input.scan-input { border-radius: 16px; }
+
+/* Tableaux : lignes aérées, survol doux */
+.table td, .table th { padding: .8rem .75rem; }
+.table-hover tbody tr { transition: background-color .12s; }
+.dataTables_wrapper .pagination .page-link { border-radius: 999px; margin: 0 2px; border: 0; }
+.alert { box-shadow: var(--ombre-douce); }
+.badge { padding: .4em .8em; }
+.dropdown-menu { border-radius: 18px; box-shadow: var(--ombre); }
+
+/* Connexion */
+.connexion-formulaire .carte { border-radius: 30px; box-shadow: var(--ombre); padding: 2.4rem 2rem; border-color: var(--line-soft); }
+.connexion-logos .bloc { box-shadow: var(--ombre); border-color: var(--line-soft); border-radius: 22px; }
+.connexion-logos .bloc.rouge { border-radius: 22px; }
+
+/* Écrans tactiles : zones à toucher d'au moins 44 px */
+@media (pointer: coarse) {
+  .btn, .form-control, .custom-select { min-height: 2.9rem; }
+  .btn-sm { min-height: 2.6rem; }
+}
+@media print {
+  .card { box-shadow: none !important; }
+  html body .content-wrapper { background: #fff !important; }
+}
+.scan-box input.scan-input:focus, .scan-box .form-control:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); outline-color: var(--focus); }

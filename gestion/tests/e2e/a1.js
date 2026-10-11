@@ -1121,7 +1121,8 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await L.aller(g, 'pieces'); await lignes(g, NB_ACTIVES());
   const focusVisible = async (p, sel) => { await p.focus(sel); return p.$eval(sel, el => { const s = getComputedStyle(el); return { w: parseFloat(s.outlineWidth), st: s.outlineStyle, c: s.outlineColor }; }); };
   let fv = await focusVisible(g, '#recherche');
-  L.verifier(fv.st !== 'none' && fv.w >= 2 && fv.c === 'rgb(0, 86, 179)', 'focus du champ de recherche : anneau de 2 px bleu foncé ' + JSON.stringify(fv));
+  const couleurFocus = await g.evaluate(() => { const d = document.createElement('i'); d.style.color = 'var(--focus)'; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; });
+  L.verifier(fv.st !== 'none' && fv.w >= 2 && fv.c === couleurFocus, 'focus du champ de recherche : anneau de 2 px à la couleur de marque (' + couleurFocus + ') ' + JSON.stringify(fv));
   fv = await focusVisible(g, '#f-categorie');
   L.verifier(fv.st !== 'none' && fv.w >= 2, 'focus d\'une liste déroulante : anneau visible ' + JSON.stringify(fv));
   await L.aller(g, 'piece_edit'); fv = await focusVisible(g, '#f-nom');

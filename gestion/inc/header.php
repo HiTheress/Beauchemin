@@ -7,13 +7,19 @@ $page_courante = (isset($_GET['page']) && is_string($_GET['page']) && preg_match
 $moi = $Ouser->courant();
 $mes_entreprises = inventaire()->listeEntreprises(utilisateur_id());
 $entreprise_active = entreprise_courante();
+// Identité visuelle : couleurs et logo de l'entreprise active (« neutre » = toutes les entreprises)
+$marque = 'neutre';
+foreach ($mes_entreprises as $en) {
+  if ((int) $en['id'] === $entreprise_active) { $c = strtolower((string) ($en['code'] ?? '')); $marque = ($c === 'bea' || $c === 'bch') ? $c : 'neutre'; }
+}
+$marque_slug = array('bea' => 'beauchemin', 'bch' => 'boutique-chaleur');
 ?>
 <!DOCTYPE html>
-<html lang="fr-CA">
+<html lang="fr-CA" data-marque="<?php echo e($marque); ?>">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:,">
+  <link rel="icon" type="image/svg+xml" href="assets/img/icone-<?php echo $marque === 'bch' ? 'boutique-chaleur' : 'beauchemin'; ?>.svg">
   <title>Beauchemin — Gestion d'inventaire</title>
   <meta name="csrf-token" content="<?php echo e($_SESSION['csrf_token']); ?>">
 
@@ -23,6 +29,7 @@ $entreprise_active = entreprise_courante();
   <link rel="stylesheet" href="plugins/select2/css/select2.min.css">
   <link rel="stylesheet" href="dist/css/adminlte.min.css">
   <link rel="stylesheet" href="assets/css/beauchemin.css">
+  <link rel="stylesheet" href="assets/css/theme.css">
 </head>
 <body class="hold-transition sidebar-mini layout-fixed layout-navbar-fixed">
 

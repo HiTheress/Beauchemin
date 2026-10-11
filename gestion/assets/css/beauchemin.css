@@ -1,9 +1,7 @@
 /* Styles communs — Beauchemin / Boutique Chaleur */
-.content-wrapper { background: #f4f6f9; }
 #entreprise-courante { min-width: 190px; }
 
 /* Champ de scan : gros, lisible au comptoir et sur tablette */
-.scan-box { border: 2px solid #007bff; border-radius: .5rem; background: #fff; padding: .75rem 1rem; }
 .scan-box input.scan-input { font-size: 1.6rem; height: auto; padding: .5rem .75rem; letter-spacing: .05em; }
 @media (max-width: 575.98px) { .scan-box input.scan-input { font-size: 1.15rem; letter-spacing: 0; } }  /* le texte d'invite tient sur un téléphone */
 .scan-box.ok { border-color: #28a745; box-shadow: 0 0 0 .2rem rgba(40,167,69,.2); }
@@ -22,7 +20,6 @@ td.nombre, th.nombre, .nombre { text-align: right; font-variant-numeric: tabular
 #toasts .alert { box-shadow: 0 .25rem .75rem rgba(0,0,0,.15); margin-bottom: .5rem; }
 
 /* Pages d'authentification */
-.login-page { background: #e9ecef; }
 
 /* Impression (facture interne, bilan, étiquettes) */
 @media print {
@@ -32,17 +29,6 @@ td.nombre, th.nombre, .nombre { text-align: right; font-variant-numeric: tabular
   body { background: #fff !important; font-size: 12pt; }
   a[href]:after { content: none !important; }
 }
-
-/* Menu latéral sombre (écrase le thème clair hérité) */
-.main-sidebar, .main-sidebar.sidebar-dark-primary { background: #26323f !important; }
-.main-sidebar .brand-link { background: #1b242e !important; border-bottom: 1px solid #3a4756 !important; color: #fff !important; }
-.main-sidebar .brand-link .brand-text { color: #fff !important; }
-.main-sidebar .nav-header { color: #8d9bab !important; font-size: .72rem; letter-spacing: .06em; }
-.main-sidebar .nav-sidebar .nav-link, .main-sidebar .nav-sidebar .nav-link p { color: #d5dce4 !important; }
-.main-sidebar .nav-sidebar .nav-link .nav-icon { color: #9fb0c2 !important; }
-.main-sidebar .nav-sidebar .nav-link:hover { background: rgba(255,255,255,.08) !important; }
-.main-sidebar .nav-sidebar .nav-link.active { background: #0b5ed7 !important; color: #fff !important; border-radius: .25rem; box-shadow: none !important; }
-.main-sidebar .nav-sidebar .nav-link.active p, .main-sidebar .nav-sidebar .nav-link.active .nav-icon { color: #fff !important; }
 
 /* ---- Corrections du thème hérité (largeur 285 px non compensée, boutons, impression) ---- */
 /* Boutons d'action destructrice : le thème d'origine avait commenté le style de .btn-danger. */
@@ -57,7 +43,7 @@ td.nombre, th.nombre, .nombre { text-align: right; font-variant-numeric: tabular
   body.sidebar-open .wrapper .main-sidebar, body.sidebar-open .wrapper .main-sidebar::before { margin-left: 0 !important; }
 }
 /* Bandeau de marque : même largeur que la barre (285 px) quand elle est dépliée, sinon un coin blanc reste visible. */
-body:not(.sidebar-collapse) .main-sidebar .brand-link { width: 285px; }
+body:not(.sidebar-collapse) .main-sidebar .brand-link { width: 285px; box-sizing: border-box; }
 @media (min-width: 992px) { body.sidebar-collapse .main-sidebar:hover .brand-link { width: 285px; } }
 /* Libellés longs du menu : retour à la ligne plutôt que coupés. */
 .main-sidebar .nav-sidebar .nav-link p { white-space: normal; }

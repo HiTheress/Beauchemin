@@ -5,7 +5,7 @@
 .cat-table td, .cat-table th { vertical-align: middle; }
 .cat-table tbody tr td { padding-top: .7rem; padding-bottom: .7rem; }          /* lignes ≥ 44 px (tablette) */
 .cat-table tbody tr.cliquable { cursor: pointer; }
-.cat-table tbody tr.cliquable:hover { background: #eef4ff; }
+.cat-table tbody tr.cliquable:hover { background: var(--accent-soft); }
 .cat-table .btn-sm { min-height: 44px; min-width: 44px; }          /* zones tactiles de 44 px (tablette) */
 .cat-table .btn-sm + .btn-sm { margin-left: .5rem; }                 /* de l'espace entre Modifier et l'action destructrice */
 .cat-lien-cible { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 44px; min-height: 44px; }
@@ -55,10 +55,10 @@
 /* Focus clavier visible sur les champs (la bordure bleue du thème seule a un contraste d'environ 2:1) */
 .cat-form .form-control:focus, .cat-filtres .form-control:focus, #recherche:focus, .modal .form-control:focus,
 .cat-form .custom-select:focus, .dataTables_wrapper select:focus, .dataTables_wrapper input:focus {
-  outline: 2px solid #0056b3; outline-offset: 1px; border-color: #0056b3; box-shadow: 0 0 0 .2rem rgba(0, 86, 179, .35);
+  outline: 2px solid var(--focus); outline-offset: 1px; border-color: var(--focus); box-shadow: 0 0 0 .2rem var(--accent-ring);
 }
 .cat-form .custom-control-input:focus ~ .custom-control-label::before, .cat-filtres .custom-control-input:focus ~ .custom-control-label::before {
-  box-shadow: 0 0 0 .2rem rgba(0, 86, 179, .6);
+  box-shadow: 0 0 0 .2rem var(--accent-ring);
 }
 
 /* Contrastes (WCAG AA, 4,5:1) : verts et rouges du thème trop clairs, surtout en plein soleil sur tablette */

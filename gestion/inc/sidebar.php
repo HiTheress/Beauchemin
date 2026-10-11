@@ -37,8 +37,19 @@ $menu = array(
 );
 ?>
   <aside class="main-sidebar sidebar-dark-primary elevation-2 no-print">
-    <a href="index.php" class="brand-link">
-      <span class="brand-text font-weight-bold pl-3"><i class="fas fa-fire-alt text-warning mr-1"></i> Beauchemin</span>
+    <a href="index.php" class="brand-link" aria-label="Accueil">
+      <?php if ($marque === 'neutre') { ?>
+        <span class="marque-duo">
+          <img class="sur-blanc" src="assets/img/logo-beauchemin.png" alt="Beauchemin — Mazout et propane">
+          <img src="assets/img/logo-boutique-chaleur.png" alt="Boutique Chaleur">
+        </span>
+      <?php } else { ?>
+        <img class="marque-logo<?php echo $marque === 'bea' ? ' sur-blanc' : ''; ?>" src="assets/img/logo-<?php echo e($marque_slug[$marque]); ?>.png" alt="<?php echo $marque === 'bea' ? 'Beauchemin — Mazout et propane' : 'Boutique Chaleur'; ?>">
+      <?php } ?>
+      <span class="marque-icones" aria-hidden="true">
+        <?php if ($marque !== 'bch') { ?><img src="assets/img/icone-beauchemin.svg" alt=""><?php } ?>
+        <?php if ($marque !== 'bea') { ?><img src="assets/img/icone-boutique-chaleur.svg" alt=""><?php } ?>
+      </span>
     </a>
     <div class="sidebar">
       <nav class="mt-2">
