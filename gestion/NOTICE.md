@@ -17,3 +17,5 @@ Les pages, la logique métier, le schéma de base de données et les générateu
 
 Police **Figtree** (The Figtree Project Authors, licence SIL Open Font License 1.1 — voir `assets/fonts/Figtree-OFL.txt`), servie localement.
 Les graphiques et widgets (`assets/js/widgets.js`, `assets/css/widgets.css`) sont adaptés d'un « Widget Kit » fourni par le client pour ce projet.
+La mascotte (réservoir de propane : `inc/mascotte.php`, `assets/css/mascotte.css`, `assets/js/mascotte.js`) est adaptée d'un dessin HTML fourni par le client ; l'image de la page de connexion (`assets/img/connexion-beauchemin-chaleur.webp`) est aussi fournie par le client.
+FPDF 1.9 (Olivier Plathey, licence permissive : `app/lib/fpdf/license.txt`) produit les documents PDF.

@@ -57,6 +57,7 @@
     d.innerHTML = '<button type="button" class="close" aria-label="Fermer">&times;</button>' + w.esc(message);
     d.querySelector('button').onclick = function () { d.remove(); };
     box.appendChild(d);
+    if (w.retourVisuel) { w.retourVisuel(type, d); }       // mascotte : coche verte (succès) ou réservoir secoué (échec), voir mascotte.js
     setTimeout(function () { d.remove(); }, ms || (type === 'danger' ? 8000 : 4000));
   };
 

@@ -1,5 +1,5 @@
 /* Mascotte (réservoir de propane qui rebondit) — adaptée du dessin fourni par le client.
-   Utilisée par la page de connexion (grande scène) et par l'indicateur de chargement. */
+   Utilisée par l'indicateur de chargement, le coup d'œil au coin des cases et les animations de succès et d'échec. */
 .mc { position: relative; width: 260px; height: 320px; }
 .mc-reservoir { position: absolute; left: calc(50% - 95px); bottom: 14px; width: 190px; height: 260px; }
 .mc-tank { position: absolute; inset: 0; transform-origin: 50% 100%; animation: mc-rebond 1s linear infinite; }
@@ -48,13 +48,71 @@
 @keyframes mc-apparait { from { opacity: 0; } }
 @media print { #chargement { display: none !important; } }
 
-/* ---- Page de connexion : grande scène (ciel, nuages, sol) ---- */
-.mc-scene { position: relative; overflow: hidden; background: linear-gradient(#5fbcff, #d6f1ff); }
-.mc-sol { position: absolute; left: 0; right: 0; bottom: 0; height: 56px; background: radial-gradient(#b1b4b8 1px, transparent 1.6px) 0 0 / 7px 7px, radial-gradient(#6f7276 1px, transparent 1.6px) 3px 3px / 9px 9px, #8b8e92; }
-.mc-nuage1, .mc-nuage2, .mc-nuage3 { position: absolute; background: #fff; width: 100px; height: 25px; border-radius: 100px; }
-.mc-nuage1::before, .mc-nuage2::before, .mc-nuage3::before { content: ""; position: absolute; width: 40px; height: 40px; top: -20px; left: 20px; background: #fff; border-radius: 50%; }
-.mc-nuage1 { top: 22%; animation: mc-nuages 14s linear infinite; }
-.mc-nuage2 { top: 36%; opacity: .55; transform: scale(.7); animation: mc-nuages 11s linear infinite; }
-.mc-nuage3 { top: 29%; opacity: .55; transform: scale(.9); animation: mc-nuages 9s linear infinite; }
-@keyframes mc-nuages { from { left: 100%; } to { left: -160px; } }
-@media (prefers-reduced-motion: reduce) { .mc-nuage1, .mc-nuage2, .mc-nuage3 { animation: none; left: 20%; } }
+/* ---- Visages : content (yeux en « ^ ^ ») et échec (yeux en croix) ---- */
+.mc-content .mc-yeux, .mc-echec .mc-yeux { background: transparent; box-shadow: none; width: 0; height: 0; animation: none; }
+.mc-content .mc-yeux::before, .mc-content .mc-yeux::after { content: ""; position: absolute; top: 9px; width: 24px; height: 13px; border: 5px solid #333; border-bottom: 0; border-radius: 24px 24px 0 0; background: none; box-shadow: none; }
+.mc-content .mc-yeux::before { left: -4px; }
+.mc-content .mc-yeux::after { left: 32px; }
+.mc-echec .mc-yeux::before, .mc-echec .mc-yeux::after { content: ""; position: absolute; top: 1px; width: 26px; height: 26px; border: 0; border-radius: 0; box-shadow: none;
+  background: linear-gradient(45deg, transparent 40%, #333 40% 60%, transparent 60%), linear-gradient(-45deg, transparent 40%, #333 40% 60%, transparent 60%); }
+.mc-echec .mc-yeux::before { left: -5px; }
+.mc-echec .mc-yeux::after { left: 31px; }
+
+/* ---- Le réservoir jette un coup d'œil par le coin d'une case ---- */
+.mc-coup { position: fixed; z-index: 1065; width: 84px; height: 50px; overflow: hidden; pointer-events: none; display: none; }
+.mc-coup.visible { display: block; }
+.mc-coup-glisse { position: absolute; inset: 0; animation: mc-sort .45s cubic-bezier(.34, 1.56, .64, 1) both; }
+.mc-coup .mc-reservoir, .mc-coin .mc-reservoir { left: calc(50% - 95px); bottom: auto; transform-origin: 50% 0; }
+.mc-coup .mc-reservoir { top: 3px; transform: scale(.38) rotate(-7deg); }
+.mc-coup .mc-tank, .mc-coin .mc-tank { animation: none; }
+.mc-coup .mc-yeux { animation: mc-cligne 3.6s 1s infinite; transform-origin: 50% 50%; }
+.mc-coup .mc-yeux::before { left: calc(9px + var(--oeil, 0) * 3.5px); transition: left .12s; }
+@keyframes mc-sort { from { transform: translateY(54px) rotate(10deg); } to { transform: none; } }
+@keyframes mc-cligne { 0%, 93%, 100% { transform: scaleY(1); } 96.5% { transform: scaleY(.1); } }
+
+/* ---- Succès : grande coche verte et réservoir content ---- */
+.mc-retour { position: fixed; inset: 0; z-index: 2500; display: flex; align-items: center; justify-content: center; pointer-events: none; animation: mc-retour-sort 1.95s ease both; }
+.mc-retour-carte { background: var(--surface, #fff); border-radius: 32px; padding: 28px 46px 22px; text-align: center; box-shadow: var(--n-out, 0 10px 30px rgba(0, 0, 0, .12)), 0 26px 60px rgba(31, 41, 55, .2); animation: mc-retour-pop .5s cubic-bezier(.34, 1.56, .64, 1) both; }
+.mc-retour-scene { position: relative; width: 170px; height: 170px; margin: 0 auto; }
+.mc-retour-scene .mc { position: absolute; left: calc(50% - 130px); top: calc(50% - 172px); transform: scale(.5); transform-origin: 50% 50%; }
+.mc-retour .mc-tank { animation: mc-joie .95s cubic-bezier(.3, .7, .4, 1) .2s 2 both; }
+.mc-retour .mc-ombre { animation: none; opacity: .5; }
+.mc-retour-badge { position: absolute; right: -2px; top: 4px; z-index: 2; width: 66px; height: 66px; border-radius: 50%; background: linear-gradient(145deg, #62d36b, #249a3f); box-shadow: 0 10px 22px rgba(36, 154, 63, .45); animation: mc-badge .5s cubic-bezier(.34, 1.8, .64, 1) .25s both; }
+.mc-retour-badge svg { display: block; width: 100%; height: 100%; }
+.mc-retour-cercle { fill: none; stroke: rgba(255, 255, 255, .35); stroke-width: 2; }
+.mc-retour-coche { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 40; stroke-dashoffset: 40; animation: mc-trace .35s ease-out .55s forwards; }
+.mc-retour-titre { margin-top: 4px; font-size: 1.3rem; font-weight: 800; color: var(--ink, #1d2531); letter-spacing: -.01em; }
+.mc-conf { position: absolute; left: 50%; top: 50%; z-index: 0; width: 9px; height: 9px; margin: -4px; border-radius: 3px; background: var(--c, #46b64a); opacity: 0; animation: mc-conf .95s ease-out .45s both; }
+@keyframes mc-retour-sort { 0% { opacity: 0; } 8% { opacity: 1; } 82% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes mc-retour-pop { from { transform: scale(.55) translateY(24px); } to { transform: none; } }
+@keyframes mc-badge { from { transform: scale(0) rotate(-45deg); } to { transform: none; } }
+@keyframes mc-trace { to { stroke-dashoffset: 0; } }
+@keyframes mc-joie {
+  0% { transform: scale(1, 1) translateY(0); }
+  14% { transform: scale(1.1, .9) translateY(0); }
+  38% { transform: scale(.92, 1.1) translateY(-64px); }
+  62% { transform: scale(1.06, .94) translateY(0); }
+  76% { transform: scale(1, 1) translateY(-8px); }
+  100% { transform: scale(1, 1) translateY(0); }
+}
+@keyframes mc-conf {
+  0% { opacity: 1; transform: rotate(var(--a)) translateY(-44px) scale(1); }
+  100% { opacity: 0; transform: rotate(var(--a)) translateY(-118px) rotate(220deg) scale(.5); }
+}
+
+/* ---- Échec : le réservoir, yeux en croix, se fait secouer sur le bord du message ---- */
+.mc-coin { position: absolute; right: 44px; top: -38px; z-index: 1; width: 60px; height: 40px; overflow: hidden; pointer-events: none; }
+.mc-coin-glisse { position: absolute; inset: 0; animation: mc-sort .45s cubic-bezier(.34, 1.56, .64, 1) both; }
+.mc-coin .mc-reservoir { top: 3px; transform: scale(.28) rotate(-8deg); }
+.mc-coin .mc-tank { animation: mc-tank-secoue .7s .4s ease-in-out both; }
+.mc-secoue { animation: mc-secousse .55s ease-in-out; }
+#toasts .alert-danger { margin-top: 2.4rem; }   /* la place du réservoir qui dépasse au-dessus du message */
+@keyframes mc-secousse { 0%, 100% { transform: translateX(0); } 15% { transform: translateX(-7px); } 35% { transform: translateX(6px); } 55% { transform: translateX(-4px); } 75% { transform: translateX(2px); } }
+@keyframes mc-tank-secoue { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-12deg); } 45% { transform: rotate(10deg); } 70% { transform: rotate(-6deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-coup-glisse, .mc-coin-glisse, .mc-coup .mc-yeux, .mc-coin .mc-tank, .mc-secoue, .mc-retour-carte, .mc-retour-badge, .mc-retour .mc-tank { animation: none; }
+  .mc-retour-coche { animation: none; stroke-dashoffset: 0; }
+  .mc-conf { display: none; }
+}
+@media print { .mc-coup, .mc-retour, .mc-coin { display: none !important; } }

@@ -22,20 +22,15 @@ unset($_SESSION['login_error']);
 </head>
 <body class="hold-transition login-page">
 <div class="connexion" id="connexion">
-  <section class="connexion-scene mc-scene" aria-hidden="true">
-    <div class="mc-nuage1"></div><div class="mc-nuage2"></div><div class="mc-nuage3"></div>
-    <div class="mc-sol"></div>
-    <div class="connexion-mascotte"><?php mascotte_html(); ?></div>
+  <section class="connexion-image">
+    <img src="assets/img/connexion-beauchemin-chaleur.webp" width="1254" height="1254" alt="Beauchemin, mazout et propane — Boutique Chaleur">
   </section>
   <section class="connexion-formulaire">
-    <div class="connexion-logos-haut">
-      <img src="assets/img/logo-beauchemin.png" alt="Beauchemin — Mazout et propane">
-      <img src="assets/img/logo-boutique-chaleur.png" alt="Boutique Chaleur">
-    </div>
     <div class="carte">
+      <?php if ($erreur) { ?><div class="mc-coin connexion-coin" aria-hidden="true"><div class="mc-coin-glisse mc-echec"><?php mascotte_reservoir(false); ?></div></div><?php } ?>
       <h1>Connexion</h1>
       <?php if ($erreur) { ?>
-        <div class="alert alert-danger text-center" role="alert"><?php echo e($erreur); ?></div>
+        <div class="alert alert-danger text-center" role="alert" data-sans-mascotte><?php echo e($erreur); ?></div>
       <?php } ?>
       <form action="app/action/login.php" method="post" autocomplete="on" id="form-connexion">
         <input type="hidden" name="csrf_token" value="<?php echo e($_SESSION['csrf_token']); ?>">
@@ -52,6 +47,9 @@ unset($_SESSION['login_error']);
     </div>
   </section>
 </div>
+<div id="chargement" role="status" aria-live="polite" aria-label="Connexion en cours"><?php mascotte_html(); ?><div class="chargement-texte">Connexion…</div></div>
+<?php mascotte_modele(); ?>
 <script src="assets/js/connexion.js"></script>
+<script src="assets/js/mascotte.js"></script>
 </body>
 </html>

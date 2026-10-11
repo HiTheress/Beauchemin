@@ -28,7 +28,12 @@ Objectif : **quelqu'un qui n'a jamais vu le logiciel comprend quoi faire sans li
 * Cliquer sur une ligne ouvre le détail.
 * Pas de légende, pas de note de bas de tableau.
 
-## 6. Ce qu'on ne touche jamais
+## 6. La mascotte (réservoir de propane)
+* **Chargement** : si une page met plus de 0,35 s à s'ouvrir, le réservoir rebondit par-dessus la page (rien à faire pour une nouvelle page ; un formulaire traité en JavaScript n'a pas besoin d'indicateur). `data-sans-chargement` sur un formulaire désactive l'indicateur.
+* **Cases** : le réservoir jette un coup d'œil au coin d'une case survolée (automatique pour `input.form-control`, `select.custom-select`, `textarea.form-control` ; `data-sans-mascotte` sur un conteneur l'exclut).
+* **Succès / échec** : on ne code rien de spécial. `toast(message, 'success')` affiche la coche verte et le réservoir content ; `toast(message, 'danger')` et tout `.alert-danger` qui devient visible montrent le réservoir aux yeux en croix. Un message de succès affiché par la page après une redirection déclenche la coche aussi. Les animations sont décoratives : jamais de texte dedans, jamais de clic intercepté ; le message utile reste dans la notification.
+
+## 7. Ce qu'on ne touche jamais
 * Les règles métier, les droits, les URL des actions, les identifiants (`id`) utilisés par les scripts et les tests : si on en change un, on met le test à jour dans le même geste.
 * Les contrôles de sécurité, les messages d'erreur du serveur, les confirmations d'actions irréversibles.
 
