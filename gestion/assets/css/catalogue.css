@@ -116,3 +116,12 @@
 /* Ligne « vide » : texte court + action */
 .cat-table td.dataTables_empty { padding-top: 1.5rem; padding-bottom: 1.5rem; text-align: center; color: var(--muted); }
 .cat-table td.dataTables_empty .btn { min-height: 44px; vertical-align: middle; }
+
+/* Unité : choix rapides sous forme de pastilles */
+.cat-unites { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .5rem; }
+.cat-unites .cat-unite { min-height: 44px; padding: .25rem 1rem; }
+html body .cat-unites .cat-unite.active { background-color: var(--accent) !important; background-image: none !important; color: #fff !important; box-shadow: 0 6px 14px var(--accent-ring) !important; }
+.cat-unites + #f-unite { max-width: 12rem; }
+
+/* Champ de scan dans le formulaire d'une pièce : même allure que les autres champs (pas de cadre ni de halo propres au scan) */
+html body .cat-form .scan-box:not(.ok):not(.erreur), html body .cat-form .scan-box:not(.ok):not(.erreur):focus-within, html body .cat-form .scan-box:not(.ok):not(.erreur):not(:focus-within) { padding: 0; border: 0; background: transparent; box-shadow: none; border-radius: 0; }

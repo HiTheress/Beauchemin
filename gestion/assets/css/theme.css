@@ -408,3 +408,34 @@ html[data-marque="bea"] .row > div:nth-child(4) > .ds-carte { background: linear
 html[data-marque="bch"] .row > div:nth-child(1) > .ds-carte { background: linear-gradient(145deg, #fbf3da, #f4e2ad); }
 html[data-marque="bch"] .row > div:nth-child(4) > .ds-carte { background: linear-gradient(145deg, #fde9e2, #f8d2c6); }
 html body .main-sidebar .sidebar > nav { margin-top: .75rem !important; }
+
+/* Le logo peut être haut (Boutique Chaleur) : le menu est une colonne — logo en haut, liste qui défile dessous (rien n'est caché). */
+html body .main-sidebar { display: flex; flex-direction: column; }
+html body .main-sidebar .brand-link { flex: 0 0 auto; }
+html body .main-sidebar .sidebar { flex: 1 1 auto; min-height: 0; height: auto !important; margin-top: 0 !important; overflow-y: auto; }
+html body .main-sidebar { top: 0 !important; height: 100vh; }
+html body .main-sidebar .brand-link { position: relative !important; top: auto !important; width: auto !important; box-sizing: border-box; }
+
+/* ============================================================
+   Connexion : à gauche la scène animée (ciel, nuages, mascotte), à droite le formulaire
+   ============================================================ */
+html body.login-page .connexion { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); min-height: 100vh; width: 100%; }
+html body.login-page .connexion-scene { min-height: 100vh; border: 0; }
+.connexion-mascotte { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%) scale(1.45); transform-origin: 50% 100%; }
+.connexion-mascotte .mc { height: 300px; }
+html body.login-page .connexion-formulaire { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.6rem; padding: 2rem 1.25rem; background: var(--bg); }
+.connexion-logos-haut { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; justify-content: center; }
+.connexion-logos-haut img { height: 46px; width: auto; max-width: 44vw; border-radius: 10px; box-shadow: var(--n-out-sm); background: #fff; }
+.connexion-formulaire .carte { width: 100%; max-width: 410px; background: var(--surface); border: 0; border-radius: 30px; box-shadow: var(--n-out); padding: 2.2rem 2rem; position: static; }
+.connexion-formulaire .carte h1 { font-size: 1.9rem; font-weight: 800; margin: 0 0 1.2rem; }
+.connexion-formulaire .carte .form-group { margin-bottom: 1.1rem; }
+.connexion-formulaire .btn-block { position: static; width: 100%; min-height: 3.2rem; margin-top: .6rem; font-size: 1.05rem; }
+.connexion.en-cours .mc-tank, .connexion.en-cours .mc-ombre { animation-duration: .55s; }
+.connexion.en-cours .carte { opacity: .75; pointer-events: none; }
+@media (max-width: 860px) {
+  html body.login-page .connexion { grid-template-columns: 1fr; min-height: 0; }
+  html body.login-page .connexion-scene { min-height: 0; height: 270px; }
+  .connexion-mascotte { transform: translateX(-50%) scale(.5); bottom: 26px; }
+  .mc-sol { height: 34px; }
+  html body.login-page .connexion-formulaire { padding: 1.5rem 1rem 2.5rem; }
+}

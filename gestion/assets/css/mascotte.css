@@ -1,0 +1,60 @@
+/* Mascotte (réservoir de propane qui rebondit) — adaptée du dessin fourni par le client.
+   Utilisée par la page de connexion (grande scène) et par l'indicateur de chargement. */
+.mc { position: relative; width: 260px; height: 320px; }
+.mc-reservoir { position: absolute; left: calc(50% - 95px); bottom: 14px; width: 190px; height: 260px; }
+.mc-tank { position: absolute; inset: 0; transform-origin: 50% 100%; animation: mc-rebond 1s linear infinite; }
+.mc-couvercle { position: absolute; left: 53px; top: 0; width: 84px; height: 13px; background: linear-gradient(90deg, #14806f, #46cdb8 35%, #2fb8a3 65%, #12705f); border-radius: 9px 9px 3px 3px; box-shadow: 0 2px 0 rgba(0, 0, 0, .12); }
+.mc-col { position: absolute; left: 58px; top: 11px; width: 74px; height: 40px; background: linear-gradient(90deg, #cdd3d8, #ffffff 32%, #eef1f3 62%, #b4bcc3); border-radius: 2px 2px 0 0; }
+.mc-corps { position: absolute; left: 20px; top: 44px; width: 150px; height: 196px; border-radius: 40px 40px 26px 26px / 34px 34px 20px 20px; background: linear-gradient(90deg, #cfd5da 0%, #f3f5f6 16%, #ffffff 38%, #f1f3f5 68%, #c3cad0 100%); overflow: hidden; box-shadow: inset 0 -14px 20px rgba(0, 0, 0, .08); }
+.mc-corps::after { content: ""; position: absolute; left: 18%; top: 40px; bottom: 30px; width: 14%; background: radial-gradient(ellipse at center, rgba(255, 255, 255, .85), rgba(255, 255, 255, 0) 70%); }
+.mc-joint { position: absolute; left: 0; right: 0; height: 2px; background: rgba(0, 0, 0, .07); }
+.mc-anse { position: absolute; top: 20px; width: 16px; height: 16px; border: 4px solid #e2e6e9; border-radius: 50%; box-shadow: 0 1px 2px rgba(0, 0, 0, .35), inset 0 1px 1px rgba(0, 0, 0, .2); }
+.mc-anse::after { content: ""; position: absolute; left: 50%; bottom: -9px; width: 14px; height: 7px; margin-left: -7px; background: linear-gradient(#d3d9dd, #aab2b9); border-radius: 2px 2px 4px 4px; }
+.mc-g { left: 34px; } .mc-d { left: 132px; }
+.mc-yeux { position: absolute; background: #333; border-radius: 50%; width: 17px; height: 27px; left: 49px; top: 42px; box-shadow: 36px 0 #333; z-index: 2; }
+.mc-yeux::before { content: ""; position: absolute; background: #fff; width: 5px; height: 10px; border-radius: 50%; left: 9px; top: 8px; box-shadow: 36px 0 #fff; }
+.mc-etiquette { position: absolute; left: 0; right: 0; top: 78px; z-index: 1; display: flex; flex-direction: column; align-items: center; font-family: Arial, Helvetica, sans-serif; font-weight: 800; color: #044c92; }
+.mc-logo { display: block; width: 76px; height: 49px; }
+.mc-p { font-size: 10px; letter-spacing: 3.5px; margin-top: 4px; padding-left: 3.5px; }
+.mc-tel { margin-top: 4px; background: #044c92; color: #fff; font-size: 10px; padding: 2px 7px; border-radius: 2px; letter-spacing: .5px; }
+.mc-pied { position: absolute; left: 39px; bottom: 0; width: 112px; height: 26px; background: linear-gradient(90deg, #c4cbd1, #f7f9fa 35%, #eceff1 65%, #b9c1c8); border-radius: 2px 2px 7px 7px; overflow: hidden; }
+.mc-pied::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 9px; background: repeating-linear-gradient(90deg, transparent 0 14px, #7f878e 14px 28px); border-radius: 8px 8px 0 0; }
+.mc-ombre { position: absolute; left: calc(50% - 70px); bottom: 5px; width: 140px; height: 18px; border-radius: 50%; background: rgba(0, 0, 0, .25); animation: mc-ombre 1s linear infinite; }
+@keyframes mc-rebond {
+  0% { transform: scale(1, 1) translateY(0); }
+  10% { transform: scale(1.1, .9) translateY(0); }
+  30% { transform: scale(.9, 1.1) translateY(-70px) translateX(30px); }
+  50% { transform: scale(1.05, .95) translateY(0) translateX(30px) rotate(-8deg); }
+  58% { transform: scale(1, 1) translateY(-7px) translateX(0); }
+  65% { transform: scale(1, 1) translateY(0); }
+  100% { transform: scale(1, 1) translateY(0); }
+}
+@keyframes mc-ombre {
+  0% { transform: translateX(0); }
+  10% { transform: translateX(0) scale(.8); }
+  30% { transform: translateX(0) scale(.8); }
+  50% { transform: translateX(30px) scale(.7); }
+  58% { transform: translateX(20px); }
+  65% { transform: translateX(0); }
+  100% { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) { .mc-tank, .mc-ombre { animation: none; } }
+
+/* ---- Indicateur de chargement (par-dessus la page, après 0,35 s d'attente) ---- */
+#chargement { position: fixed; inset: 0; z-index: 3000; display: none; align-items: center; justify-content: center; flex-direction: column; gap: .25rem; background: color-mix(in srgb, var(--bg, #eef2f6) 78%, transparent); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
+#chargement.visible { display: flex; animation: mc-apparait .2s ease both; }
+#chargement .mc { transform: scale(.62); margin: -60px 0; }
+#chargement .chargement-texte { font-weight: 700; color: var(--ink, #1d2531); letter-spacing: .01em; }
+@keyframes mc-apparait { from { opacity: 0; } }
+@media print { #chargement { display: none !important; } }
+
+/* ---- Page de connexion : grande scène (ciel, nuages, sol) ---- */
+.mc-scene { position: relative; overflow: hidden; background: linear-gradient(#5fbcff, #d6f1ff); }
+.mc-sol { position: absolute; left: 0; right: 0; bottom: 0; height: 56px; background: radial-gradient(#b1b4b8 1px, transparent 1.6px) 0 0 / 7px 7px, radial-gradient(#6f7276 1px, transparent 1.6px) 3px 3px / 9px 9px, #8b8e92; }
+.mc-nuage1, .mc-nuage2, .mc-nuage3 { position: absolute; background: #fff; width: 100px; height: 25px; border-radius: 100px; }
+.mc-nuage1::before, .mc-nuage2::before, .mc-nuage3::before { content: ""; position: absolute; width: 40px; height: 40px; top: -20px; left: 20px; background: #fff; border-radius: 50%; }
+.mc-nuage1 { top: 22%; animation: mc-nuages 14s linear infinite; }
+.mc-nuage2 { top: 36%; opacity: .55; transform: scale(.7); animation: mc-nuages 11s linear infinite; }
+.mc-nuage3 { top: 29%; opacity: .55; transform: scale(.9); animation: mc-nuages 9s linear infinite; }
+@keyframes mc-nuages { from { left: 100%; } to { left: -160px; } }
+@media (prefers-reduced-motion: reduce) { .mc-nuage1, .mc-nuage2, .mc-nuage3 { animation: none; left: 20%; } }

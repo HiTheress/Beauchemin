@@ -592,7 +592,7 @@
     var alias = (donnees.alias || []).map(function (a) { return { code: a.code, type: a.type }; });
     var NOMS_TYPE = { fabricant: 'Fabricant', fournisseur: 'Fournisseur', autre: 'Autre' };
     var zoneErr = q('#erreur-form');
-    var champCode = q('#f-code'), champAlias = q('#f-alias');
+    var champCode = q('#f-code'), champAlias = q('#f-alias'), champBarres = q('#f-codebarres');
     var enCours = false, confirmeDesactivation = false;
     var boutons = [q('#btn-enregistrer'), q('#btn-enregistrer-nouveau')];
 
@@ -727,6 +727,35 @@
     champAlias.addEventListener('input', function () { effacer('codes'); });
     rendreAlias();
 
+    // ---- code-barres de la pièce (création) : un scan ou une saisie, Entrée passe à la suite ; devient un « autre code » Fabricant --
+    if (champBarres) {
+      var zoneBarres = q('#erreur-codebarres');
+      var verifierBarres = function () {
+        var c = nettoyer(champBarres.value);
+        zoneBarres.hidden = true; zoneBarres.textContent = ''; demarquerInvalide(champBarres);
+        if (c === '') { return Promise.resolve(true); }
+        return api.get('app/ajax/piece_code_verifier.php', { code: c, role: 'alias', piece_id: pieceId })
+          .then(function (r) {
+            if (!r.disponible) { zoneBarres.textContent = r.message; zoneBarres.hidden = false; marquerInvalide(champBarres, zoneBarres); w.bip(false); return false; }
+            champBarres.value = r.code; w.bip(true); return true;
+          })
+          .catch(function () { return true; /* la vérification finale se fait à l'enregistrement */ });
+      };
+      champBarres.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') { return; }
+        e.preventDefault();   // le lecteur envoie Entrée après le code : on ne soumet pas le formulaire
+        verifierBarres().then(function (ok) { if (ok) { q('#f-nom').value.trim() === '' ? q('#f-nom').focus() : q('#f-categorie').focus(); } });
+      });
+      champBarres.addEventListener('blur', function () { verifierBarres(); });
+      champBarres.addEventListener('input', function () { zoneBarres.hidden = true; demarquerInvalide(champBarres); });
+    }
+    // ---- unité : choix rapides (le champ reste modifiable) -------------------------------------------------
+    var champUnite = q('#f-unite');
+    function surlignerUnite() { qa('.cat-unite').forEach(function (b) { var actif = b.getAttribute('data-unite') === champUnite.value.trim(); b.classList.toggle('active', !!actif); b.setAttribute('aria-pressed', actif ? 'true' : 'false'); }); }
+    qa('.cat-unite').forEach(function (b) { b.addEventListener('click', function () { champUnite.value = b.getAttribute('data-unite'); effacer('unite'); surlignerUnite(); }); });
+    champUnite.addEventListener('input', surlignerUnite);
+    surlignerUnite();
+
     // ---- enregistrement ----------------------------------------------------------------------------------
     function charge() {
       var seuils = qa('.champ-seuil').map(function (i) {
@@ -737,6 +766,8 @@
         categorie_id: q('#f-categorie').value, unite: q('#f-unite').value.trim(),
         codes: alias.map(function (a) { return { code: a.code, type: a.type }; }), seuils: seuils
       };
+      var cb = champBarres ? nettoyer(champBarres.value) : '';
+      if (cb !== '' && !d.codes.some(function (a) { return a.code.toLowerCase() === cb.toLowerCase(); })) { d.codes.push({ code: cb, type: 'fabricant' }); }
       if (pieceId) { d.id = pieceId; d.actif = q('#f-actif').checked; d.confirmer_desactivation = confirmeDesactivation; d.empreinte = donnees.empreinte || ''; }
       return d;
     }

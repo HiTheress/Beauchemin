@@ -76,19 +76,15 @@ $aide_code = 'Imprimé sur les étiquettes. Permis : lettres majuscules (A-Z), c
                 <input id="f-nom" name="nom" class="form-control" maxlength="150" autocomplete="off" value="<?php echo e($v('nom')); ?>">
                 <div class="text-danger small mt-1" data-erreur-pour="nom" hidden></div>
               </div>
+              <?php if (!$piece) { ?>
               <div class="form-group">
-                <label for="f-code">Code <span class="text-danger" aria-hidden="true">*</span> <i class="fas fa-info-circle cat-info" tabindex="0" role="img" title="<?php echo e($aide_code); ?>" aria-label="<?php echo e($aide_code); ?>"></i></label>
-                <div class="input-group">
-                  <input id="f-code" name="code" class="form-control code<?php echo $a_mouvements ? ' cat-code-fige' : ''; ?>" maxlength="40" autocomplete="off" autocapitalize="characters" spellcheck="false" style="text-transform:uppercase"
-                         value="<?php echo e($v('code')); ?>"<?php echo $a_mouvements ? ' readonly' : ''; ?>>
-                  <?php if ($a_mouvements) { ?>
-                    <div class="input-group-append"><span class="input-group-text" title="Ce code ne peut plus être modifié (la pièce a des mouvements)."><i class="fas fa-lock" aria-hidden="true"></i><span class="sr-only">Code verrouillé : la pièce a des mouvements.</span></span></div>
-                  <?php } ?>
-                </div>
-                <div class="text-danger small mt-1" data-erreur-pour="code" hidden></div>
+                <label for="f-codebarres">Code-barres de la pièce <span class="text-muted font-weight-normal">(facultatif)</span></label>
+                <div class="scan-box"><input id="f-codebarres" class="form-control code" maxlength="64" autocomplete="off" spellcheck="false" placeholder="Scannez le code-barres de la pièce" aria-describedby="erreur-codebarres"></div>
+                <div class="text-danger small mt-1" id="erreur-codebarres" role="alert" hidden></div>
               </div>
+              <?php } ?>
               <div class="form-row">
-                <div class="form-group col-md-7">
+                <div class="form-group col-12">
                   <label for="f-categorie">Catégorie</label>
                   <div class="input-group">
                     <select id="f-categorie" name="categorie_id" class="form-control">
@@ -112,8 +108,11 @@ $aide_code = 'Imprimé sur les étiquettes. Permis : lettres majuscules (A-Z), c
                     <div class="text-danger small mt-1" id="nc-erreur" role="alert" hidden></div>
                   </div>
                 </div>
-                <div class="form-group col-md-5">
+                <div class="form-group col-12">
                   <label for="f-unite">Unité <span class="text-danger" aria-hidden="true">*</span></label>
+                  <div class="cat-unites" role="group" aria-label="Choix rapide de l'unité">
+                    <?php foreach (array('unité', 'paire', 'boîte', 'm', 'pi', 'L', 'kg', 'rouleau', 'lot') as $u) { ?><button type="button" class="btn btn-sm btn-outline-secondary cat-unite" data-unite="<?php echo e($u); ?>"><?php echo e($u); ?></button><?php } ?>
+                  </div>
                   <input id="f-unite" name="unite" class="form-control" maxlength="20" autocomplete="off" list="unites-suggerees" value="<?php echo e($v('unite', 'unité')); ?>">
                   <datalist id="unites-suggerees">
                     <?php foreach (array('unité', 'paire', 'm', 'pi', 'kg', 'L', 'boîte', 'rouleau', 'lot') as $u) { ?><option value="<?php echo e($u); ?>"></option><?php } ?>
@@ -124,6 +123,17 @@ $aide_code = 'Imprimé sur les étiquettes. Permis : lettres majuscules (A-Z), c
 
               <button type="button" class="btn btn-link cat-plus" data-plus="options-piece" aria-expanded="<?php echo $options_ouvertes ? 'true' : 'false'; ?>" aria-controls="options-piece">Plus d'options <i class="fas fa-chevron-down" aria-hidden="true"></i></button>
               <div id="options-piece" class="cat-plus-zone"<?php echo $options_ouvertes ? '' : ' hidden'; ?>>
+              <div class="form-group">
+                <label for="f-code">Code interne <span class="text-danger" aria-hidden="true">*</span> <i class="fas fa-info-circle cat-info" tabindex="0" role="img" title="<?php echo e($aide_code); ?>" aria-label="<?php echo e($aide_code); ?>"></i></label>
+                <div class="input-group">
+                  <input id="f-code" name="code" class="form-control code<?php echo $a_mouvements ? ' cat-code-fige' : ''; ?>" maxlength="40" autocomplete="off" autocapitalize="characters" spellcheck="false" style="text-transform:uppercase"
+                         value="<?php echo e($v('code')); ?>"<?php echo $a_mouvements ? ' readonly' : ''; ?>>
+                  <?php if ($a_mouvements) { ?>
+                    <div class="input-group-append"><span class="input-group-text" title="Ce code ne peut plus être modifié (la pièce a des mouvements)."><i class="fas fa-lock" aria-hidden="true"></i><span class="sr-only">Code verrouillé : la pièce a des mouvements.</span></span></div>
+                  <?php } ?>
+                </div>
+                <div class="text-danger small mt-1" data-erreur-pour="code" hidden></div>
+              </div>
                 <div class="form-group">
                   <label for="f-description">Description</label>
                   <textarea id="f-description" name="description" class="form-control" rows="3" maxlength="5000"><?php echo e($v('description')); ?></textarea>

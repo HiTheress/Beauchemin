@@ -3,6 +3,7 @@ require_once 'app/init.php';
 if ($Ouser->is_login()) {
   header("location:index.php"); exit;
 }
+require_once 'inc/mascotte.php';
 $erreur = $_SESSION['login_error'] ?? null;
 unset($_SESSION['login_error']);
 ?>
@@ -17,38 +18,40 @@ unset($_SESSION['login_error']);
   <link rel="stylesheet" href="dist/css/adminlte.min.css">
   <link rel="stylesheet" href="assets/css/beauchemin.css">
   <link rel="stylesheet" href="assets/css/theme.css">
+  <link rel="stylesheet" href="assets/css/mascotte.css">
 </head>
 <body class="hold-transition login-page">
-<div class="connexion">
-  <section class="connexion-marques" aria-label="Entreprises">
-    <div class="connexion-logos">
-      <div class="bloc"><img src="assets/img/logo-beauchemin.png" alt="Beauchemin — Mazout et propane"></div>
-      <div class="bloc rouge"><img src="assets/img/logo-boutique-chaleur.png" alt="Boutique Chaleur"></div>
-    </div>
-    <h1>Savoir où sont les pièces, en tout temps.</h1>
-    <p>Inventaire des entrepôts, des boutiques et des cubes de service de Beauchemin et de Boutique Chaleur.</p>
+<div class="connexion" id="connexion">
+  <section class="connexion-scene mc-scene" aria-hidden="true">
+    <div class="mc-nuage1"></div><div class="mc-nuage2"></div><div class="mc-nuage3"></div>
+    <div class="mc-sol"></div>
+    <div class="connexion-mascotte"><?php mascotte_html(); ?></div>
   </section>
   <section class="connexion-formulaire">
+    <div class="connexion-logos-haut">
+      <img src="assets/img/logo-beauchemin.png" alt="Beauchemin — Mazout et propane">
+      <img src="assets/img/logo-boutique-chaleur.png" alt="Boutique Chaleur">
+    </div>
     <div class="carte">
-      <h2>Connexion</h2>
-      <p class="sous-titre">Entrez votre nom d'utilisateur et votre mot de passe.</p>
+      <h1>Connexion</h1>
       <?php if ($erreur) { ?>
         <div class="alert alert-danger text-center" role="alert"><?php echo e($erreur); ?></div>
       <?php } ?>
-      <form action="app/action/login.php" method="post" autocomplete="on">
+      <form action="app/action/login.php" method="post" autocomplete="on" id="form-connexion">
         <input type="hidden" name="csrf_token" value="<?php echo e($_SESSION['csrf_token']); ?>">
-        <div class="input-group mb-3">
-          <input type="text" name="username" class="form-control" placeholder="Nom d'utilisateur" aria-label="Nom d'utilisateur" autocomplete="username" autofocus required>
-          <div class="input-group-append"><div class="input-group-text"><span class="fas fa-user"></span></div></div>
+        <div class="form-group">
+          <label for="champ-nom">Nom d'utilisateur</label>
+          <input id="champ-nom" type="text" name="username" class="form-control" autocomplete="username" autocapitalize="none" autofocus required>
         </div>
-        <div class="input-group mb-3">
-          <input type="password" name="password" class="form-control" placeholder="Mot de passe" aria-label="Mot de passe" autocomplete="current-password" required>
-          <div class="input-group-append"><div class="input-group-text"><span class="fas fa-lock"></span></div></div>
+        <div class="form-group">
+          <label for="champ-mdp">Mot de passe</label>
+          <input id="champ-mdp" type="password" name="password" class="form-control" autocomplete="current-password" required>
         </div>
-        <button type="submit" name="admin_login" value="1" class="btn btn-primary btn-block">Se connecter</button>
+        <button type="submit" name="admin_login" value="1" class="btn btn-primary btn-block" id="bouton-connexion">Se connecter</button>
       </form>
     </div>
   </section>
 </div>
+<script src="assets/js/connexion.js"></script>
 </body>
 </html>

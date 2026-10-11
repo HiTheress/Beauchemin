@@ -213,19 +213,20 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   L.verifier((await g.evaluate(() => document.activeElement.id)) === 'f-nom', 'nouvelle pièce : le curseur est dans « Nom »');
   L.verifier((await principaux(g)) === 1 && await g.$eval('#options-piece', z => z.hidden), 'formulaire de pièce : un seul bouton principal ; description, autres codes et minimums cachés derrière « Plus d\'options »');
   L.verifier((await g.$$('.content-wrapper p.text-muted, .content-wrapper small.form-text')).length === 0, 'formulaire de pièce : aucun texte d\'aide affiché en permanence');
-  // validations : tout vide -> messages précis
+  // validations : tout vide -> messages précis (le code interne est dans « Plus d'options »)
+  await plus(g, 'options-piece');
   await g.fill('#f-code', ''); await g.click('#btn-enregistrer');
   await g.waitForSelector('[data-erreur-pour="code"]:not([hidden])');
   L.verifier((await g.textContent('[data-erreur-pour="code"]')).includes('Le code interne est obligatoire'), 'code obligatoire (message sous le champ)');
   L.verifier((await g.getAttribute('#f-code', 'aria-invalid')) === 'true' && !!(await g.getAttribute('#f-code', 'aria-describedby')), 'champ fautif : aria-invalid et aria-describedby');
   L.verifier(!(await g.textContent('#erreur-form')).includes('Le code interne est obligatoire'), 'le même message n\'est pas répété dans le bandeau');
-  await g.fill('#f-code', 'abc 12'); await g.click('#btn-enregistrer');
+  await plus(g, 'options-piece'); await g.fill('#f-code', 'abc 12'); await g.click('#btn-enregistrer');
   await g.waitForFunction(() => /ne peut contenir que/.test(document.querySelector('[data-erreur-pour="code"]').textContent));
   L.verifier(await g.inputValue('#f-code') === 'ABC 12', 'le code est mis en majuscules à la frappe');
-  await g.fill('#f-code', 'P-0003'); await g.press('#f-code', 'Tab');
+  await plus(g, 'options-piece'); await g.fill('#f-code', 'P-0003'); await g.press('#f-code', 'Tab');
   await g.waitForFunction(() => /déjà le code interne de la pièce/.test(document.querySelector('[data-erreur-pour="code"]').textContent), null, { timeout: 5000 });
   L.verifier(true, 'vérification du code en quittant le champ (code déjà pris par une pièce)');
-  await g.fill('#f-code', 'P-0015');
+  await plus(g, 'options-piece'); await g.fill('#f-code', 'P-0015');
   await g.click('#btn-enregistrer');
   await g.waitForFunction(() => /Le nom est obligatoire/.test(document.querySelector('[data-erreur-pour="nom"]').textContent));
   L.verifier(await g.evaluate(() => document.activeElement.id) === 'f-nom', 'le champ fautif reçoit le focus');
@@ -315,19 +316,19 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
 
   // « Enregistrer et créer une autre »
   await L.aller(g, 'piece_edit');
-  await g.fill('#f-code', 'p-0300'); await g.fill('#f-nom', 'Pièce de série A1'); await g.fill('#f-unite', 'lot');
+  await plus(g, 'options-piece'); await g.fill('#f-code', 'p-0300'); await g.fill('#f-nom', 'Pièce de série A1'); await g.fill('#f-unite', 'lot');
   await g.click('#btn-enregistrer-nouveau');
   await g.waitForURL(/page=piece_edit&cree=\d+/);
   await g.waitForFunction(() => /^P-\d{4}$/.test(document.getElementById('f-code').value), null, { timeout: 5000 });
   L.verifier(!!(await g.$('.alert-success:has-text("P-0300")')) && (await g.inputValue('#f-nom')) === '' && (await g.inputValue('#f-code')) !== 'P-0300', 'enregistrer et ajouter une autre : message + formulaire prêt (nom vide, nouveau code proposé)');
   // double clic sur « Enregistrer » : une seule pièce créée
   await L.aller(g, 'piece_edit');
-  await g.fill('#f-code', 'P-0310'); await g.fill('#f-nom', 'Double clic'); await g.fill('#f-unite', 'lot');
+  await plus(g, 'options-piece'); await g.fill('#f-code', 'P-0310'); await g.fill('#f-nom', 'Double clic'); await g.fill('#f-unite', 'lot');
   await g.dblclick('#btn-enregistrer');
   await g.waitForURL(/page=piece_voir&id=\d+&msg=cree/);
   L.verifier(sql("SELECT COUNT(*) FROM pieces WHERE code = 'P-0310'") === '1', 'double clic sur Enregistrer : une seule pièce créée');
   await L.aller(g, 'piece_edit');
-  await g.fill('#f-code', 'P-0300'); await g.fill('#f-nom', 'Doublon'); await g.fill('#f-unite', 'lot'); await g.click('#btn-enregistrer');
+  await plus(g, 'options-piece'); await g.fill('#f-code', 'P-0300'); await g.fill('#f-nom', 'Doublon'); await g.fill('#f-unite', 'lot'); await g.click('#btn-enregistrer');
   await g.waitForFunction(() => /déjà le code interne de la pièce « P-0300/.test(document.querySelector('[data-erreur-pour="code"]').textContent));
   L.verifier(true, 'création avec un code déjà pris : refusée avec le nom de la pièce');
 
@@ -425,7 +426,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await L.aller(g, 'piece_edit&id=' + idNouvelle);
   L.verifier(!(await g.$eval('#f-code', e => e.readOnly)), 'code modifiable (aucun mouvement)');
   L.verifier((await g.inputValue('#seuil-1')) === '5,5', 'minimum 5,5 affiché avec la virgule');
-  await g.fill('#f-code', 'p-0150'); await g.click('#liste-alias li button'); await g.click('#liste-alias li button');
+  await plus(g, 'options-piece'); await g.fill('#f-code', 'p-0150'); await g.click('#liste-alias li button'); await g.click('#liste-alias li button');
   await g.fill('#f-alias', 'A1-NOUVEAU'); await g.selectOption('#f-alias-type', 'autre'); await g.press('#f-alias', 'Enter');
   await g.waitForFunction(() => (document.querySelector('#liste-alias li .code') || {}).textContent === 'A1-NOUVEAU');
   await g.click('#btn-enregistrer');
@@ -760,14 +761,14 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await g.waitForFunction(() => document.querySelectorAll('#liste-alias li .code').length === 6);
   L.verifier(true, 'alias terminé par Tab (suffixe du lecteur) : ajouté');
   // enregistrer pendant qu'un scan attend la réponse du serveur : on prévient au lieu d'oublier le code
-  await g.route('**/piece_code_verifier.php*', async route => { await attendre(500); await route.continue().catch(() => {}); });
-  await g.fill('#f-code', 'P-0900'); await g.fill('#f-nom', 'Essai rafale'); await g.fill('#f-unite', 'lot');
+  await g.route('**/piece_code_verifier.php*', async route => { await attendre(2500); await route.continue().catch(() => {}); });
+  await plus(g, 'options-piece'); await g.fill('#f-code', 'P-0900'); await g.fill('#f-nom', 'Essai rafale'); await g.fill('#f-unite', 'lot');
   await g.focus('#f-alias'); await g.keyboard.type('LENT-7777'); await g.keyboard.press('Enter');
   await g.click('#btn-enregistrer');
-  await g.waitForFunction(() => /en cours de vérification|n'a pas été ajouté/.test(document.querySelector('[data-erreur-pour="codes"]').textContent), null, { timeout: 4000 });
+  await g.waitForFunction(() => /en cours de vérification|n'a pas été ajouté/.test(document.querySelector('[data-erreur-pour="codes"]').textContent), null, { timeout: 6000 });
   L.verifier(true, 'enregistrer pendant la vérification d\'un scan : avertissement (aucun code oublié en silence)');
   await g.unroute('**/piece_code_verifier.php*');
-  await g.waitForFunction(() => document.querySelectorAll('#liste-alias li .code').length === 7, null, { timeout: 5000 });
+  await g.waitForFunction(() => document.querySelectorAll('#liste-alias li .code').length === 7, null, { timeout: 8000 });
   await g.click('#btn-enregistrer');
   await g.waitForURL(/page=piece_voir&id=\d+&msg=cree/);
   L.verifier((await tx(g, '.alert-success')).includes('Pièce « P-0900 » créée.'), 'message de création : la pièce est nommée : ' + await tx(g, '.alert-success'));

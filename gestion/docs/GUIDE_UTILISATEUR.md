@@ -41,6 +41,7 @@ d'appliquer et demande de relire. *Mettre à 0 les pièces non comptées* : seul
 * **Facturation → Nouvelle facture** : choisissez qui facture à qui, d'où on prend les pièces, où on les met, scannez, *Facturer*. Facture **au coût**, sans marge.
   **Factures** les liste (imprimer ou annuler) ; **Bilan du mois** dit qui doit combien à qui, avec le détail (imprimable, exportable).
 * **Annuler un document** : ouvrez-le (Documents → numéro), motif obligatoire. Refusé si la marchandise n'est plus là. Seule l'entreprise qui a émis le document peut l'annuler.
+* **Ajouter une pièce** (Catalogue → Pièces → *Ajouter une pièce*) : tapez le **nom**, **scannez le code-barres** de la pièce, choisissez l'**unité** d'un clic, *Enregistrer*. Le code interne se propose tout seul ; les autres champs (minimum, emplacement habituel, autres codes…) sont sous *Plus d'options*.
 * **Catalogue** : *Pièces*, *Importer des pièces* (aperçu avant écriture ; une erreur = rien d'importé), *Fournisseurs* (prix dans la fiche de la pièce), *Catégories*, *Étiquettes* (feuille, rouleau ou grande).
 * **Rapports** : *Documents*, *Historique*, *À recommander* (pièces sous le minimum), *Valeur du stock*.
 
