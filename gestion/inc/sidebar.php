@@ -27,7 +27,7 @@ $menu = array(
   )),
   array('groupe' => 'Rapports', 'icone' => 'fa-chart-bar', 'items' => array(
     array('documents',         'Documents',                'fa-file-alt',            'employe',      array('document_voir')),
-    array('historique',        'Historique des mouvements', 'fa-history',            'employe',      array()),
+    array('historique',        'Historique',                'fa-history',            'employe',      array()),
     array('sous_minimum',      'Sous le minimum',          'fa-exclamation-triangle','employe',      array()),
     array('valeur_inventaire', 'Valeur de l\'inventaire',  'fa-dollar-sign',         'gestionnaire', array()),
   )),
