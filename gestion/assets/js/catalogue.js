@@ -57,10 +57,59 @@
   /** Recherche française : « electro » trouve « Électro Plus » (le serveur fait de même pour la liste des pièces). */
   $.fn.dataTable.ext.type.search['fr'] = function (d) { return sansAccents(d); };
 
-  /** Branche la recherche d'un tableau chargé dans le navigateur sur le texte sans accents. */
-  function rechercheSansAccents(table) {
-    var champ = $(table.table().container()).find('.dataTables_filter input');
+  /**
+   * Recherche d'un tableau chargé dans le navigateur : texte sans accents, champ placé dans la barre du haut (#zone-recherche),
+   * sans libellé ni menu « Afficher N lignes ».
+   */
+  function preparerRecherche(table, invite) {
+    var cont = $(table.table().container());
+    var filtre = cont.find('.dataTables_filter');
+    var champ = filtre.find('input');
+    var zone = q('#zone-recherche');
+    if (zone && filtre.length) { zone.appendChild(filtre[0]); }
+    champ.attr({ placeholder: invite, 'aria-label': invite.replace(/…$/, '') });
     champ.off('.DT').on('input.cat search.cat', function () { table.search(sansAccents(this.value)).draw(); });
+  }
+
+  /** Pas de pagination ni de compteur quand tout tient sur une page. */
+  function masquerPagination(api) {
+    var multi = api.page.info().pages > 1;
+    $(api.table().container()).find('.dataTables_info, .dataTables_paginate').toggle(multi);
+  }
+
+  /** Remplace le contenu de la ligne « vide » : un texte court et, au besoin, un bouton d'action. */
+  function etatVide(selecteur, texte, action) {
+    var td = q(selecteur + ' td.dataTables_empty');
+    if (!td) { return; }
+    td.textContent = texte + ' ';
+    if (action) {
+      var b = document.createElement(action.href ? 'a' : 'button');
+      if (action.href) { b.href = action.href; } else { b.type = 'button'; }
+      b.className = 'btn ' + (action.classe || 'btn-outline-secondary') + ' ml-2';
+      b.textContent = action.libelle;
+      if (action.attr) { b.setAttribute(action.attr[0], action.attr[1]); }
+      if (action.clic) { b.addEventListener('click', action.clic); }
+      td.appendChild(b);
+    }
+  }
+
+  // ---- « Plus d'options » : les champs rares restent cachés derrière un bouton --------------------------
+  function fixerPlus(btn, ouvrir) {
+    var z = btn ? document.getElementById(btn.getAttribute('data-plus')) : null;
+    if (!z) { return; }
+    z.hidden = !ouvrir;
+    btn.setAttribute('aria-expanded', ouvrir ? 'true' : 'false');
+  }
+  function plusDe(idZone, ouvrir) { fixerPlus(q('[data-plus="' + idZone + '"]'), ouvrir); }
+  /** Un champ en erreur ne doit jamais rester caché : on ouvre « Plus d'options » avant de le signaler. */
+  function montrerChamp(el) {
+    var z = (el && el.closest) ? el.closest('.cat-plus-zone') : null;
+    if (z && z.hidden) { plusDe(z.id, true); }
+  }
+  function brancherPlus() {
+    qa('[data-plus]').forEach(function (b) {
+      b.addEventListener('click', function () { fixerPlus(b, b.getAttribute('aria-expanded') !== 'true'); });
+    });
   }
 
   /**

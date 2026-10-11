@@ -1,5 +1,5 @@
 <?php
-// Entreprises : liste, création, modification, désactivation (jamais de suppression). Administrateur seulement.
+// Entreprises : liste (un clic sur une ligne ouvre la fiche), ajout, modification, désactivation (jamais de suppression). Administrateur seulement.
 if (!acces_page('admin')) { return; }
 require_once __DIR__ . '/../app/action/utilisateur_lib.php';
 page_script('assets/js/admin.js');
@@ -10,32 +10,26 @@ page_script('assets/js/admin.js');
   <section class="content"><div class="container-fluid">
     <?php Admin::enteteImpression('Entreprises'); ?>
     <div class="card"><div class="card-body">
-      <div class="row adm-filtres align-items-end">
-        <div class="col-md-4 col-lg-3 form-group">
-          <label for="f-recherche">Rechercher</label>
-          <input id="f-recherche" type="search" class="form-control" maxlength="100" autocomplete="off" placeholder="Code, nom ou adresse">
+      <div class="row adm-filtres align-items-center">
+        <div class="col-md-6 col-lg-4 form-group">
+          <label for="f-recherche" class="sr-only">Rechercher</label>
+          <div class="input-group">
+            <div class="input-group-prepend"><span class="input-group-text"><i class="fas fa-search" aria-hidden="true"></i></span></div>
+            <input id="f-recherche" type="search" class="form-control" maxlength="100" autocomplete="off" placeholder="Nom ou code">
+          </div>
         </div>
-        <div class="col-md-3 col-lg-2 form-group">
-          <label for="f-statut">Statut</label>
-          <select id="f-statut" class="form-control">
-            <option value="tous">Toutes</option><option value="actifs">Actives</option><option value="inactifs">Désactivées</option>
-          </select>
-        </div>
-        <div class="col-md-5 col-lg-7 form-group text-md-right adm-actions no-print">
-          <button type="button" class="btn btn-primary" id="btn-nouveau"><i class="fas fa-plus mr-1" aria-hidden="true"></i> Nouvelle entreprise</button>
+        <div class="col-md-6 col-lg-8 form-group text-md-right adm-actions no-print">
+          <button type="button" class="btn btn-primary" id="btn-nouveau"><i class="fas fa-plus mr-1" aria-hidden="true"></i> Ajouter une entreprise</button>
         </div>
       </div>
       <div class="table-responsive">
         <table id="table-entreprises" class="table table-striped adm-table w-100">
           <thead><tr>
-            <th scope="col">Entreprise</th><th scope="col">Contenu</th>
-            <th scope="col">Statut</th><th scope="col" class="no-print"><span class="sr-only">Actions</span></th>
+            <th scope="col">Entreprise</th><th scope="col">Code</th><th scope="col">Adresse</th><th scope="col">État</th>
           </tr></thead>
           <tbody></tbody>
         </table>
       </div>
-      <p class="text-muted small mt-2 mb-0">On ne supprime pas une entreprise : on la désactive. Elle disparaît alors des listes de saisie, mais son historique reste consultable.
-        La désactivation est refusée s'il reste du stock dans ses emplacements, si un comptage y est en cours ou s'il s'agit de la dernière entreprise active.</p>
     </div></div>
   </div></section>
 
@@ -47,27 +41,23 @@ page_script('assets/js/admin.js');
         <div class="modal-body">
           <div class="alert alert-danger" role="alert" id="entreprise-erreur" hidden></div>
           <div class="form-group">
-            <label for="en-code">Code <span class="text-danger" aria-hidden="true">*</span></label>
-            <input id="en-code" name="code" class="form-control adm-code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="en-code-aide">
-            <small id="en-code-aide" class="form-text text-muted">10 caractères au plus (lettres, chiffres, tiret). Unique. Exemple : BEA.</small>
-            <small class="text-danger" data-erreur-pour="code" hidden></small>
-          </div>
-          <div class="form-group">
             <label for="en-nom">Nom <span class="text-danger" aria-hidden="true">*</span></label>
             <input id="en-nom" name="nom" class="form-control" maxlength="100" autocomplete="off">
             <small class="text-danger" data-erreur-pour="nom" hidden></small>
+          </div>
+          <div class="form-group">
+            <label for="en-code">Code <span class="text-danger" aria-hidden="true">*</span></label>
+            <input id="en-code" name="code" class="form-control adm-code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Ex. : BEA">
+            <small class="text-danger" data-erreur-pour="code" hidden></small>
           </div>
           <div class="form-group">
             <label for="en-adresse">Adresse</label>
             <input id="en-adresse" name="adresse" class="form-control" maxlength="255" autocomplete="off">
             <small class="text-danger" data-erreur-pour="adresse" hidden></small>
           </div>
-          <div class="form-group mb-0" id="en-actif-groupe" hidden>
-            <div class="custom-control custom-checkbox adm-case">
-              <input type="checkbox" class="custom-control-input" id="en-actif" name="actif" checked>
-              <label class="custom-control-label" for="en-actif">Entreprise active</label>
-            </div>
-            <small class="text-danger" data-erreur-pour="actif" hidden></small>
+          <div class="adm-compte" id="en-compte-bloc" hidden>
+            <button type="button" class="btn btn-outline-danger" id="en-btn-desactiver" hidden><i class="fas fa-ban mr-1" aria-hidden="true"></i>Désactiver l'entreprise</button>
+            <button type="button" class="btn btn-outline-success" id="en-btn-reactiver" hidden><i class="fas fa-check mr-1" aria-hidden="true"></i>Réactiver l'entreprise</button>
           </div>
         </div>
         <div class="modal-footer">

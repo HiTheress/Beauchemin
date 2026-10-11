@@ -69,9 +69,9 @@
     var n = entier($id('et-copies-defaut').value);
     return (n >= 1 && n <= MAX_COPIES) ? n : 1;
   }
-  /* « Copies par élément ajouté » invalide : on ajoute 1 copie, mais on le dit (jamais de remplacement silencieux). */
+  /* « Copies par ajout » invalide : on ajoute 1 copie, mais on le dit (jamais de remplacement silencieux). */
   function verifCopiesDefaut() {
-    if (!copiesDefautValide()) { w.toast(fr('Le nombre de copies par élément est invalide (entier de 1 à ' + MAX_COPIES + ') : une seule copie a été ajoutée.'), 'warning'); }
+    if (!copiesDefautValide()) { w.toast(fr('Copies par ajout : entrez un nombre de 1 à ' + MAX_COPIES + '. Une seule copie a été ajoutée.'), 'warning'); }
   }
   function copiesValides(it) { var n = entier(it.copies); return n >= 1 && n <= MAX_COPIES; }
   function totalEtiquettes() {
@@ -110,7 +110,7 @@
     items.forEach(function (it) {
       var tr = el('tr');
       it.tr = tr;
-      var tdT = el('td'); tdT.appendChild(el('span', { class: 'badge et-badge-type ' + (it.type === 'piece' ? 'badge-primary' : 'badge-info') }, it.type === 'piece' ? 'Pièce' : 'Emplacement'));
+      var tdT = el('td', { class: 'et-col-type' }); tdT.appendChild(el('span', { class: 'badge et-badge-type ' + (it.type === 'piece' ? 'badge-primary' : 'badge-info') }, it.type === 'piece' ? 'Pièce' : 'Emplacement'));
       tr.appendChild(tdT);
       tr.appendChild(el('td', { class: 'code' }, it.code));
       var tdN = el('td'); tdN.appendChild(document.createTextNode(it.nom));
@@ -119,16 +119,31 @@
       tdN.appendChild(it.celErreur);
       tr.appendChild(tdN);
       var tdC = el('td', { class: 'nombre' });
-      var inp = el('input', { type: 'text', inputmode: 'numeric', class: 'form-control form-control-sm et-copies-input', 'aria-label': 'Copies de ' + it.code, value: it.copies });
+      var inp = el('input', { type: 'text', inputmode: 'numeric', class: 'form-control et-copies-input', 'aria-label': 'Copies de ' + it.code, value: it.copies });
       var fb = el('div', { class: 'invalid-feedback', id: 'et-cop-' + (++cptLigne) }, 'Entrez un nombre de 1 à ' + MAX_COPIES + '.');
       inp.setAttribute('aria-describedby', fb.id);
       inp.classList.toggle('is-invalid', !copiesValides(it));
-      inp.addEventListener('input', function () {
-        it.copies = inp.value;
+      function copiesChangees() {
         inp.classList.toggle('is-invalid', !copiesValides(it));
         majCompte(); programmerApercu();
-      });
-      tdC.appendChild(inp); tdC.appendChild(fb); tr.appendChild(tdC);
+      }
+      inp.addEventListener('input', function () { it.copies = inp.value; copiesChangees(); });
+      /* − et + : gros boutons (tablette) en plus du champ ; une saisie invalide repart de 1 */
+      function pas(delta, icone, libelle) {
+        var b = el('button', { type: 'button', class: 'btn btn-outline-secondary', title: libelle, 'aria-label': libelle + ' : ' + it.code });
+        b.appendChild(el('i', { class: 'fas ' + icone, 'aria-hidden': 'true' }));
+        b.addEventListener('click', function () {
+          var n = copiesValides(it) ? entier(it.copies) : 1;
+          n = Math.max(1, Math.min(MAX_COPIES, n + delta));
+          it.copies = String(n); inp.value = it.copies; copiesChangees();
+        });
+        return b;
+      }
+      var groupe = el('div', { class: 'input-group et-copies-groupe' });
+      var pre = el('div', { class: 'input-group-prepend' }); pre.appendChild(pas(-1, 'fa-minus', 'Une copie de moins'));
+      var app = el('div', { class: 'input-group-append' }); app.appendChild(pas(1, 'fa-plus', 'Une copie de plus'));
+      groupe.appendChild(pre); groupe.appendChild(inp); groupe.appendChild(app);
+      tdC.appendChild(groupe); tdC.appendChild(fb); tr.appendChild(tdC);
       var tdX = el('td', { class: 'text-right', style: 'width:60px' });
       var bx = el('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', title: 'Retirer de la liste', 'aria-label': 'Retirer ' + it.code });
       bx.appendChild(el('i', { class: 'fas fa-times' }));
@@ -140,6 +155,9 @@
     $id('et-table').style.display = items.length ? '' : 'none';
     $id('et-vide').style.display = items.length ? 'none' : '';
     $id('et-vider').disabled = !items.length;
+    $id('et-vider').style.display = items.length ? '' : 'none';
+    $id('et-carte-impression').style.display = items.length ? '' : 'none';   // rien à imprimer : ni formats ni bouton
+    document.querySelector('.et-carte-apercu').style.display = items.length ? '' : 'none';
     marquerErreurs();
     majCompte();
   }
@@ -166,7 +184,7 @@
     styleEl.textContent = '@page { size: ' + f.page_largeur + 'mm ' + f.page_hauteur + 'mm; margin: 0; }';
     $id('et-depart-groupe').style.display = (f.colonnes * f.rangees > 1) ? '' : 'none';
     var max = f.colonnes * f.rangees;
-    $id('et-depart').setAttribute('aria-label', 'Première étiquette à utiliser (1 à ' + max + ')');
+    $id('et-depart').setAttribute('aria-label', 'Commencer à la case (1 à ' + max + ')');
     majDepartChamp();
   }
 
@@ -208,11 +226,11 @@
     nbRefus = 0;
     $id('et-refus').style.display = 'none';
     if (!items.length) { $id('et-apercu').innerHTML = ''; resume(); return; }
-    if (invalide) { $id('et-apercu').innerHTML = ''; resume('Corrigez le nombre de copies : un entier de 1 à ' + MAX_COPIES + '.'); return; }
+    if (invalide) { $id('et-apercu').innerHTML = ''; resume('Corrigez le nombre de copies (1 à ' + MAX_COPIES + ').'); return; }
     if (total > MAX_ET) { $id('et-apercu').innerHTML = ''; resume('Trop d\'étiquettes d\'un coup : ' + nb(total) + ' (maximum ' + nb(MAX_ET) + ' par impression).'); return; }
     enCours = true;
     var zone = $id('et-apercu');
-    zone.innerHTML = ''; zone.appendChild(el('div', { class: 'et-chargement' }, 'Génération de l\'aperçu…'));
+    zone.innerHTML = ''; zone.appendChild(el('div', { class: 'et-chargement' }, 'Aperçu en cours…'));
     w.api.post('app/ajax/etiquettes_donnees.php', {
       format: format,
       elements: items.map(function (it) { return { type: it.type, id: it.id, copies: entier(it.copies) }; })
@@ -254,19 +272,19 @@
     if (message) {
       box.classList.add('alert-warning'); box.textContent = fr(message); btn.disabled = true; return;
     }
-    if (!items.length) { box.classList.add('alert-light'); box.textContent = 'Aucune étiquette à imprimer.'; btn.disabled = true; return; }
-    if (!donnees) { box.classList.add('alert-light'); box.textContent = 'Préparation de l\'aperçu…'; btn.disabled = true; return; }
+    if (!items.length) { box.classList.add('alert-light'); box.textContent = 'Aucune étiquette.'; btn.disabled = true; return; }
+    if (!donnees) { box.classList.add('alert-light'); box.textContent = 'Aperçu en cours…'; btn.disabled = true; return; }
     if (!n) { box.classList.add('alert-danger'); box.textContent = fr('Aucune étiquette ne peut être imprimée : voir les éléments refusés ci-dessous.'); btn.disabled = true; return; }
     var par = f.colonnes * f.rangees;
     if (departInvalide()) {   // une case de départ invalide n'est jamais remplacée en silence : on bloque l'impression
-      box.classList.add('alert-warning'); box.textContent = fr('Première étiquette : entrez un nombre de 1 à ' + par + '.'); btn.disabled = true; return;
+      box.classList.add('alert-warning'); box.textContent = fr('Commencer à la case : entrez un nombre de 1 à ' + par + '.'); btn.disabled = true; return;
     }
     var texte;
     if (par > 1) {
       var d = depart(), pages = Math.ceil((n + d - 1) / par);
-      texte = pluriel(n, 'étiquette', 'étiquettes') + ' sur ' + pluriel(pages, 'feuille', 'feuilles') + ' (' + par + ' par feuille' + (d > 1 ? ', en commençant à la case ' + d : '') + ').';
+      texte = pluriel(n, 'étiquette', 'étiquettes') + ' sur ' + pluriel(pages, 'feuille', 'feuilles') + (d > 1 ? ' (en commençant à la case ' + d + ')' : '') + '.';
     } else {
-      texte = pluriel(n, 'étiquette', 'étiquettes') + ' : une étiquette par page, ' + String(f.largeur).replace('.', ',') + ' × ' + String(f.hauteur).replace('.', ',') + ' mm.';
+      texte = pluriel(n, 'étiquette', 'étiquettes') + '.';
     }
     if (nbRefus) {   // des éléments manquent : le résumé ne doit pas laisser croire que tout sera imprimé
       box.classList.add('alert-warning');
@@ -337,7 +355,7 @@
     // Recherche de pièces (select2 multiple : chaque choix ajoute une ligne puis se vide)
     var $rech = $('#et-recherche');
     $rech.select2({
-      placeholder: 'Taper le nom ou le code d\'une pièce…', minimumInputLength: 1, multiple: true,
+      placeholder: 'Chercher une pièce…', minimumInputLength: 1, multiple: true,
       ajax: {
         url: 'app/ajax/pieces_recherche.php', dataType: 'json', delay: 200,
         data: function (p) { return { q: p.term || '' }; },
@@ -386,7 +404,7 @@
     // Catégorie complète
     $('#et-ajouter-categorie').on('click', function () {
       var sel = $id('et-categorie'), btn = this;
-      if (sel.value === '') { w.toast('Choisissez d\'abord une catégorie.', 'warning'); sel.focus(); return; }
+      if (sel.value === '') { w.toast('Choisissez une catégorie.', 'warning'); sel.focus(); return; }
       verifCopiesDefaut();
       btn.disabled = true;
       w.api.get('app/ajax/etiquettes_categorie.php', { categorie_id: sel.value }).then(function (r) {
@@ -430,11 +448,10 @@
       } else { vider(); }
     });
     $('#et-copies-defaut').on('input', function () { this.classList.toggle('is-invalid', !copiesDefautValide()); });
-    $('#et-saut').on('click', function (ev) {   // lien d'évitement : de la liste directement au format et à l'impression
-      ev.preventDefault();
-      var c = $id('et-carte-impression');
-      c.focus({ preventScroll: true });
-      c.scrollIntoView({ block: 'start' });
+    // État vide : « Ajouter une pièce » amène le curseur dans la recherche
+    $('#et-vide-action').on('click', function () {
+      var champ = $rech.next('.select2').find('.select2-search__field')[0];
+      if (champ) { champ.focus(); }
     });
 
     $('input[name="et-format"]').on('change', function () {

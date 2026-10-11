@@ -13,17 +13,18 @@ $portee = $noms_ent ? implode(', ', $noms_ent) : 'aucune entreprise';
 $pre_cat = (isset($_GET['categorie_id']) && is_string($_GET['categorie_id']) && ($_GET['categorie_id'] === 'aucune' || ctype_digit($_GET['categorie_id']))) ? $_GET['categorie_id'] : '';
 $pre_statut = (isset($_GET['statut']) && is_string($_GET['statut']) && in_array($_GET['statut'], array('actives', 'inactives', 'toutes'), true)) ? $_GET['statut'] : 'actives';
 $pre_q = (isset($_GET['q']) && is_string($_GET['q'])) ? mb_substr($_GET['q'], 0, 100) : '';
+$options_ouvertes = ($pre_statut !== 'actives');   // un filtre venu de l'adresse doit rester visible
 ?>
 <link rel="stylesheet" href="assets/css/catalogue.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/catalogue.css'); ?>">
-<div class="content-wrapper" data-catalogue="pieces">
+<div class="content-wrapper" data-catalogue="pieces" data-gest="<?php echo $gest ? '1' : '0'; ?>">
   <?php page_titre('Pièces', array('Catalogue')); ?>
   <section class="content"><div class="container-fluid">
-    <div class="cat-titre-impression"><div class="titre">Liste des pièces</div><div id="filtres-impression"></div></div>
+    <div class="cat-titre-impression"><div class="titre">Liste des pièces</div><div id="filtres-impression" data-portee="<?php echo e($portee); ?>"></div></div>
     <div class="card"><div class="card-body">
 
-      <div class="row cat-filtres">
-        <div class="col-lg-4 col-md-6 form-group">
-          <label for="recherche">Rechercher ou scanner une pièce</label>
+      <div class="cat-barre cat-filtres">
+        <div class="cat-barre-recherche">
+          <label for="recherche" class="sr-only">Rechercher une pièce</label>
           <div class="scan-box cat-scan-box">
             <div class="input-group">
               <div class="input-group-prepend"><span class="input-group-text"><i class="fas fa-barcode" aria-hidden="true"></i></span></div>
@@ -31,8 +32,8 @@ $pre_q = (isset($_GET['q']) && is_string($_GET['q'])) ? mb_substr($_GET['q'], 0,
             </div>
           </div>
         </div>
-        <div class="col-lg-3 col-md-6 form-group">
-          <label for="f-categorie">Catégorie</label>
+        <div class="cat-barre-filtre">
+          <label for="f-categorie" class="sr-only">Catégorie</label>
           <select id="f-categorie" class="form-control">
             <option value="">Toutes les catégories</option>
             <option value="aucune"<?php echo $pre_cat === 'aucune' ? ' selected' : ''; ?>>Sans catégorie</option>
@@ -41,41 +42,48 @@ $pre_q = (isset($_GET['q']) && is_string($_GET['q'])) ? mb_substr($_GET['q'], 0,
             <?php } ?>
           </select>
         </div>
-        <div class="col-lg-2 col-md-4 form-group">
-          <label for="f-statut">Statut</label>
-          <select id="f-statut" class="form-control">
-            <option value="actives"<?php echo $pre_statut === 'actives' ? ' selected' : ''; ?>>Actives</option>
-            <option value="inactives"<?php echo $pre_statut === 'inactives' ? ' selected' : ''; ?>>Désactivées</option>
-            <option value="toutes"<?php echo $pre_statut === 'toutes' ? ' selected' : ''; ?>>Toutes</option>
-          </select>
+        <?php if ($gest) { ?>
+        <div class="cat-actions no-print">
+          <a class="btn btn-primary" href="index.php?page=piece_edit"><i class="fas fa-plus mr-1" aria-hidden="true"></i> Ajouter une pièce</a>
         </div>
-        <div class="col-lg-3 col-md-8 form-group d-flex align-items-end">
-          <div class="custom-control custom-checkbox mb-2">
-            <input type="checkbox" class="custom-control-input" id="f-stock">
-            <label class="custom-control-label" for="f-stock">Avec stock seulement</label>
-          </div>
-        </div>
+        <?php } ?>
       </div>
 
-      <?php if ($gest) { ?>
-      <div class="mb-3 cat-actions no-print">
-        <a class="btn btn-primary" href="index.php?page=piece_edit"><i class="fas fa-plus mr-1" aria-hidden="true"></i> Nouvelle pièce</a>
-        <a class="btn btn-outline-secondary" href="index.php?page=pieces_import"><i class="fas fa-file-import mr-1" aria-hidden="true"></i> Importer (CSV)</a>
-        <a class="btn btn-outline-secondary" href="app/ajax/pieces_export.php"><i class="fas fa-file-export mr-1" aria-hidden="true"></i> Exporter (CSV)</a>
-        <a class="btn btn-outline-secondary" href="index.php?page=etiquettes"><i class="fas fa-print mr-1" aria-hidden="true"></i> Étiquettes</a>
+      <div class="cat-plus-ligne cat-filtres no-print">
+        <button type="button" class="btn btn-link cat-plus" data-plus="options-pieces" aria-expanded="<?php echo $options_ouvertes ? 'true' : 'false'; ?>" aria-controls="options-pieces">Plus d'options <i class="fas fa-chevron-down" aria-hidden="true"></i></button>
       </div>
-      <?php } ?>
+      <div id="options-pieces" class="cat-plus-zone cat-filtres no-print"<?php echo $options_ouvertes ? '' : ' hidden'; ?>>
+        <div class="form-row align-items-end">
+          <div class="col-sm-6 col-md-4 form-group">
+            <label for="f-statut">Afficher</label>
+            <select id="f-statut" class="form-control">
+              <option value="actives"<?php echo $pre_statut === 'actives' ? ' selected' : ''; ?>>Pièces actives</option>
+              <option value="inactives"<?php echo $pre_statut === 'inactives' ? ' selected' : ''; ?>>Pièces désactivées</option>
+              <option value="toutes"<?php echo $pre_statut === 'toutes' ? ' selected' : ''; ?>>Toutes les pièces</option>
+            </select>
+          </div>
+          <div class="col-sm-6 col-md-4 form-group">
+            <div class="custom-control custom-checkbox">
+              <input type="checkbox" class="custom-control-input" id="f-stock">
+              <label class="custom-control-label" for="f-stock">En stock seulement</label>
+            </div>
+          </div>
+          <?php if ($gest) { ?>
+          <div class="col-md-4 form-group cat-actions">
+            <a class="btn btn-outline-secondary" href="app/ajax/pieces_export.php"><i class="fas fa-file-export mr-1" aria-hidden="true"></i> Exporter</a>
+          </div>
+          <?php } ?>
+        </div>
+      </div>
 
       <div class="table-responsive">
         <table id="table-pieces" class="table table-striped cat-table w-100">
           <thead><tr>
-            <th scope="col">Code</th><th scope="col">Nom</th><th scope="col">Catégorie</th><th scope="col">Unité</th>
-            <th scope="col" class="nombre">Quantité totale</th><th scope="col">Statut</th>
+            <th scope="col">Code</th><th scope="col">Nom</th><th scope="col" class="d-none d-sm-table-cell">Catégorie</th><th scope="col" class="nombre">Quantité</th>
           </tr></thead>
           <tbody></tbody>
         </table>
       </div>
-      <p class="text-muted small mt-2 mb-0 cat-portee">Quantités comptées dans : <strong><?php echo e($portee); ?></strong> (tous les emplacements). Pour changer d'entreprise, utilisez le sélecteur en haut de l'écran.</p>
     </div></div>
   </div></section>
 </div>

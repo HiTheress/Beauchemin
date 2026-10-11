@@ -42,16 +42,21 @@
   $(document).ajaxError(function (e, xhr) { if (xhr && xhr.status === 401) { w.location.href = 'login.php'; } });
   // (Le message d'erreur de chargement d'un tableau est affiché une seule fois, par app.js ; ici on signale en plus l'échec dans le tableau.)
 
-  var DOM = '<"row"<"col-sm-12"tr>><"row mt-2"<"col-sm-12 col-md-4"l><"col-sm-12 col-md-3"i><"col-sm-12 col-md-5"p>>';
+  // Listes : le tableau et, s'il y a plus d'une page, la pagination (ni « Afficher N lignes », ni légende)
+  var DOM = '<"row"<"col-sm-12"tr>><"row mt-2"<"col-sm-12"p>>';
+  // Journal : en plus, le nombre d'entrées affichées
+  var DOM_JOURNAL = '<"row"<"col-sm-12"tr>><"row mt-2"<"col-sm-12 col-md-4"i><"col-sm-12 col-md-8"p>>';
 
-  /** Tableau serveur standard (la recherche passe par le champ #f-recherche de la page). */
-  function creerTable(sel, ajaxUrl, filtres, colonnes, ordre, vide, apresLigne) {
+  /** Tableau serveur standard (la recherche passe par le champ #f-recherche de la page). opts : { dom, pageLength }. */
+  function creerTable(sel, ajaxUrl, filtres, colonnes, ordre, vide, apresLigne, opts) {
+    opts = opts || {};
     var t = $(sel).DataTable({
-      serverSide: true, processing: true, searching: true, order: ordre, dom: DOM,
+      serverSide: true, processing: true, searching: true, order: ordre, dom: opts.dom || DOM, pageLength: opts.pageLength || 25,
       ajax: { url: ajaxUrl, type: 'POST', data: function (d) { filtres(d); } },
       columns: colonnes,
       language: $.extend({}, w.DT_LANG, { zeroRecords: vide[0], emptyTable: vide[1] }),
-      createdRow: function (tr, data) { if (apresLigne) { apresLigne(tr, data); } }
+      createdRow: function (tr, data) { if (apresLigne) { apresLigne(tr, data); } },
+      drawCallback: function () { $(sel).closest('.dataTables_wrapper').find('.dataTables_paginate').toggle(this.api().page.info().pages > 1); }      // une seule page : pas de pagination
     });
     // Échec de chargement : les anciennes lignes ne doivent pas rester là comme si de rien n'était
     $(sel).on('error.dt', function () {
@@ -271,14 +276,21 @@
     return parseInt(v, 10) === 1 ? '<span class="badge badge-success">Actif</span>' : '<span class="badge badge-secondary">Désactivé</span>';
   }
   /**
-   * Bouton d'action d'une ligne : icône ET texte visible (une infobulle n'existe pas au toucher). L'étiquette lue par un lecteur d'écran
-   * commence par le texte visible et nomme la cible (« Modifier jean »). nomCible : texte déjà échappé par le serveur (décodé puis échappé une seule fois).
+   * Nom cliquable d'une ligne : ouvre la fiche (modifier). Un clic n'importe où sur la ligne fait la même chose (brancherLignes).
+   * texteHtml : déjà échappé par le serveur ; nomCible : idem (décodé puis échappé une seule fois pour l'étiquette lue par un lecteur d'écran).
    */
-  function bouton(action, id, icone, libelle, titre, nomCible, classe) {
-    return '<button type="button" class="btn btn-sm adm-btn-ligne ' + classe + '" data-action="' + action + '" data-id="' + esc(id) + '" title="' + esc(titre) + '" aria-label="' + esc(titre + ' : ' + decoder(nomCible)) + '">' +
-      '<i class="fas ' + icone + '" aria-hidden="true"></i><span>' + esc(libelle) + '</span></button>';
+  function boutonNom(id, texteHtml, nomCible) {
+    return '<button type="button" class="adm-nom" data-action="modifier" data-id="' + esc(id) + '" aria-label="' + esc('Modifier : ' + decoder(nomCible)) + '">' + texteHtml + '</button>';
   }
-  function actionsLigne(html) { return '<div class="adm-actions-ligne">' + html + '</div>'; }
+  /** Un clic sur une ligne (hors lien, bouton ou champ) ouvre sa fiche. */
+  function brancherLignes(sel) {
+    $(sel + ' tbody').on('click', 'tr.adm-ligne', function (e) {
+      if ($(e.target).closest('a, button, input, select, label').length) { return; }
+      var b = this.querySelector('button[data-action="modifier"]');
+      if (b) { b.click(); }
+    });
+  }
+  function ligneCliquable(tr, data) { tr.classList.add('adm-ligne'); }
 
   /**
    * Redessin du tableau APRÈS une action sur une ligne : le bouton qui avait le focus est remplacé par le redessin, le focus tomberait sur la page.
@@ -337,16 +349,15 @@
     var etat = { id: 0, soi: false };
 
     var table = creerTable('#table-utilisateurs', 'app/ajax/utilisateurs_data.php',
-      function (d) { d.statut = q('#f-statut').value; },
+      function () { /* aucun filtre : la recherche suffit */ },
       [
-        // Quatre colonnes seulement (le tableau doit tenir dans 694 px sur une tablette) : l'identité, le rôle et les entreprises, l'état, les actions
+        // Un clic sur la ligne ouvre la fiche ; les actions (mot de passe, déverrouiller, désactiver) sont dans la fiche
         { data: 'nom_utilisateur', render: function (v, t, row) {
-            return t === 'display' ? '<strong>' + v + '</strong>' + (parseInt(row.soi, 10) === 1 ? ' <span class="badge badge-info">vous</span>' : '') +
+            return t === 'display' ? boutonNom(row.id, '<strong>' + v + '</strong>', v) + (parseInt(row.soi, 10) === 1 ? ' <span class="badge badge-info">vous</span>' : '') +
               '<small class="d-block text-muted">' + (row.nom_complet || '') + '</small>' : v;
           } },
-        { data: 'role', render: function (v, t, row) {
-            return t === 'display' ? '<span class="text-nowrap">' + (ROLES[v] || v) + '</span><small class="d-block text-muted">' + (row.entreprises || '') + '</small>' : v;
-          } },
+        { data: 'role', render: function (v, t) { return t === 'display' ? '<span class="text-nowrap">' + (ROLES[v] || v) + '</span>' : v; } },
+        { data: 'entreprises', className: 'd-none d-md-table-cell', render: function (v, t) { return t === 'display' ? String(v || '').replace(/ \(administrateur\)$/, '') : v; } },
         { data: 'actif', render: function (v, t, row) {
             if (t !== 'display') { return v; }
             var h = badgeActif(v), n = parseInt(row.tentatives, 10) || 0;
@@ -355,47 +366,25 @@
             } else if (n > 0) {
               h += '<small class="d-block text-muted">' + n + ' échec' + (n > 1 ? 's' : '') + ' de connexion</small>';
             }
-            return h + '<small class="d-block text-muted">Dernière connexion : ' + (row.derniere_connexion ? esc(String(row.derniere_connexion).substr(0, 16)) : 'jamais') + '</small>';
-          } },
-        { data: null, orderable: false, className: 'adm-boutons no-print', render: function (v, t, row) {
-            var id = row.id, nom = row.nom_utilisateur, h = '';
-            h += bouton('modifier', id, 'fa-pen', 'Modifier', 'Modifier', nom, 'btn-outline-primary');
-            h += bouton('mdp', id, 'fa-key', 'Mot de passe', 'Réinitialiser le mot de passe', nom, 'btn-outline-secondary');
-            if (parseInt(row.verrouille, 10) === 1 || parseInt(row.tentatives, 10) > 0) { h += bouton('deverrouiller', id, 'fa-unlock', 'Déverrouiller', 'Déverrouiller le compte', nom, 'adm-btn-attention'); }
-            if (parseInt(row.soi, 10) !== 1) {
-              h += parseInt(row.actif, 10) === 1
-                ? bouton('desactiver', id, 'fa-user-slash', 'Désactiver', 'Désactiver le compte', nom, 'btn-outline-danger')
-                : bouton('activer', id, 'fa-user-check', 'Réactiver', 'Réactiver le compte', nom, 'btn-outline-success');
-            }
-            return actionsLigne(h);
+            return h;
           } }
       ],
       [[0, 'asc']],
-      ['Aucun utilisateur ne correspond à ces critères.', 'Aucun utilisateur.'],
-      function (tr, data) { if (parseInt(data.actif, 10) !== 1) { tr.classList.add('adm-inactif'); } });
+      ['Aucun utilisateur trouvé.', 'Aucun utilisateur.'],
+      function (tr, data) { ligneCliquable(tr, data); if (parseInt(data.actif, 10) !== 1) { tr.classList.add('adm-inactif'); } });
     brancherRecherche(table);
-    q('#f-statut').addEventListener('change', function () { table.draw(); });
-    var rafraichir = suivreFocusLigne(table), derniereLigne = null;      // derniereLigne : bouton de la ligne en cours de traitement (null : création)
+    brancherLignes('#table-utilisateurs');
+    var rafraichir = suivreFocusLigne(table), derniereLigne = null;      // derniereLigne : nom cliquable de la ligne en cours de traitement (null : ajout)
     rendreLeFocus(modal);
 
-    // ---- actions de la liste
-    $('#table-utilisateurs tbody').on('click', 'button[data-action]', function () {
-      var b = this, action = b.getAttribute('data-action'), id = parseInt(b.getAttribute('data-id'), 10);
-      var ligne = table.row($(b).closest('tr')).data() || {};
-      var nom = decoder(ligne.nom_utilisateur);
-      derniereLigne = b;
-      if (action === 'modifier') { ouvrir(id); }
-      else if (action === 'mdp') { ouvrirMdp({ mode: 'reset', id: id, nom: nom }); }
-      else if (action === 'deverrouiller') { deverrouiller(id, nom, b); }
-      else if (action === 'activer') { activer(id, true, nom, b); }
-      else if (action === 'desactiver') {
-        confirmer('Désactiver le compte ?', 'Désactiver « ' + nom + ' » ? Cette personne ne pourra plus se connecter, et sa connexion actuelle sera coupée dès sa prochaine action. Son historique est conservé.', 'Désactiver')
-          .then(function (ok) { if (ok) { activer(id, false, nom, b); } });
-      }
+    // ---- ouverture de la fiche (clic sur la ligne ou sur le nom)
+    $('#table-utilisateurs tbody').on('click', 'button[data-action="modifier"]', function () {
+      derniereLigne = this;
+      ouvrir(parseInt(this.getAttribute('data-id'), 10));
     });
 
-    function activer(id, actif, nom, b) {
-      envoyer([b], function () { return api.post('app/action/utilisateur_activer.php', { id: id, actif: actif }); })
+    function activer(id, actif, nom) {
+      envoyer([], function () { return api.post('app/action/utilisateur_activer.php', { id: id, actif: actif }); })
         .then(function () { w.toast(actif ? 'Compte « ' + nom + ' » réactivé.' : 'Compte « ' + nom + ' » désactivé.', 'success'); rafraichir(derniereLigne); })
         .catch(function (err) { w.toast(msg(err), 'danger'); });
     }
@@ -405,31 +394,29 @@
         .catch(function (err) { w.toast(msg(err), 'danger'); return false; });
     }
 
-    // ---- formulaire créer / modifier
+    // ---- fiche : ajouter / modifier
     function appliquerRole() {
       var role = q('#u-role').value, admin = (role === 'admin');
       qa('input[name="entreprise_ids"]', form).forEach(function (c) { c.disabled = admin; });
-      montrer(q('#u-entreprises-admin'), admin);
-      var opt = q('#u-role').options[q('#u-role').selectedIndex];
-      q('#u-role-aide').textContent = opt ? (opt.getAttribute('data-aide') || '') : '';
+      montrer(q('#u-entreprises-groupe'), !admin);      // un administrateur voit toutes les entreprises : rien à choisir
     }
     q('#u-role').addEventListener('change', appliquerRole);
 
     function remplir(u) {
-      etat = { id: u.id, soi: !!u.soi, empreinte: u.empreinte || '' };
+      etat = { id: u.id, soi: !!u.soi, empreinte: u.empreinte || '', actif: !!u.actif };
       q('#modal-utilisateur-titre').textContent = 'Modifier l\'utilisateur';
       q('#u-nom').value = u.nom_utilisateur;
       q('#u-complet').value = u.nom_complet;
       q('#u-role').value = u.role;
       qa('input[name="entreprise_ids"]', form).forEach(function (c) { c.checked = u.entreprise_ids.indexOf(parseInt(c.value, 10)) !== -1; });
-      q('#u-actif').checked = !!u.actif;
       // On ne peut ni se désactiver ni se retirer le rôle d'administrateur soi-même (le serveur le refuse aussi)
-      q('#u-actif').disabled = !!u.soi;
       q('#u-role').disabled = !!u.soi;
-      montrer(q('#u-actif-aide'), !!u.soi);
+      if (u.soi) { q('#u-role').title = 'Vous ne pouvez pas changer votre propre rôle.'; } else { q('#u-role').removeAttribute('title'); }
       montrer(q('#u-mdp-bloc'), false);
       montrer(q('#u-compte-bloc'), true);
       montrer(q('#u-btn-deverrouiller'), !!u.verrouille || u.tentatives > 0);
+      montrer(q('#u-btn-desactiver'), !u.soi && !!u.actif);
+      montrer(q('#u-btn-reactiver'), !u.soi && !u.actif);
       q('#u-connexion').textContent = 'Dernière connexion : ' + (u.derniere_connexion ? u.derniere_connexion.substr(0, 16) : 'jamais') +
         (u.verrouille ? ' · Compte verrouillé jusqu\'à ' + String(u.verrouille_jusqua).substr(11, 5) + '.' : (u.tentatives > 0 ? ' · ' + u.tentatives + ' échec' + (u.tentatives > 1 ? 's' : '') + ' de connexion récent' + (u.tentatives > 1 ? 's' : '') + '.' : ''));
       appliquerRole();
@@ -442,15 +429,15 @@
       champMdp.value = '';
       champMdp.type = 'password';
       reglerVoirMdp(false);
-      q('#u-actif').disabled = false;
       q('#u-role').disabled = false;
-      montrer(q('#u-actif-aide'), false);
+      q('#u-role').removeAttribute('title');
       if (!id) {
-        etat = { id: 0, soi: false };
-        q('#modal-utilisateur-titre').textContent = 'Nouvel utilisateur';
+        etat = { id: 0, soi: false, actif: true };
+        q('#modal-utilisateur-titre').textContent = 'Ajouter un utilisateur';
         q('#u-role').value = 'employe';                      // le moins de droits par défaut
         qa('input[name="entreprise_ids"]', form).forEach(function (c) { c.checked = false; });
-        q('#u-actif').checked = true;
+        var m = genererMotDePasse();                         // mot de passe déjà proposé : il sera affiché une seule fois après l'enregistrement
+        if (m) { champMdp.value = m; reglerVoirMdp(true); }
         montrer(q('#u-mdp-bloc'), true);
         montrer(q('#u-compte-bloc'), false);
         appliquerRole();
@@ -476,8 +463,8 @@
       if (m) { champMdp.value = m; reglerVoirMdp(true); }
     });
     q('#u-mdp-voir').addEventListener('click', function () { reglerVoirMdp(champMdp.type !== 'text'); });
-    q('#u-mdp-copier').addEventListener('click', function () { copierChamp(champMdp); });
 
+    // Actions de la fiche : la fenêtre se ferme, puis l'action (ou sa confirmation) s'ouvre
     q('#u-btn-mdp').addEventListener('click', function () {
       var id = etat.id, nom = q('#u-nom').value.trim();
       $(modal).one('hidden.bs.modal', function () { ouvrirMdp({ mode: 'reset', id: id, nom: nom }); });
@@ -488,6 +475,19 @@
       deverrouiller(etat.id, q('#u-nom').value.trim(), b).then(function (ok) {
         if (ok) { q('#u-connexion').textContent = 'Compte déverrouillé.'; montrer(b, false); b.disabled = false; q('#utilisateur-enregistrer').focus(); }      // le bouton qui avait le focus disparaît : on le déplace sur l'action suivante
       });
+    });
+    q('#u-btn-desactiver').addEventListener('click', function () {
+      var id = etat.id, nom = q('#u-nom').value.trim();
+      $(modal).one('hidden.bs.modal', function () {
+        confirmer('Désactiver le compte ?', 'Désactiver « ' + nom + ' » ? Cette personne ne pourra plus se connecter.', 'Désactiver')
+          .then(function (ok) { if (ok) { activer(id, false, nom); } });
+      });
+      $(modal).modal('hide');
+    });
+    q('#u-btn-reactiver').addEventListener('click', function () {
+      var id = etat.id, nom = q('#u-nom').value.trim();
+      $(modal).one('hidden.bs.modal', function () { activer(id, true, nom); });
+      $(modal).modal('hide');
     });
 
     /** Contrôles rapides, TOUS d'un coup (le serveur refait chacun d'eux et reste l'autorité) : liste de {champ, message}. */
@@ -512,9 +512,10 @@
       var ids = role === 'admin' ? [] : qa('input[name="entreprise_ids"]:checked', form).map(function (c) { return parseInt(c.value, 10); });
       var payload = {
         nom_utilisateur: q('#u-nom').value.trim(), nom_complet: q('#u-complet').value.trim(),
-        role: role, actif: !!q('#u-actif').checked, entreprise_ids: ids
+        role: role, entreprise_ids: ids
       };
-      if (etat.id) { payload.id = etat.id; payload.empreinte = etat.empreinte; } else { payload.mot_de_passe = champMdp.value; }
+      // L'état (actif / désactivé) ne change que par les boutons « Désactiver » / « Réactiver » de la fiche
+      if (etat.id) { payload.id = etat.id; payload.empreinte = etat.empreinte; } else { payload.mot_de_passe = champMdp.value; payload.actif = true; }
       if (afficherErreurs(form, erreursLocales(payload, !etat.id))) { return; }
       var mdpInitial = champMdp.value, creation = !etat.id;
       envoyer([btn], function () { return api.post('app/action/utilisateur_save.php', payload); })
@@ -522,8 +523,7 @@
           $(modal).one('hidden.bs.modal', function () {
             rafraichir(derniereLigne);
             if (creation) {
-              ouvrirMdp({ mode: 'resultat', id: r.id, nom: r.nom_utilisateur, mdp: mdpInitial, titre: 'Compte créé',
-                texte: 'Le compte « ' + r.nom_utilisateur + ' » est créé. Voici le mot de passe initial : transmettez-le à la personne.' });
+              ouvrirMdp({ mode: 'resultat', id: r.id, nom: r.nom_utilisateur, mdp: mdpInitial, titre: 'Compte créé' });
               mdpInitial = '';
             } else {
               w.toast('Utilisateur « ' + payload.nom_utilisateur + ' » enregistré.', 'success');
@@ -537,16 +537,14 @@
         });
     });
 
-    // ---- Mot de passe : réinitialisation, ou affichage unique après la création
+    // ---- Mot de passe : réinitialisation, ou affichage unique après l'ajout ou la réinitialisation
     var mm = q('#modal-mdp'), champ = q('#mdp-champ'), mdpEtat = { id: 0, nom: '' };
     function ouvrirMdp(o) {
       mdpEtat = { id: o.id, nom: o.nom };
       effacerErreurs(mm);
       var reset = (o.mode === 'reset');
       q('#modal-mdp-titre').textContent = reset ? 'Réinitialiser le mot de passe' : o.titre;
-      q('#mdp-texte').textContent = reset
-        ? 'Choisissez un nouveau mot de passe pour « ' + o.nom + ' », ou utilisez celui qui est proposé. Le compte sera aussi déverrouillé.'
-        : o.texte;
+      q('#mdp-texte').textContent = o.nom;
       q('#mdp-etiquette').textContent = reset ? 'Nouveau mot de passe' : 'Mot de passe';
       champ.readOnly = !reset;
       champ.value = reset ? genererMotDePasse() : o.mdp;
@@ -555,9 +553,8 @@
       montrer(q('#mdp-annuler'), reset);
       montrer(q('#mdp-fermer'), !reset);
       if ($(mm).hasClass('show')) { setTimeout(function () { (champ.readOnly ? q('#mdp-copier') : champ).focus(); }, 0); }      // bascule dans la même fenêtre : le bouton qui avait le focus a disparu
-      q('#mdp-note').textContent = reset
-        ? 'Il sera affiché une seule fois, après l\'enregistrement. Au moins 10 caractères.'
-        : 'Ce mot de passe ne sera plus affiché : copiez-le ou notez-le maintenant. La personne pourra le changer dans « Mon profil ».';
+      q('#mdp-note').textContent = reset ? '' : 'Ce mot de passe ne sera plus affiché.';
+      montrer(q('#mdp-note'), !reset);
       $(mm).modal('show');
     }
     $(mm).on('shown.bs.modal', function () { (champ.readOnly ? q('#mdp-copier') : champ).focus(); });
@@ -573,8 +570,7 @@
       envoyer([b], function () { return api.post('app/action/utilisateur_mdp.php', { id: mdpEtat.id, mot_de_passe: mdp }); })
         .then(function () {
           rafraichir(derniereLigne);
-          ouvrirMdp({ mode: 'resultat', id: mdpEtat.id, nom: mdpEtat.nom, mdp: mdp, titre: 'Mot de passe réinitialisé',
-            texte: 'Le mot de passe de « ' + mdpEtat.nom + ' » est réinitialisé (son compte est déverrouillé). Transmettez-lui ce mot de passe.' });
+          ouvrirMdp({ mode: 'resultat', id: mdpEtat.id, nom: mdpEtat.nom, mdp: mdp, titre: 'Mot de passe réinitialisé' });
           b.disabled = false;
         })
         .catch(function (err) { afficherErreur(mm, q('#mdp-erreur'), err); });
@@ -587,35 +583,22 @@
   function initEntreprises() {
     var form = q('#form-entreprise'), modal = q('#modal-entreprise'), zone = q('#entreprise-erreur');
     libererALOuverture(modal);
-    var etat = { id: 0 };
-    function pl(n, sing, plur) { n = parseInt(n, 10) || 0; return n + ' ' + (n > 1 ? plur : sing); }
+    var etat = { id: 0, nom: '' };
     var table = creerTable('#table-entreprises', 'app/ajax/entreprises_data.php',
-      function (d) { d.statut = q('#f-statut').value; },
+      function () { /* aucun filtre : la recherche suffit */ },
       [
-        // Quatre colonnes (le tableau doit tenir dans 694 px sur une tablette) : l'entreprise (code, nom, adresse), son contenu, son état, les actions
-        { data: 'nom', render: function (v, t, row) {
-            return t === 'display' ? '<strong>' + v + '</strong> <span class="badge badge-light border code">' + row.code + '</span>' +
-              (row.adresse ? '<small class="d-block text-muted">' + row.adresse + '</small>' : '') : v;
-          } },
-        { data: 'nb_pieces', render: function (v, t, row) {
-            return t === 'display' ? '<span class="d-block">' + pl(row.nb_emplacements, 'emplacement actif', 'emplacements actifs') + '</span>' +
-              '<span class="d-block">' + pl(v, 'pièce en stock', 'pièces en stock') + '</span>' +
-              '<span class="d-block">' + pl(row.nb_utilisateurs, 'utilisateur', 'utilisateurs') + '</span>' : v;
-          } },
-        { data: 'actif', render: function (v, t) { return t === 'display' ? badgeActif(v).replace('Actif', 'Active').replace('Désactivé', 'Désactivée') : v; } },
-        { data: null, orderable: false, className: 'adm-boutons no-print', render: function (v, t, row) {
-            return actionsLigne(bouton('modifier', row.id, 'fa-pen', 'Modifier', 'Modifier', row.nom, 'btn-outline-primary') +
-              (parseInt(row.actif, 10) === 1
-                ? bouton('desactiver', row.id, 'fa-ban', 'Désactiver', 'Désactiver l\'entreprise', row.nom, 'btn-outline-danger')
-                : bouton('activer', row.id, 'fa-check', 'Réactiver', 'Réactiver l\'entreprise', row.nom, 'btn-outline-success')));
-          } }
+        // Un clic sur la ligne ouvre la fiche ; « Désactiver » / « Réactiver » sont dans la fiche
+        { data: 'nom', render: function (v, t, row) { return t === 'display' ? boutonNom(row.id, '<strong>' + v + '</strong>', v) : v; } },
+        { data: 'code', render: function (v, t) { return t === 'display' ? '<span class="code">' + v + '</span>' : v; } },
+        { data: 'adresse', className: 'd-none d-md-table-cell' },
+        { data: 'actif', render: function (v, t) { return t === 'display' ? (parseInt(v, 10) === 1 ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-secondary">Désactivée</span>') : v; } }
       ],
       [[0, 'asc']],
-      ['Aucune entreprise ne correspond à ces critères.', 'Aucune entreprise.'],
-      function (tr, data) { if (parseInt(data.actif, 10) !== 1) { tr.classList.add('adm-inactif'); } });
-    q('#f-statut').addEventListener('change', function () { table.draw(); });
-    var rafraichir = suivreFocusLigne(table), derniereLigne = null;      // derniereLigne : bouton de la ligne en cours de traitement (null : création)
+      ['Aucune entreprise trouvée.', 'Aucune entreprise.'],
+      function (tr, data) { ligneCliquable(tr, data); if (parseInt(data.actif, 10) !== 1) { tr.classList.add('adm-inactif'); } });
+    var rafraichir = suivreFocusLigne(table), derniereLigne = null;      // derniereLigne : nom cliquable de la ligne en cours de traitement (null : ajout)
     rendreLeFocus(modal);
+    brancherLignes('#table-entreprises');
 
     /** Réponse de désactivation / réactivation : messages, avertissement si des utilisateurs perdent leur accès. */
     function apresActivation(r, nom, actif) {
@@ -628,59 +611,72 @@
       if (err && err.champ === 'stock') { refuser('Désactivation impossible', err.message, 'index.php?page=stock&entreprise_id=' + encodeURIComponent(id), 'Voir le stock de cette entreprise'); return true; }
       return false;
     }
+    function changerEtat(id, nom, actif) {
+      envoyer([], function () { return api.post('app/action/entreprise_activer.php', { id: id, actif: actif }); })
+        .then(function (r) { apresActivation(r, nom, actif); rafraichir(derniereLigne); })
+        .catch(function (err) { if (!refusStock(err, id)) { w.toast(msg(err), 'danger'); } });
+    }
 
-    $('#table-entreprises tbody').on('click', 'button[data-action]', function () {
-      var b = this, action = b.getAttribute('data-action'), id = parseInt(b.getAttribute('data-id'), 10);
-      var nom = decoder((table.row($(b).closest('tr')).data() || {}).nom);
-      derniereLigne = b;
-      if (action === 'modifier') { ouvrir(id); return; }
-      function appliquer(actif) {
-        envoyer([b], function () { return api.post('app/action/entreprise_activer.php', { id: id, actif: actif }); })
-          .then(function (r) { apresActivation(r, nom, actif); rafraichir(derniereLigne); })
-          .catch(function (err) { if (!refusStock(err, id)) { w.toast(msg(err), 'danger'); } });
-      }
-      if (action === 'activer') { appliquer(true); return; }
-      confirmer('Désactiver l\'entreprise ?', 'Désactiver « ' + nom + ' » ? Elle disparaîtra des listes de saisie et ses utilisateurs n\'y auront plus accès ; son historique est conservé.', 'Désactiver')
-        .then(function (ok) { if (ok) { appliquer(false); } });
+    $('#table-entreprises tbody').on('click', 'button[data-action="modifier"]', function () {
+      derniereLigne = this;
+      ouvrir(parseInt(this.getAttribute('data-id'), 10));
+    });
+
+    // Actions de la fiche : la fenêtre se ferme, puis l'action (ou sa confirmation) s'ouvre
+    q('#en-btn-desactiver').addEventListener('click', function () {
+      var id = etat.id, nom = etat.nom;
+      $(modal).one('hidden.bs.modal', function () {
+        confirmer('Désactiver l\'entreprise ?', 'Désactiver « ' + nom + ' » ? Elle disparaîtra des listes et ses utilisateurs n\'y auront plus accès.', 'Désactiver')
+          .then(function (ok) { if (ok) { changerEtat(id, nom, false); } });
+      });
+      $(modal).modal('hide');
+    });
+    q('#en-btn-reactiver').addEventListener('click', function () {
+      var id = etat.id, nom = etat.nom;
+      $(modal).one('hidden.bs.modal', function () { changerEtat(id, nom, true); });
+      $(modal).modal('hide');
     });
 
     function ouvrir(id) {
       effacerErreurs(form);
       form.reset();
-      etat = { id: id || 0 };
-      montrer(q('#en-actif-groupe'), !!id);
-      q('#modal-entreprise-titre').textContent = id ? 'Modifier l\'entreprise' : 'Nouvelle entreprise';
+      etat = { id: id || 0, nom: '' };
+      montrer(q('#en-compte-bloc'), !!id);
+      montrer(q('#en-btn-desactiver'), false);
+      montrer(q('#en-btn-reactiver'), false);
+      q('#modal-entreprise-titre').textContent = id ? 'Modifier l\'entreprise' : 'Ajouter une entreprise';
       if (!id) { $(modal).modal('show'); return; }
       api.get('app/ajax/entreprise_detail.php', { id: id }).then(function (r) {
         var e = r.entreprise;
-        q('#en-code').value = e.code; q('#en-nom').value = e.nom; q('#en-adresse').value = e.adresse; q('#en-actif').checked = !!e.actif;
+        etat.nom = e.nom;
+        q('#en-code').value = e.code; q('#en-nom').value = e.nom; q('#en-adresse').value = e.adresse;
+        montrer(q('#en-btn-desactiver'), !!e.actif);
+        montrer(q('#en-btn-reactiver'), !e.actif);
         $(modal).modal('show');
       }).catch(function (err) { w.toast(msg(err), 'danger'); });
     }
     q('#btn-nouveau').addEventListener('click', function () { derniereLigne = null; ouvrir(0); });
-    $(modal).on('shown.bs.modal', function () { q('#en-code').focus(); });
+    $(modal).on('shown.bs.modal', function () { q('#en-nom').focus(); });
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var btn = q('#entreprise-enregistrer');
       effacerErreurs(form);
+      // L'état (active / désactivée) ne change que par les boutons « Désactiver » / « Réactiver » de la fiche
       var payload = { code: q('#en-code').value.trim(), nom: q('#en-nom').value.trim(), adresse: q('#en-adresse').value.trim() };
-      if (etat.id) { payload.id = etat.id; payload.actif = !!q('#en-actif').checked; }
+      if (etat.id) { payload.id = etat.id; }
       var locales = [];
       if (payload.code === '') { locales.push({ champ: 'code', message: 'Le code est obligatoire.' }); }
       else if (!/^[A-Za-z0-9_-]{1,10}$/.test(payload.code)) { locales.push({ champ: 'code', message: 'Le code doit contenir de 1 à 10 caractères : lettres sans accent, chiffres, tiret ou tiret bas (exemple : BEA).' }); }
       if (payload.nom === '') { locales.push({ champ: 'nom', message: 'Le nom est obligatoire.' }); }
       if (afficherErreurs(form, locales)) { return; }
       envoyer([btn], function () { return api.post('app/action/entreprise_save.php', payload); })
-        .then(function (r) {
+        .then(function () {
           $(modal).modal('hide');
           rafraichir(derniereLigne);
-          if (r.utilisateurs_sans_acces !== undefined && r.inchange === false) { apresActivation(r, payload.nom, !!r.actif); }
-          else { w.toast('Entreprise « ' + payload.nom + ' » enregistrée.', 'success'); }
+          w.toast('Entreprise « ' + payload.nom + ' » enregistrée.', 'success');
         })
-        .catch(function (err) {
-          afficherErreur(form, zone, err, etat.id ? { href: 'index.php?page=stock&entreprise_id=' + encodeURIComponent(etat.id), texte: 'Voir le stock de cette entreprise' } : null);
-        });
+        .catch(function (err) { afficherErreur(form, zone, err); });
     });
     brancherRecherche(table);
   }
@@ -693,55 +689,61 @@
     var form = q('#form-emplacement'), modal = q('#modal-emplacement'), zone = q('#emplacement-erreur');
     libererALOuverture(modal);
     var champCode = q('#em-code');
-    var etat = { id: 0, codeInitial: '' };
+    var etat = { id: 0, nom: '', codeInitial: '' };
 
     var table = creerTable('#table-emplacements', 'app/ajax/emplacement_data.php',
-      function (d) { d.entreprise_id = q('#f-entreprise').value; d.type = q('#f-type').value; d.statut = q('#f-statut').value; },
+      function (d) { d.entreprise_id = q('#f-entreprise').value; },
       [
-        { data: 'entreprise', render: function (v, t, row) { return t === 'display' ? v + (parseInt(row.entreprise_actif, 10) === 1 ? '' : ' <span class="badge badge-secondary">désactivée</span>') : v; } },
-        // Le type est sous le nom (une colonne de moins : le tableau doit tenir dans 694 px sur une tablette)
-        { data: 'nom', render: function (v, t, row) { return t === 'display' ? '<strong>' + v + '</strong><small class="d-block text-muted">' + (TYPES[row.type] || row.type) + '</small>' : v; } },
+        { data: 'entreprise', className: 'd-none d-md-table-cell', render: function (v, t, row) { return t === 'display' ? v + (parseInt(row.entreprise_actif, 10) === 1 ? '' : ' <span class="badge badge-secondary">désactivée</span>') : v; } },
+        // Le type (et, sur un petit écran, l'entreprise) est sous le nom ; un clic sur la ligne ouvre la fiche
+        { data: 'nom', render: function (v, t, row) {
+            return t === 'display' ? boutonNom(row.id, '<strong>' + v + '</strong>', v) +
+              '<small class="d-block text-muted">' + (TYPES[row.type] || row.type) + '<span class="d-md-none"> · ' + row.entreprise + '</span></small>' : v;
+          } },
         { data: 'code_barres', render: function (v, t) { return t === 'display' ? '<span class="code">' + v + '</span>' : v; } },
-        { data: 'nb_pieces', className: 'nombre', render: function (v, t, row) {
+        { data: 'nb_pieces', className: 'nombre d-none d-md-table-cell', render: function (v, t, row) {
             if (t !== 'display') { return v; }
             var n = parseInt(v, 10) || 0;
             return n > 0 ? '<a class="adm-lien-nombre" href="index.php?page=stock&amp;emplacement_id=' + esc(row.id) + '" title="Voir le stock de cet emplacement">' + n + '</a>' : '0';
           } },
-        { data: 'actif', render: function (v, t) { return t === 'display' ? badgeActif(v) : v; } },
-        { data: null, orderable: false, className: 'adm-boutons no-print', render: function (v, t, row) {
-            var h = bouton('modifier', row.id, 'fa-pen', 'Modifier', 'Modifier', row.nom, 'btn-outline-primary');
-            h += '<a class="btn btn-sm adm-btn-ligne btn-outline-secondary" data-action="etiquette" data-id="' + esc(row.id) + '" href="index.php?page=etiquettes&amp;emplacement_id=' + esc(row.id) + '" title="Imprimer l\'étiquette code-barres" aria-label="' + esc('Étiquette : ' + decoder(row.nom)) + '"><i class="fas fa-barcode" aria-hidden="true"></i><span>Étiquette</span></a>';
-            h += parseInt(row.actif, 10) === 1
-              ? bouton('desactiver', row.id, 'fa-ban', 'Désactiver', 'Désactiver l\'emplacement', row.nom, 'btn-outline-danger')
-              : bouton('activer', row.id, 'fa-check', 'Réactiver', 'Réactiver l\'emplacement', row.nom, 'btn-outline-success');
-            return actionsLigne(h);
-          } }
+        { data: 'actif', render: function (v, t) { return t === 'display' ? badgeActif(v) : v; } }
       ],
       [[0, 'asc']],
-      ['Aucun emplacement ne correspond à ces critères.', 'Aucun emplacement.'],
-      function (tr, data) { if (parseInt(data.actif, 10) !== 1) { tr.classList.add('adm-inactif'); } });
-    brancherRecherche(table, { scan: true });      // champ « Rechercher ou scanner » : le code d'un emplacement (EMP-000003) filtre la liste
-    ['#f-entreprise', '#f-type', '#f-statut'].forEach(function (s) { q(s).addEventListener('change', function () { table.draw(); }); });
-    var rafraichir = suivreFocusLigne(table), derniereLigne = null;      // derniereLigne : bouton de la ligne en cours de traitement (null : création)
+      ['Aucun emplacement trouvé.', 'Aucun emplacement.'],
+      function (tr, data) { ligneCliquable(tr, data); if (parseInt(data.actif, 10) !== 1) { tr.classList.add('adm-inactif'); } });
+    brancherRecherche(table, { scan: true });      // champ de recherche qui sert aussi à scanner : le code d'un emplacement (EMP-000003) filtre la liste
+    q('#f-entreprise').addEventListener('change', function () { table.draw(); });
+    brancherLignes('#table-emplacements');
+    var rafraichir = suivreFocusLigne(table), derniereLigne = null;      // derniereLigne : nom cliquable de la ligne en cours de traitement (null : ajout)
     rendreLeFocus(modal);
 
     function refusStock(err, id) {
       if (err && err.champ === 'stock') { refuser('Désactivation impossible', err.message, 'index.php?page=stock&emplacement_id=' + encodeURIComponent(id), 'Voir le stock de cet emplacement'); return true; }
       return false;
     }
-    $('#table-emplacements tbody').on('click', 'button[data-action]', function () {
-      var b = this, action = b.getAttribute('data-action'), id = parseInt(b.getAttribute('data-id'), 10);
-      var nom = decoder((table.row($(b).closest('tr')).data() || {}).nom);
-      derniereLigne = b;
-      if (action === 'modifier') { ouvrir(id); return; }
-      function appliquer(actif) {
-        envoyer([b], function () { return api.post('app/action/emplacement_activer.php', { id: id, actif: actif }); })
-          .then(function () { w.toast('Emplacement « ' + nom + ' » ' + (actif ? 'réactivé.' : 'désactivé.'), 'success'); rafraichir(derniereLigne); })
-          .catch(function (err) { if (!refusStock(err, id)) { w.toast(msg(err), 'danger'); } });
-      }
-      if (action === 'activer') { appliquer(true); return; }
-      confirmer('Désactiver l\'emplacement ?', 'Désactiver « ' + nom + ' » ? Il n\'apparaîtra plus dans les listes de saisie ; son historique est conservé.', 'Désactiver')
-        .then(function (ok) { if (ok) { appliquer(false); } });
+    function changerEtat(id, nom, actif) {
+      envoyer([], function () { return api.post('app/action/emplacement_activer.php', { id: id, actif: actif }); })
+        .then(function () { w.toast('Emplacement « ' + nom + ' » ' + (actif ? 'réactivé.' : 'désactivé.'), 'success'); rafraichir(derniereLigne); })
+        .catch(function (err) { if (!refusStock(err, id)) { w.toast(msg(err), 'danger'); } });
+    }
+    $('#table-emplacements tbody').on('click', 'button[data-action="modifier"]', function () {
+      derniereLigne = this;
+      ouvrir(parseInt(this.getAttribute('data-id'), 10));
+    });
+
+    // Actions de la fiche : la fenêtre se ferme, puis l'action (ou sa confirmation) s'ouvre
+    q('#em-btn-desactiver').addEventListener('click', function () {
+      var id = etat.id, nom = etat.nom;
+      $(modal).one('hidden.bs.modal', function () {
+        confirmer('Désactiver l\'emplacement ?', 'Désactiver « ' + nom + ' » ? Il n\'apparaîtra plus dans les listes.', 'Désactiver')
+          .then(function (ok) { if (ok) { changerEtat(id, nom, false); } });
+      });
+      $(modal).modal('hide');
+    });
+    q('#em-btn-reactiver').addEventListener('click', function () {
+      var id = etat.id, nom = etat.nom;
+      $(modal).one('hidden.bs.modal', function () { changerEtat(id, nom, true); });
+      $(modal).modal('hide');
     });
 
     /** Options d'entreprise : une entreprise désactivée n'est pas permise (sauf celle de l'emplacement modifié). */
@@ -764,12 +766,14 @@
     function ouvrir(id) {
       effacerErreurs(form);
       form.reset();
-      etat = { id: id || 0, codeInitial: '' };
+      etat = { id: id || 0, nom: '', codeInitial: '' };
       q('#em-entreprise').disabled = false;
       montrer(q('#em-entreprise-aide'), false);
-      montrer(q('#em-actif-groupe'), !!id);
+      montrer(q('#em-compte-bloc'), !!id);
+      montrer(q('#em-btn-desactiver'), false);
+      montrer(q('#em-btn-reactiver'), false);
       montrer(q('#em-code-avert'), false);
-      q('#modal-emplacement-titre').textContent = id ? 'Modifier l\'emplacement' : 'Nouvel emplacement';
+      q('#modal-emplacement-titre').textContent = id ? 'Modifier l\'emplacement' : 'Ajouter un emplacement';
       if (!id) {
         regler(0);
         var f = q('#f-entreprise').value;       // l'entreprise filtrée est présélectionnée
@@ -783,11 +787,15 @@
       }
       api.get('app/ajax/emplacement_detail.php', { id: id }).then(function (r) {
         var e = r.emplacement;
+        etat.nom = e.nom;
         regler(e.entreprise_id);
         q('#em-entreprise').value = String(e.entreprise_id);
         q('#em-entreprise').disabled = !!e.a_historique;
         montrer(q('#em-entreprise-aide'), !!e.a_historique);
-        q('#em-nom').value = e.nom; q('#em-type').value = e.type; champCode.value = e.code_barres; q('#em-actif').checked = !!e.actif;
+        q('#em-nom').value = e.nom; q('#em-type').value = e.type; champCode.value = e.code_barres;
+        q('#em-etiquette').href = 'index.php?page=etiquettes&emplacement_id=' + encodeURIComponent(e.id || id);
+        montrer(q('#em-btn-desactiver'), !!e.actif);
+        montrer(q('#em-btn-reactiver'), !e.actif);
         etat.codeInitial = e.code_barres;
         $(modal).modal('show');
       }).catch(function (err) { w.toast(msg(err), 'danger'); });
@@ -803,7 +811,8 @@
         entreprise_id: parseInt(q('#em-entreprise').value, 10) || 0, nom: q('#em-nom').value.trim(), type: q('#em-type').value,
         code_barres: champCode.value.trim()
       };
-      if (etat.id) { payload.id = etat.id; payload.actif = !!q('#em-actif').checked; }
+      // L'état (actif / désactivé) ne change que par les boutons « Désactiver » / « Réactiver » de la fiche
+      if (etat.id) { payload.id = etat.id; }
       var locales = [];
       if (!payload.entreprise_id) { locales.push({ champ: 'entreprise_id', message: 'Choisissez une entreprise.' }); }
       if (payload.nom === '') { locales.push({ champ: 'nom', message: 'Le nom est obligatoire.' }); }
@@ -840,8 +849,17 @@
         { data: 'ip', render: function (v, t) { return t === 'display' ? '<span class="code">' + v + '</span>' : v; } }
       ],
       [[0, 'desc']],
-      ['Aucune entrée du journal ne correspond à ces critères.', 'Le journal est vide.']);
+      ['Aucune entrée trouvée.', 'Le journal est vide.'],
+      null, { dom: DOM_JOURNAL, pageLength: 50 });
     brancherRecherche(table);
+    // « Plus de filtres » : les filtres rares sont cachés
+    var plus = q('#journal-plus'), btnPlus = q('#btn-plus-filtres');
+    btnPlus.addEventListener('click', function () {
+      var ouvert = plus.hidden;
+      plus.hidden = !ouvert;
+      btnPlus.setAttribute('aria-expanded', ouvert ? 'true' : 'false');
+      btnPlus.textContent = ouvert ? 'Moins de filtres' : 'Plus de filtres';
+    });
     ['#f-utilisateur', '#f-action', '#f-entite', '#f-du', '#f-au'].forEach(function (s) {
       q(s).addEventListener('change', function () {
         var du = q('#f-du').value, au = q('#f-au').value;
@@ -852,6 +870,7 @@
     q('#btn-reinitialiser').addEventListener('click', function () {
       ['#f-utilisateur', '#f-action', '#f-entite', '#f-du', '#f-au', '#f-recherche'].forEach(function (s) { q(s).value = ''; });
       table.search('').draw();
+      q('#f-recherche').focus();
     });
 
     q('#btn-exporter').addEventListener('click', function () {
@@ -898,7 +917,7 @@
       envoyer([btn], function () { return api.post('app/action/profil_mdp.php', { actuel: actuel, nouveau: nouveau, confirmation: conf }); })
         .then(function (r) {
           champs.forEach(function (c) { c.value = ''; });
-          ok.textContent = (r && r.message ? r.message : 'Votre mot de passe a été changé.') + ' Utilisez-le à votre prochaine connexion.';
+          ok.textContent = r && r.message ? r.message : 'Votre mot de passe a été changé.';
           ok.hidden = false;
           ok.focus();      // un seul message de succès : le bandeau (lu par les lecteurs d'écran) ; pas de notification en double
           btn.disabled = false;
@@ -914,29 +933,15 @@
   //  Sauvegarde
   // ===================================================================================
   function initSauvegarde() {
-    var cases = qa('input.checkbox_table'), etat = q('#sauvegarde-compte'), btn = q('#btn-sauvegarde'), info = q('#sauvegarde-etat'), formulaire = q('#exportForm');
-    function maj() {
-      var n = cases.filter(function (c) { return c.checked; }).length;
-      etat.textContent = n + ' table' + (n > 1 ? 's' : '') + ' sur ' + cases.length + ' cochée' + (n > 1 ? 's' : '');
-    }
-    cases.forEach(function (c) { c.addEventListener('change', maj); });
-    q('#btn-tout-cocher').addEventListener('click', function () { cases.forEach(function (c) { c.checked = true; }); maj(); });
-    q('#btn-tout-decocher').addEventListener('click', function () { cases.forEach(function (c) { c.checked = false; }); maj(); });
-    maj();
-    function telecharger() {
-      // Téléchargement : la page ne se recharge pas ; on évite le double clic, puis on libère le bouton
-      btn.disabled = true;
-      info.className = 'small text-muted ml-2';
-      info.textContent = 'Préparation du fichier…';
-      HTMLFormElement.prototype.submit.call(formulaire);
-      setTimeout(function () { btn.disabled = false; info.textContent = 'Le téléchargement devrait avoir démarré. Vérifiez le fichier reçu avant de le ranger.'; }, 4000);
-    }
+    var btn = q('#btn-sauvegarde'), info = q('#sauvegarde-etat'), formulaire = q('#exportForm');
     formulaire.addEventListener('submit', function (e) {
       e.preventDefault();
-      if (!cases.some(function (c) { return c.checked; })) { info.textContent = 'Sélectionnez au moins une table.'; info.className = 'small text-danger ml-2'; return; }
-      if (cases.every(function (c) { return c.checked; })) { telecharger(); return; }
-      confirmer('Sauvegarde incomplète', 'Certaines tables ne sont pas cochées : cette sauvegarde sera INCOMPLÈTE et ne permettra pas de restaurer tout le système. Continuer quand même ?', 'Continuer', 'btn-primary')
-        .then(function (oui) { if (oui) { telecharger(); } });
+      // Téléchargement : la page ne se recharge pas ; on évite le double clic, puis on libère le bouton
+      btn.disabled = true;
+      info.className = 'mt-3 mb-0 adm-avert';
+      info.textContent = 'Fichier confidentiel (comptes et mots de passe chiffrés) : gardez-le en lieu sûr.';
+      HTMLFormElement.prototype.submit.call(formulaire);
+      setTimeout(function () { btn.disabled = false; }, 4000);
     });
   }
 

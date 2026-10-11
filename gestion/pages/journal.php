@@ -1,5 +1,5 @@
 <?php
-// Journal d'activité : qui a fait quoi, quand. Tableau serveur avec filtres, détails lisibles, export CSV. Administrateur seulement.
+// Journal : qui a fait quoi, quand. Tableau serveur avec filtres, détails lisibles, export CSV. Administrateur seulement.
 if (!acces_page('admin')) { return; }
 require_once __DIR__ . '/../app/ajax/journal_lib.php';
 page_script('assets/js/admin.js');
@@ -18,9 +18,9 @@ $aujourdhui = date('Y-m-d');
 ?>
 <link rel="stylesheet" href="assets/css/admin.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/admin.css'); ?>">
 <div class="content-wrapper" data-admin="journal" data-aujourdhui="<?php echo e($aujourdhui); ?>">
-  <?php page_titre('Journal d\'activité', array('Administration')); ?>
+  <?php page_titre('Journal', array('Administration')); ?>
   <section class="content"><div class="container-fluid">
-    <?php Admin::enteteImpression('Journal d\'activité'); ?>
+    <?php Admin::enteteImpression('Journal'); ?>
     <div class="card"><div class="card-body">
       <div class="row adm-filtres">
         <div class="col-md-6 col-lg-3 form-group">
@@ -42,7 +42,31 @@ $aujourdhui = date('Y-m-d');
             <?php } ?>
           </select>
         </div>
-        <div class="col-md-4 col-lg-2 form-group">
+        <div class="col-6 col-lg-3 form-group">
+          <label for="f-du">Du</label>
+          <input id="f-du" type="date" class="form-control" max="<?php echo e($aujourdhui); ?>">
+        </div>
+        <div class="col-6 col-lg-3 form-group">
+          <label for="f-au">Au</label>
+          <input id="f-au" type="date" class="form-control" max="<?php echo e($aujourdhui); ?>">
+        </div>
+      </div>
+      <div class="row adm-filtres align-items-center">
+        <div class="col-md-6 col-lg-4 form-group">
+          <label for="f-recherche" class="sr-only">Rechercher</label>
+          <div class="input-group">
+            <div class="input-group-prepend"><span class="input-group-text"><i class="fas fa-search" aria-hidden="true"></i></span></div>
+            <input id="f-recherche" type="search" class="form-control" maxlength="100" autocomplete="off" placeholder="Rechercher">
+          </div>
+        </div>
+        <div class="col-md-6 col-lg-8 form-group text-md-right adm-actions no-print">
+          <button type="button" class="btn btn-link" id="btn-plus-filtres" aria-expanded="false" aria-controls="journal-plus">Plus de filtres</button>
+          <button type="button" class="btn btn-link" id="btn-reinitialiser">Effacer les filtres</button>
+          <button type="button" class="btn btn-outline-secondary" id="btn-exporter"><i class="fas fa-file-csv mr-1" aria-hidden="true"></i> Exporter en CSV</button>
+        </div>
+      </div>
+      <div class="row adm-filtres" id="journal-plus" hidden>
+        <div class="col-md-6 col-lg-3 form-group">
           <label for="f-entite">Objet concerné</label>
           <select id="f-entite" class="form-control">
             <option value="">Tous</option>
@@ -50,24 +74,6 @@ $aujourdhui = date('Y-m-d');
               <option value="<?php echo e($code); ?>"><?php echo e($lib); ?></option>
             <?php } ?>
           </select>
-        </div>
-        <div class="col-md-4 col-lg-2 form-group">
-          <label for="f-du">Du</label>
-          <input id="f-du" type="date" class="form-control" max="<?php echo e($aujourdhui); ?>">
-        </div>
-        <div class="col-md-4 col-lg-2 form-group">
-          <label for="f-au">Au</label>
-          <input id="f-au" type="date" class="form-control" max="<?php echo e($aujourdhui); ?>">
-        </div>
-      </div>
-      <div class="row adm-filtres align-items-end">
-        <div class="col-md-6 col-lg-4 form-group">
-          <label for="f-recherche">Rechercher dans le journal</label>
-          <input id="f-recherche" type="search" class="form-control" maxlength="100" autocomplete="off" placeholder="Action, nom, détail ou adresse IP">
-        </div>
-        <div class="col-md-6 col-lg-8 form-group text-md-right adm-actions no-print">
-          <button type="button" class="btn btn-outline-secondary mr-2" id="btn-reinitialiser"><i class="fas fa-undo mr-1" aria-hidden="true"></i> Réinitialiser les filtres</button>
-          <button type="button" class="btn btn-primary" id="btn-exporter"><i class="fas fa-file-csv mr-1" aria-hidden="true"></i> Exporter en CSV</button>
         </div>
       </div>
       <div class="table-responsive">
@@ -79,8 +85,6 @@ $aujourdhui = date('Y-m-d');
           <tbody></tbody>
         </table>
       </div>
-      <p class="text-muted small mt-2 mb-0">Le journal est en lecture seule. Il garde la trace des connexions, des changements d'utilisateurs, d'entreprises, d'emplacements, de pièces, de prix et des annulations.
-        Aucun mot de passe n'y est inscrit. L'export respecte les filtres et la recherche affichés.</p>
     </div></div>
   </div></section>
 </div>
