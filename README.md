@@ -15,9 +15,18 @@ Logiciel web interne pour savoir **où sont les pièces** : entrepôts, boutique
 
 | Document | Pour qui |
 |---|---|
+| [`gestion/docs/ESSAI.md`](gestion/docs/ESSAI.md) | **essayer le logiciel** en une commande (`docker compose up`), avec des données de démonstration |
 | [`gestion/docs/DEPLOIEMENT.md`](gestion/docs/DEPLOIEMENT.md) | installer le logiciel sur un serveur (HTTPS, sauvegardes, premier administrateur) |
 | [`gestion/docs/SPEC.md`](gestion/docs/SPEC.md) | développeurs : architecture, règles métier, API, sécurité, conventions |
 | [`gestion/NOTICE.md`](gestion/NOTICE.md) | origine du code (à lire avant toute redistribution) |
+
+## Essai rapide (Docker)
+
+```bash
+docker compose up -d --build     # puis http://localhost:8080 — comptes admin / gestionnaire1 / employe1, mot de passe Test-Beauchemin-1
+```
+
+Détails, réinitialisation et scénario d'essai : [`gestion/docs/ESSAI.md`](gestion/docs/ESSAI.md).
 
 ## Démarrage rapide (développement)
 

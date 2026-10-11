@@ -1,0 +1,6 @@
+.git
+.scratch
+**/node_modules
+gestion/tests
+gestion/tools
+**/*.log

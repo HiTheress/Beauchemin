@@ -1,0 +1,41 @@
+# Environnement d'ESSAI en une commande :   docker compose up -d --build   puis ouvrir http://localhost:8080
+# Ne sert pas à la production (voir gestion/docs/DEPLOIEMENT.md). Tout effacer et recommencer :   docker compose down -v
+services:
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+      MARIADB_DATABASE: beauchemin
+      MARIADB_USER: beauchemin
+      MARIADB_PASSWORD: ${DB_PASS:-essai-seulement}
+      TZ: America/Toronto
+    volumes:
+      - bea-donnees:/var/lib/mysql
+      - ./gestion/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_NAME: beauchemin
+      DB_USER: beauchemin
+      DB_PASS: ${DB_PASS:-essai-seulement}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Test-Beauchemin-1}
+      DEMO: ${DEMO:-1}                      # 1 = données de démonstration (comptes gestionnaire1 et employe1 inclus) ; 0 = base vide
+    ports:
+      - "${BEA_BIND:-127.0.0.1}:${BEA_PORT:-8080}:80"   # BEA_BIND=0.0.0.0 pour y accéder depuis un autre poste du réseau
+
+volumes:
+  bea-donnees:
