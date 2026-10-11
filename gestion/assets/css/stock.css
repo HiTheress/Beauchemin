@@ -1,4 +1,4 @@
-/* Stock, historique, sous le minimum, tableau de bord (module D2) */
+/* Accueil, Stock, Historique, À recommander (module D2) */
 
 /* Zones cliquables ≥ 44 px (tablette) */
 .sk-page .form-control, .sk-page .btn { min-height: 44px; }
@@ -14,8 +14,30 @@
 .sk-etiquette { display: block; margin-bottom: .2rem; font-size: .9rem; font-weight: 700; color: #343a40; }
 .sk-vue .btn { white-space: normal; }
 .sk-vue .btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-.sk-aide { margin: -.25rem 0 .75rem; }
 .sk-actions .btn { white-space: nowrap; }
+.sk-filtres .form-group { margin-bottom: .75rem; }
+
+/* Recherche : un grand champ, l'icône à l'intérieur */
+.sk-recherche { position: relative; }
+.sk-recherche > i { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.sk-recherche .form-control { padding-left: 2.6rem; min-height: 52px; font-size: 1.1rem; }
+
+/* Affichage par emplacement / par pièce : deux boutons collés, celui qui est actif est plein */
+.sk-vue { display: flex; width: 100%; }
+.sk-vue .btn { flex: 1 1 0; padding-left: .5rem; padding-right: .5rem; }
+
+/* Filtres secondaires (Historique) : un lien discret, les champs apparaissent dessous */
+.sk-plus { padding-left: 0; font-weight: 600; text-decoration: none; }
+.sk-plus:hover { text-decoration: underline; }
+.sk-plus i { transition: transform .2s; }
+.sk-plus[aria-expanded="true"] i { transform: rotate(180deg); }
+.sk-outils { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .25rem .75rem; margin-bottom: .5rem; }
+.sk-outils .btn { white-space: nowrap; }
+
+/* Une ligne de tableau est cliquable : elle ouvre le détail */
+.sk-table tbody tr.sk-clic { cursor: pointer; }
+.sk-table tbody tr.sk-clic:hover > td { background-color: var(--accent-soft); }
+.sk-table .sk-nom { overflow-wrap: anywhere; }
 
 /* Tableaux : le texte passe à la ligne (seuls les nombres, dates et codes restent sur une ligne) pour que le tableau tienne dans la carte */
 .sk-table { margin-bottom: 0; font-size: .9rem; }
@@ -33,46 +55,70 @@ table.dataTable.sk-table > thead > tr > th::before, table.dataTable.sk-table > t
 .sk-table tbody tr.sk-bas > td:first-child { box-shadow: inset 4px 0 0 #dc3545; }
 .sk-table tbody tr.sk-annulation > td { color: #6c757d; }
 .sk-table a { text-decoration: underline; text-decoration-color: var(--accent-ring); overflow-wrap: anywhere; }   /* un nom sans espace (très long) se coupe plutôt que d'élargir le tableau */
-.sk-table a:focus, .sk-carte a:focus, .ds-carte a:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sk-table a:focus, .sk-carte a:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sk-btn-recevoir { text-decoration: none !important; white-space: nowrap; }
 .sk-pos { color: #1e7e34; }
 .sk-neg { color: #bd2130; }
 
-/* Tablette et écrans tactiles : les liens des tableaux et des cartes sont des zones d'au moins 44 px de haut (§8 de la spécification) */
-.ds-lien { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
-@media (max-width: 1199.98px), (pointer: coarse) {
-  .sk-table td a, .ds-carte td a { display: inline-flex; flex-direction: column; justify-content: center; min-height: 44px; }
+/* Téléphone (< 576 px) : les colonnes secondaires disparaissent pour que le tableau tienne dans l'écran */
+@media (max-width: 575.98px) {
+  .sk-table { font-size: .8rem; }
+  table.dataTable.sk-table > thead > tr > th { padding: .4rem .25rem; font-size: .76rem; }
+  table.dataTable.sk-table > thead > tr > th::before, table.dataTable.sk-table > thead > tr > th::after { display: none; }
+  .sk-table td { padding: .4rem .25rem; }
+  .sk-table .sk-xs-cache { display: none; }
+  .sk-carte > .card-body { padding: .75rem; }
+  .sk-table td .code { font-size: .78rem; }
+  .sk-table td small { font-size: .72rem; }
+  .sk-table td a.btn { display: flex; justify-content: center; margin: .15rem 0; }
 }
 
-/* État vide (rien sous le minimum) */
+/* Tablette et écrans tactiles : les liens des tableaux et des cartes sont des zones d'au moins 44 px de haut (§8 de la spécification) */
+@media (max-width: 1199.98px), (pointer: coarse) {
+  .sk-table td a { display: inline-flex; flex-direction: column; justify-content: center; min-height: 44px; }
+}
+
+/* État vide (rien à recommander) */
 .sk-vide { text-align: center; padding: 2.5rem 1rem; }
 .sk-vide-icone { font-size: 2.5rem; color: #1e7e34; margin-bottom: .75rem; }
 .sk-vide-titre { font-size: 1.25rem; font-weight: 600; }
 
-/* Tableau de bord */
-.ds-raccourcis .btn { margin: 0 .5rem .5rem 0; min-height: 52px; }
+/* Accueil : gros boutons d'action, deux chiffres, graphiques */
+.ds-raccourcis { display: grid; grid-template-columns: 1fr; gap: .75rem; margin-bottom: 1.25rem; }
+.ds-raccourcis .btn.btn-lg { display: flex; align-items: center; justify-content: center; gap: .8rem; margin: 0; min-height: 72px; font-size: 1.25rem; font-weight: 700; white-space: normal; }
+.ds-raccourcis .btn i { font-size: 1.6rem; }
+@media (min-width: 576px) {
+  .ds-raccourcis.ds-n3 { grid-template-columns: repeat(3, 1fr); }
+  .ds-raccourcis.ds-n4 { grid-template-columns: repeat(2, 1fr); }
+  .ds-raccourcis .btn.btn-lg { flex-direction: column; gap: .4rem; min-height: 104px; }
+}
+@media (min-width: 992px) { .ds-raccourcis.ds-n4 { grid-template-columns: repeat(4, 1fr); } }
+.ds-portee { color: var(--muted); font-weight: 600; }
 .ds-carte { margin-bottom: 1rem; }
-.ds-titre { font-size: 1rem; font-weight: 700; color: #495057; margin: 0 0 .5rem; }
+.ds-titre { display: block; font-size: 1.05rem; font-weight: 700; color: #495057; margin: 0 0 .25rem; }
 .ds-nombre { font-size: 2.25rem; font-weight: 700; line-height: 1.1; margin: 0; font-variant-numeric: tabular-nums; }
-.ds-detail { margin: .25rem 0 .5rem; color: #495057; min-height: 1.5rem; }
+.ds-unite { font-size: 1.1rem; font-weight: 600; color: #495057; }
 .ds-alerte .ds-nombre { color: #bd2130; }
 .ds-alerte { border-left: 4px solid #dc3545; }
-.ds-lien-sep { color: #6c757d; margin: 0 .5rem; }
-.ds-ligne { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem .75rem; padding: .35rem 0; border-bottom: 1px solid #e9ecef; }
-.ds-ligne > strong { margin-left: auto; }
-.ds-ligne:last-child { border-bottom: 0; }
-.ds-ligne-factures { display: grid; grid-template-columns: minmax(9rem, 1.1fr) repeat(3, 1fr); gap: .25rem 1rem; align-items: baseline; }
-.ds-ligne-factures .ds-ent { font-weight: 700; }
-@media (max-width: 767.98px) {
-  .ds-ligne-factures { grid-template-columns: 1fr; }
-}
+.ds-carte.ds-tuile { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 1.1rem 1.5rem; min-height: 120px; color: inherit; text-decoration: none; }
+.ds-carte.ds-tuile:hover { color: inherit; text-decoration: none; box-shadow: var(--n-out); }
+.ds-carte.ds-tuile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ds-carte.ds-tuile .ds-nombre { font-size: 3.4rem; }
+.ds-ligne-nombre { display: block; }
+.ds-fleche { font-size: 1.25rem; color: #495057; }
 
+/* Graphiques : liens et zones à toucher d'au moins 44 px sur tablette */
+#ds-widgets .gr-btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 .9rem; font-size: .85rem; }
+#ds-widgets .gr-lecture a { display: inline-flex; align-items: center; min-height: 44px; }
+#ds-widgets .gr-val { font-size: .95rem; }
+#ds-widgets .gr-temps { font-size: .85rem; }
+#ds-widgets .progress__row { font-size: 1rem; }
+.ds-fact { padding: .55rem 0; border-top: 1.5px solid var(--line-soft); }
+.ds-fact-nom { font-weight: 700; }
+.ds-fact-chiffres { display: flex; flex-wrap: wrap; gap: .1rem 1rem; }
+.ds-fact-chiffres strong { font-variant-numeric: tabular-nums; }
 
-.ds-carte td .code, .sk-table td .code { white-space: nowrap; }
-.ds-carte td.ds-date { white-space: nowrap; }
-.ds-carte .table td, .ds-carte .table th { padding: .45rem .5rem; vertical-align: middle; }
-.ds-carte .table td { overflow-wrap: anywhere; }
-.ds-carte .table td.nombre { overflow-wrap: normal; }
+.sk-table td .code { white-space: nowrap; }
 
 /* Impression (lettre, portrait) : les filtres ne s'impriment pas (un résumé les remplace), le tableau tient sur la largeur de la page,
    l'en-tête se répète sur chaque page et aucune ligne n'est coupée en deux */
@@ -90,4 +136,5 @@ table.dataTable.sk-table > thead > tr > th::before, table.dataTable.sk-table > t
   .sk-table tbody tr.sk-bas, .sk-table tbody tr.sk-bas > td { background-color: #fde8e8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .sk-pos, .sk-neg { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .ds-carte { page-break-inside: avoid; }
+  .sk-table tbody tr.sk-clic { cursor: auto; }
 }

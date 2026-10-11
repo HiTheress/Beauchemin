@@ -71,7 +71,23 @@ async function attendreToast(p, motif) {
   await p.waitForFunction(m => (document.getElementById('toasts') || { textContent: '' }).textContent.replace(/\u00a0/g, ' ').indexOf(m) !== -1, motif, { timeout: 6000 });
 }
 async function erreurSaisie(p) { await p.waitForSelector('#mv-erreur:not([hidden])', { timeout: 6000 }); return (await p.textContent('#mv-erreur')).replace(/\u00a0/g, ' ').trim(); }
-async function succesSaisie(p) { await p.waitForSelector('#mv-succes:not([hidden])', { timeout: 8000 }); return (await p.textContent('#mv-succes')).replace(/\s+/g, ' ').trim(); }
+/** Attend la notification de réussite d'un enregistrement (jamais une ancienne : chaque notification lue est marquée, puis retirée sauf si $garder) ; renvoie son texte. */
+async function succesSaisie(p, garder) {
+  await p.waitForSelector('#toasts .alert-success:not([data-lu])', { timeout: 8000 });
+  return (await p.evaluate((garder) => {
+    const t = document.querySelector('#toasts .alert-success:not([data-lu])');
+    const texte = t.textContent;
+    t.setAttribute('data-lu', '1');
+    if (!garder) { t.remove(); }
+    return texte;
+  }, !!garder)).replace(/[\s\u00a0]+/g, ' ').trim();
+}
+/** « Plus d'options » : ouvre le panneau s'il est replié (les champs rares y sont cachés). */
+async function ouvrirOptions(p) {
+  if ((await p.$('#mv-plus')) && (await p.getAttribute('#mv-plus', 'aria-expanded')) !== 'true') { await p.click('#mv-plus'); }
+}
+/** Ouvre une page et, si elle a un panneau « Plus d'options », le déplie : les tests remplissent les champs rares comme avant. */
+async function aller(p, route) { await L.aller(p, route); await ouvrirOptions(p); }
 async function texteNorm(p, sel) { return (await p.textContent(sel)).replace(/[\s ]+/g, ' ').trim(); }
 async function optionsTexte(p, sel) { return p.$$eval(sel + ' option', o => o.map(x => x.textContent.trim())); }
 /** Attend la fin du chargement du tableau de documents ; renvoie {lignes, info}. */
@@ -83,7 +99,7 @@ async function tableau(p) {
   const info = await p.textContent('#table-documents_info');
   return { rows, vide: rows.length === 1 && /Aucun/.test(rows[0]), info: info.trim() };
 }
-async function ouvrirDocuments(p, query) { await L.aller(p, 'documents' + (query || '')); return tableau(p); }
+async function ouvrirDocuments(p, query) { await aller(p, 'documents' + (query || '')); return tableau(p); }
 function remettreAZero() {
   try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE, stdio: 'pipe' }); return true; } catch (x) { return false; }
 }
@@ -118,14 +134,14 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   console.log('1. Contrôle d\'accès des pages et des endpoints');
   // =====================================================================================================================
-  await L.aller(e, 'reception');
+  await aller(e, 'reception');
   L.verifier((await e.textContent('.content-wrapper')).includes('pas la permission'), 'employé : page reception refusée');
   L.verifier((await e.$$('#btn-enregistrer')).length === 0, 'employé : aucun formulaire de réception dans la page');
-  await L.aller(e, 'ajustement');
+  await aller(e, 'ajustement');
   L.verifier((await e.textContent('.content-wrapper')).includes('pas la permission') && (await e.$$('#btn-enregistrer')).length === 0, 'employé : page ajustement refusée');
   L.verifier((await e.$$('a[href="index.php?page=reception"]')).length === 0, 'employé : pas de lien Réception dans le menu');
-  await L.aller(e, 'transfert'); L.verifier((await e.$$('#btn-enregistrer')).length === 1, 'employé : page transfert accessible');
-  await L.aller(e, 'sortie'); L.verifier((await e.$$('#btn-enregistrer')).length === 1, 'employé : page sortie accessible');
+  await aller(e, 'transfert'); L.verifier((await e.$$('#btn-enregistrer')).length === 1, 'employé : page transfert accessible');
+  await aller(e, 'sortie'); L.verifier((await e.$$('#btn-enregistrer')).length === 1, 'employé : page sortie accessible');
 
   const lignesOk = [{ piece_id: 1, quantite: '1', cout_unitaire: '1' }];
   // sans connexion : 401 (requête sans témoin de session)
@@ -188,23 +204,23 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   const rp2 = await appel(g2, 'app/ajax/reception_prix.php?piece_id=1&emplacement_id=1', null);
   L.verifier(rp2.status === 400 && /Emplacement introuvable/.test(rp2.json.erreur), 'gestionnaire de l\'entreprise 2 : reception_prix sur un emplacement de l\'entreprise 1 refusé');
   // un employé ne voit pas un document de l'entreprise 2 (document 2 = réception de Boutique Chaleur)
-  await L.aller(e, 'document_voir&id=2');
+  await aller(e, 'document_voir&id=2');
   L.verifier((await e.textContent('.content-wrapper')).includes('Ce document n\'existe pas, ou vous n\'y avez pas accès'), 'employé : document de l\'entreprise 2 refusé : ' + (await texteNorm(e, '.content-wrapper')).slice(0, 120));
   const r403 = await appel(e, 'app/action/document_annuler.php', { id: 2, motif: 'test' });
   L.verifier(r403.status === 403, 'employé : annuler un document (rôle insuffisant) refusé (403)');
   const rIntrouvable = await appel(g2, 'app/action/document_annuler.php', { id: 3, motif: 'test' });
   const rInexistant = await appel(g2, 'app/action/document_annuler.php', { id: 99999, motif: 'test' });
   L.verifier(rIntrouvable.status === 400 && rIntrouvable.texte === rInexistant.texte && rInexistant.status === 400, 'document d\'une autre entreprise : EXACTEMENT la même réponse qu\'un document inexistant : ' + rIntrouvable.texte + ' / ' + rInexistant.texte);
-  await L.aller(e, 'document_voir&id=99999');
+  await aller(e, 'document_voir&id=99999');
   L.verifier((await e.textContent('.content-wrapper')).includes('Document introuvable') || (await e.textContent('.content-wrapper')).includes('introuvable'), 'document inexistant : message clair');
-  await L.aller(e, 'document_voir&id=abc');
+  await aller(e, 'document_voir&id=abc');
   L.verifier((await e.textContent('.content-wrapper')).includes('introuvable'), 'identifiant de document invalide : message clair');
 
   // =====================================================================================================================
   console.log('2. Réception (gestionnaire) : scan, coûts proposés, total, enregistrement');
   // =====================================================================================================================
-  await L.aller(g, 'reception');
-  L.verifier((await g.textContent('h1')).trim() === 'Réception de marchandise', 'titre de la page de réception');
+  await aller(g, 'reception');
+  L.verifier((await g.textContent('h1')).trim() === 'Recevoir', 'titre de la page de réception = libellé du menu');
   const groupes = await g.$$eval('#emplacement optgroup', o => o.map(x => x.label));
   L.verifier(groupes.join('|') === 'Beauchemin|Boutique Chaleur', 'emplacements groupés par entreprise : ' + groupes.join('|'));
   L.verifier(await g.$eval('#date', x => x.max) === await g.$eval('#date', x => x.value), 'date par défaut = aujourd\'hui = date maximale');
@@ -270,9 +286,9 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.check('#maj-prix');
   const avant1 = num(stock(1, 1)), avant4 = num(stock(4, 1));
   await g.click('#btn-enregistrer');
-  let ok = await succesSaisie(g);
+  let ok = await succesSaisie(g, true);
   L.verifier(/Réception REC-\d{4}-\d{5} enregistrée/.test(ok) && /total 130,40/.test(ok), 'message de succès avec numéro et total : ' + ok);
-  const lien = await g.$eval('#mv-succes a', a => a.getAttribute('href'));
+  const lien = await g.$eval('#toasts .alert-success a', a => a.getAttribute('href'));
   L.verifier(/^index\.php\?page=document_voir&id=\d+$/.test(lien), 'lien vers le document : ' + lien);
   L.verifier((await lignes(g)).length === 0 && (await g.inputValue('#note')) === '' && (await g.inputValue('#reference')) === '' && (await g.inputValue('#fournisseur')) === '', 'formulaire remis à zéro');
   L.verifier(await g.evaluate(() => document.activeElement.id) === 'scan', 'le focus revient dans le champ de scan');
@@ -349,7 +365,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(px4.status === 400, 'reception_prix : pièce invalide refusée');
 
   // le coût moyen proposé suit l'entreprise de l'emplacement de réception
-  await L.aller(g, 'reception');
+  await aller(g, 'reception');
   await g.selectOption('#emplacement', '1');
   await scan(g, 'P-0009', 1);
   await g.waitForFunction(() => document.querySelector('#lignes tbody tr input[aria-label^="Coût"]').value !== '');
@@ -358,22 +374,22 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.waitForFunction(v => document.querySelector('#lignes tbody tr input[aria-label^="Coût"]').value !== v, coutBea, { timeout: 5000 });
   const coutBch = await g.inputValue('#lignes tbody tr input[aria-label^="Coût"]');
   L.verifier(coutBea === '52,9714' && coutBch === '53,40', 'coût moyen proposé selon l\'entreprise de l\'emplacement : ' + coutBea + ' -> ' + coutBch);
-  await g.click('#lignes tbody tr button');
+  await g.click('#lignes tbody tr button[aria-label^="Retirer"]');
 
   // =====================================================================================================================
   console.log('3. Erreurs métier : pièce désactivée, emplacement désactivé');
   // =====================================================================================================================
-  await L.aller(g, 'reception');
+  await aller(g, 'reception');
   sql("UPDATE pieces SET actif = 0 WHERE code = 'P-0014'");
   await L.scanner(g, '#scan', 'P-0014');
   await attendreToast(g, 'désactivée');
   L.verifier((await lignes(g)).length === 0, 'scan d\'une pièce désactivée : message clair, aucune ligne ajoutée');
   const rDes = await appel(g, 'app/action/reception_save.php', { emplacement_id: 1, lignes: [{ piece_id: 14, quantite: '1', cout_unitaire: '5' }] });
   L.verifier(rDes.status === 400 && /désactivée/.test(rDes.json.erreur), 'pièce désactivée refusée par le serveur : ' + (rDes.json && rDes.json.erreur));
-  await g.click('.select2-selection'); await g.waitForSelector('.select2-search__field'); await g.fill('.select2-search__field', 'Joint de porte');
-  await g.waitForFunction(() => (document.querySelector('.select2-results') || { textContent: '' }).textContent.indexOf('Aucun résultat') !== -1, null, { timeout: 6000 });
-  L.verifier(true, 'la recherche ne propose pas une pièce désactivée');
-  await g.keyboard.press('Escape');
+  await g.fill('#scan', 'Joint de porte');
+  await g.waitForResponse(r => /pieces_recherche\.php/.test(r.url()), { timeout: 6000 }); await attendre(150);
+  L.verifier(await g.$eval('#scan-suggestions', x => x.hidden && x.children.length === 0), 'la recherche ne propose pas une pièce désactivée (aucune suggestion)');
+  await g.fill('#scan', '');
   sql("UPDATE pieces SET actif = 1 WHERE code = 'P-0014'");
   // pièce désactivée entre le scan et l'enregistrement : le serveur refuse, la saisie reste
   await scan(g, 'P-0013', 1);
@@ -383,10 +399,10 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.click('#btn-enregistrer'); err = await erreurSaisie(g);
   L.verifier(/« P-0013 » est désactivée/.test(err) && (await lignes(g)).length === 1, 'pièce désactivée après le scan : erreur du serveur affichée, saisie conservée : ' + err);
   sql("UPDATE pieces SET actif = 1 WHERE code = 'P-0013'");
-  await g.click('#lignes tbody tr button');
+  await g.click('#lignes tbody tr button[aria-label^="Retirer"]');
 
   sql("UPDATE emplacements SET actif = 0 WHERE id = 5");
-  await L.aller(g, 'reception');
+  await aller(g, 'reception');
   const optEmp = await g.$$eval('#emplacement option', o => o.map(x => x.value));
   L.verifier(!optEmp.includes('5') && optEmp.includes('2'), 'emplacement désactivé : absent de la liste');
   await L.scanner(g, '#scan', 'EMP-000005');
@@ -405,7 +421,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   console.log('4. Transfert');
   // =====================================================================================================================
-  await L.aller(g, 'transfert');
+  await aller(g, 'transfert');
   await g.selectOption('#emplacement', '1');
   const destGroupes = await g.$$eval('#destination optgroup', o => o.map(x => x.label));
   const destOpts = await g.$$eval('#destination option', o => o.map(x => x.value));
@@ -454,7 +470,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   const rTD = await appel(g, 'app/action/transfert_save.php', { emplacement_id: 1, lignes: [{ piece_id: 1, quantite: '1' }] });
   L.verifier(rTD.status === 400 && rTD.json.champ === 'emplacement_dest_id', 'transfert sans destination : refusé, champ désigné');
   // un employé : transfert dans son entreprise, sans aucun coût visible
-  await L.aller(e, 'transfert');
+  await aller(e, 'transfert');
   L.verifier((await e.$$eval('#emplacement optgroup', o => o.map(x => x.label))).join('|') === 'Beauchemin', 'employé : seulement les emplacements de son entreprise');
   await scan(e, 'P-0005', 1);
   L.verifier(!(await e.textContent('.content-wrapper')).match(/Coût|\d\s?\$/), 'employé : aucun coût ni montant dans la page de transfert');
@@ -467,7 +483,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   console.log('5. Sortie');
   // =====================================================================================================================
-  await L.aller(g, 'sortie&emplacement_id=3');
+  await aller(g, 'sortie&emplacement_id=3');
   L.verifier(await g.inputValue('#emplacement') === '3', 'prérenseignement &emplacement_id=3');
   const motifs = await optionsTexte(g, '#motif');
   L.verifier(motifs.join('|') === '— Choisissez —|Service / réparation|Installation|Perte / bris|Retour au fournisseur|Autre', 'motifs de sortie : ' + motifs.join('|'));
@@ -490,7 +506,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(rSortie.status === 400 && rSortie.json.champ === 'motif', 'motif inconnu refusé par le serveur');
   const rSortie2 = await appel(g, 'app/action/sortie_save.php', { emplacement_id: 3, motif: 'perte', lignes: [{ piece_id: 3, quantite: '0' }] });
   L.verifier(rSortie2.status === 400, 'quantité zéro refusée');
-  await L.aller(e, 'sortie');
+  await aller(e, 'sortie');
   await e.selectOption('#emplacement', '3'); await e.selectOption('#motif', 'installation');
   await scan(e, 'P-0011', 1); await e.fill('#lignes tbody tr:nth-child(1) input', '2,5');
   await e.click('#btn-enregistrer'); ok = await succesSaisie(e);
@@ -498,10 +514,10 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(num(stock(11, 3)) === 17.5, 'employé : sortie de 2,5 m (virgule) : reste ' + stock(11, 3));
 
   // parcours à la souris et au clavier (sans scanner) : recherche par nom, quantité, Entrée, bouton
-  await L.aller(g, 'sortie');
+  await aller(g, 'sortie');
   await g.selectOption('#emplacement', '1'); await g.selectOption('#motif', 'perte');
-  await g.click('.select2-selection'); await g.waitForSelector('.select2-search__field'); await g.fill('.select2-search__field', 'gicleur');
-  await g.waitForSelector('.select2-results__option:has-text("P-0003")'); await g.click('.select2-results__option:has-text("P-0003")');
+  await g.fill('#scan', 'gicleur');
+  await g.waitForSelector('#scan-suggestions:not([hidden]) li:has-text("P-0003")'); await g.click('#scan-suggestions li:has-text("P-0003")');
   await attendreLignes(g, 1);
   L.verifier(await g.evaluate(() => document.activeElement.id) === 'scan', 'recherche par nom : la ligne est ajoutée et le focus revient dans le champ de scan');
   await g.fill('#lignes tbody tr:nth-child(1) input', '2');
@@ -511,7 +527,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.click('#btn-enregistrer'); ok = await succesSaisie(g);
   L.verifier(/Sortie SOR/.test(ok) && num(stock(3, 1)) === sP3 - 2, 'parcours à la souris : sortie enregistrée (-2)');
   // réseau coupé : message clair, saisie conservée, bouton réactivé ; le renvoi ne crée qu'un seul document
-  await L.aller(g, 'sortie');
+  await aller(g, 'sortie');
   await g.selectOption('#emplacement', '1'); await g.selectOption('#motif', 'autre'); await g.fill('#reference', 'BT-HORS-LIGNE');
   await scan(g, 'P-0002', 1);
   const erreursAvant = g.erreurs.length;
@@ -525,14 +541,14 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(nbDocs("reference='BT-HORS-LIGNE'") === 1, 'le renvoi après la coupure crée un seul document');
   // retrait d'une ligne à la souris
   await scan(g, 'P-0001', 1); await scan(g, 'P-0002', 2);
-  await g.click('#lignes tbody tr:nth-child(1) button'); await attendreLignes(g, 1);
+  await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Retirer"]'); await attendreLignes(g, 1);
   L.verifier((await lignes(g))[0][0] === 'P-0002' && /1 ligne/.test(await g.textContent('#mv-resume')), 'retrait d\'une ligne : liste et résumé à jour');
-  await g.click('#lignes tbody tr:nth-child(1) button');
+  await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Retirer"]');
 
   // =====================================================================================================================
   console.log('6. Ajustement (gestionnaire)');
   // =====================================================================================================================
-  await L.aller(g, 'ajustement&piece_id=2&emplacement_id=3');
+  await aller(g, 'ajustement&piece_id=2&emplacement_id=3');
   l = await lignes(g);
   L.verifier(l.length === 1 && l[0][0] === 'P-0002' && l[0][3] === '1', 'prérenseignement &piece_id=2 : une ligne P-0002, quantité 1 : ' + JSON.stringify(l));
   L.verifier(await g.inputValue('#emplacement') === '3', 'prérenseignement &emplacement_id=3');
@@ -567,7 +583,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   let t = await ouvrirDocuments(g);
   const entetes = await g.$$eval('#table-documents thead th', x => x.map(c => c.textContent.trim()));
-  L.verifier(entetes.join('|') === 'Numéro|Statut|Type|Date|Entreprise|Emplacement(s)|Utilisateur|Total', 'colonnes (gestionnaire) : ' + entetes.join('|'));
+  L.verifier(entetes.join('|') === 'Numéro|Type|Date|Entreprise|Emplacement|Total', 'colonnes (gestionnaire, 6 au plus) : ' + entetes.join('|'));
   const total1 = nbDocs();
   L.verifier(new RegExp('de ' + total1 + ' documents').test(t.info), 'info : ' + t.info + ' (SQL : ' + total1 + ')');
   L.verifier(/^REC-|^AJU-|^TRF-|^SOR-/.test(t.rows[0]), 'le plus récent d\'abord : ' + t.rows[0].slice(0, 30));
@@ -608,24 +624,25 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(await g.inputValue('#f-du') === '' && new RegExp('de ' + total1 + ' documents').test(t.info), 'effacer les filtres');
   // tri sur chaque colonne : aucune erreur de chargement
   await viderToasts(g);
-  for (let c = 1; c <= 8; c++) { await g.click('#table-documents thead th:nth-child(' + c + ')'); await tableau(g); }
-  L.verifier(!(await toastTexte(g)).includes('Impossible de charger'), 'tri sur chacune des 8 colonnes : aucune erreur de chargement');
-  await g.click('#table-documents thead th:nth-child(4)'); await tableau(g);
+  for (let c = 1; c <= entetes.length; c++) { await g.click('#table-documents thead th:nth-child(' + c + ')'); await tableau(g); }
+  L.verifier(!(await toastTexte(g)).includes('Impossible de charger'), 'tri sur chacune des ' + entetes.length + ' colonnes : aucune erreur de chargement');
+  await g.click('#table-documents thead th:nth-child(3)'); await tableau(g);
   // préremplissage par l'adresse (filtres) et valeurs hostiles
   t = await ouvrirDocuments(g, '&type=sortie&statut=valide');
   L.verifier(await g.inputValue('#f-type') === 'sortie' && t.rows.every(r => /Sortie/.test(r)), 'filtres reçus par l\'adresse');
   t = await ouvrirDocuments(g, '&type=%27%22%3E&statut=%3Cx%3E&du=pas-une-date&q=%3Cscript%3Ewindow.__y%3D1%3C%2Fscript%3E');
   L.verifier(await g.evaluate(() => window.__y) === undefined && await g.inputValue('#f-type') === '', 'paramètres d\'adresse hostiles : sans effet');
   // clic sur la ligne : ouvre le document
-  await L.aller(g, 'documents'); await tableau(g);
-  await g.click('#table-documents tbody tr:first-child td:nth-child(4)');
+  await aller(g, 'documents'); await tableau(g);
+  await g.click('#table-documents tbody tr:first-child td:nth-child(3)');
   await g.waitForURL(/page=document_voir&id=\d+/);
   L.verifier(true, 'clic sur une ligne : ouvre le document');
 
   // employé : colonne « Total » absente (HTML et JSON), documents de son entreprise seulement
   t = await ouvrirDocuments(e);
   const entEmp = await e.$$eval('#table-documents thead th', x => x.map(c => c.textContent.trim()));
-  L.verifier(entEmp.join('|') === 'Numéro|Statut|Type|Date|Entreprise|Emplacement(s)|Utilisateur', 'employé : colonnes sans « Total » : ' + entEmp.join('|'));
+  L.verifier(entEmp.join('|') === 'Numéro|Type|Date|Emplacement', 'employé : colonnes sans « Total » ni « Entreprise » (une seule entreprise) : ' + entEmp.join('|'));
+  L.verifier((await e.$$('#f-entreprise')).length === 0 && (await e.$$('#table-documents td.nombre')).length === 0, 'employé : pas de filtre « Entreprise » (une seule), aucune colonne de montant');
   L.verifier(!/Total/.test(await e.textContent('.content-wrapper')) && !/\d\s?\$/.test(await e.textContent('#table-documents')), 'employé : aucun montant ni « Total » dans la page des documents');
   const rawEmp = await liste(e, { draw: '1', start: '0', length: '100' });
   L.verifier(rawEmp.status === 200 && !/"total"/.test(rawEmp.texte) && !/\d\s?\$/.test(rawEmp.texte), 'employé : aucun « total » dans le JSON brut');
@@ -648,7 +665,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
     const pe = suivre(await ctxExp.newPage());
     await pe.goto(L.BASE + '/login.php'); await pe.fill('input[name=username]', 'gestionnaire1'); await pe.fill('input[name=password]', MDP);
     await Promise.all([pe.waitForNavigation(), pe.click('button[type=submit]')]);
-    await L.aller(pe, 'documents'); await tableau(pe);
+    await aller(pe, 'documents'); await tableau(pe);
     await ctxExp.clearCookies();
     await pe.selectOption('#f-type', 'sortie');
     await pe.waitForURL(/login\.php/, { timeout: 8000 }).catch(() => {});
@@ -659,7 +676,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   console.log('8. Détail d\'un document, annulation, impression');
   // =====================================================================================================================
-  await L.aller(g, 'document_voir&id=' + docRec1);
+  await aller(g, 'document_voir&id=' + docRec1);
   L.verifier((await g.textContent('h1')).trim().startsWith('REC-'), 'titre = numéro du document');
   const dt = await texteNorm(g, '.mv-entete');
   L.verifier(/Grossiste Gaz du Nord/.test(dt) && /FAC-TEST-1/.test(dt) && /Première réception de test/.test(dt) && /N° de facture du fournisseur/.test(dt), 'en-tête : fournisseur, référence, note : ' + dt);
@@ -705,7 +722,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   const idAnn2 = rr.json.id;
   const stockP6 = num(stock(6, 1));
   await appel(g, 'app/action/transfert_save.php', { emplacement_id: 1, emplacement_dest_id: 4, lignes: [{ piece_id: 6, quantite: String(stockP6) }] });   // on vide l'entrepôt de cette pièce
-  await L.aller(g, 'document_voir&id=' + idAnn2);
+  await aller(g, 'document_voir&id=' + idAnn2);
   await g.click('#btn-annuler'); await g.waitForSelector('#modal-annuler.show');
   await g.fill('#annuler-motif', 'Test d\'annulation impossible');
   await g.click('#annuler-confirmer');
@@ -715,8 +732,8 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(sql("SELECT statut FROM documents WHERE id=" + idAnn2) === 'valide', 'annulation impossible : le document reste valide');
   await g.click('#annuler-retour'); await g.waitForSelector('#modal-annuler', { state: 'hidden' });
   // un ajustement ne s'annule pas (pas de bouton, refus du serveur)
-  await L.aller(g, 'document_voir&id=' + docAju);
-  L.verifier((await g.$$('#btn-annuler')).length === 0 && /ne s'annule pas/.test(await g.textContent('.mv-barre')), 'ajustement : pas de bouton Annuler, explication donnée');
+  await aller(g, 'document_voir&id=' + docAju);
+  L.verifier((await g.$$('#btn-annuler')).length === 0 && (await g.$$('.mv-barre .text-muted')).length === 0, 'ajustement : pas de bouton Annuler (et aucune phrase d\'explication à côté des boutons)');
   const annAju = await appel(g, 'app/action/document_annuler.php', { id: docAju, motif: 'x' });
   L.verifier(annAju.status === 400 && /ne s'annule pas/.test(annAju.json.erreur), 'ajustement : annulation refusée par le serveur : ' + annAju.json.erreur);
   L.verifier(/Correction/.test(await texteNorm(g, '.mv-entete')) && /\+2/.test(await texteNorm(g, '#table-lignes')) && /-1/.test(await texteNorm(g, '#table-lignes')), 'ajustement : motif et quantités signées affichés');
@@ -727,7 +744,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(annLong.status === 400 && /255/.test(annLong.json.erreur), 'POST direct avec un motif trop long : message clair');
   L.verifier(sql("SELECT statut FROM documents WHERE id=" + docTrf) === 'valide', 'ces refus n\'ont rien annulé');
   // employé : détail sans coût, sans bouton d'annulation, annulation refusée par POST
-  await L.aller(e, 'document_voir&id=' + docTrf);
+  await aller(e, 'document_voir&id=' + docTrf);
   const htmlEmp = await e.content();
   L.verifier(!/Coût unitaire/.test(htmlEmp) && !/\d\s?\$/.test(await e.textContent('.content-wrapper')), 'employé : détail du document sans coût ni montant');
   L.verifier((await e.$$('#btn-annuler')).length === 0 && (await e.$$('#modal-annuler')).length === 0, 'employé : ni bouton ni fenêtre d\'annulation');
@@ -737,10 +754,10 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // facture interne : gestionnaire redirigé vers le module C ; employé voit le détail sans coûts ni nom de l'autre entreprise
   await neg.goto(L.BASE + '/index.php?page=document_voir&id=5'); await neg.waitForLoadState('networkidle');   // page sacrifiée : le module C est hors de ma portée
   L.verifier(/page=facture_interne_voir&id=5$/.test(neg.url()), 'facture interne : redirection vers facture_interne_voir : ' + neg.url());
-  await L.aller(e, 'document_voir&id=5');
+  await aller(e, 'document_voir&id=5');
   const fin = await texteNorm(e, '.content-wrapper');
   L.verifier(/FIN-/.test(fin) && /Facture interne/.test(fin) && !/Boutique Centre-ville/.test(fin) && /Autre entreprise/.test(fin) && !/\d\s?\$/.test(fin), 'employé : facture interne sans coûts ; l\'emplacement de l\'autre entreprise est masqué');
-  await L.aller(e, 'document_voir&id=6');
+  await aller(e, 'document_voir&id=6');
   const fin2 = await texteNorm(e, '.content-wrapper');
   L.verifier(/FIN-/.test(fin2) && /Autre entreprise/.test(fin2) && /Cube 14/.test(fin2) && !/\d\s?\$/.test(fin2), 'employé : facture reçue de l\'autre entreprise : l\'emplacement émetteur est masqué, le sien est visible : ' + fin2.slice(0, 220));
 
@@ -752,7 +769,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   sql("UPDATE emplacements SET nom = '<b>Cube</b> \"X\" <img src=x onerror=alert(3)>' WHERE id = 4");
   const idX = parseInt(sql("SELECT id FROM fournisseurs WHERE nom LIKE '<img%'"), 10);
   const nbDial = dialogues.length;
-  await L.aller(g, 'reception');
+  await aller(g, 'reception');
   L.verifier((await g.$$eval('#emplacement option', o => o.map(x => x.textContent))).some(x => x.includes('<img src=x onerror=alert(3)>')), 'nom d\'emplacement hostile : affiché en texte dans la liste');
   await g.selectOption('#emplacement', '4');
   await g.selectOption('#fournisseur', String(idX));
@@ -760,9 +777,9 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '1,00');
   await g.fill('#reference', '<script>window.__x=1</script>');
   await g.fill('#note', '<img src=x onerror=alert(4)> & "note"');
-  await g.click('#btn-enregistrer'); ok = await succesSaisie(g);
-  L.verifier(await g.evaluate(() => window.__x) === undefined && (await g.$$('#mv-succes img')).length === 0, 'XSS : message de succès inerte');
-  await g.click('#mv-succes a');
+  await g.click('#btn-enregistrer'); ok = await succesSaisie(g, true);
+  L.verifier(await g.evaluate(() => window.__x) === undefined && (await g.$$('#toasts img')).length === 0, 'XSS : message de succès inerte');
+  await g.click('#toasts .alert-success a');
   await g.waitForURL(/document_voir/);
   const htmlDoc = await g.content();
   L.verifier((await g.$$('.content-wrapper img[src="x"], #table-lignes img')).length === 0 && !/<img src=x onerror=alert\(1\)>/.test(htmlDoc), 'XSS : détail du document inerte (nom de pièce)');
@@ -771,15 +788,15 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(t.rows.length === 1 && (await g.$$('#table-documents img, #table-documents script')).length === 0, 'XSS : liste des documents inerte (recherche de la référence)');
   t = await ouvrirDocuments(g, '');
   L.verifier((await g.$$('#table-documents img, #table-documents b')).length === 0, 'XSS : nom d\'emplacement hostile échappé dans la liste');
-  await L.aller(g, 'transfert');
+  await aller(g, 'transfert');
   await g.selectOption('#emplacement', '1');
   await g.$eval('#destination', s => s.value);
   L.verifier((await g.$$('#destination img, #destination b')).length === 0, 'XSS : liste de destination inerte');
   await scan(g, 'XSS-1', 1);
   L.verifier((await g.$$('#lignes img')).length === 0 && (await lignes(g))[0][1] === XSS_PIECE, 'XSS : nom de pièce affiché en texte dans les lignes');
-  await g.click('.select2-selection'); await g.waitForSelector('.select2-search__field'); await g.fill('.select2-search__field', 'XSS-1');
-  await g.waitForSelector('.select2-results__option');
-  L.verifier((await g.$$('.select2-results img')).length === 0, 'XSS : liste de recherche inerte');
+  await g.fill('#scan', 'XSS-');
+  await g.waitForSelector('#scan-suggestions:not([hidden]) li');
+  L.verifier((await g.$$('#scan-suggestions img')).length === 0 && (await texteNorm(g, '#scan-suggestions')).includes(XSS_PIECE), 'XSS : liste de suggestions inerte (le nom s\'affiche en texte)');
   await g.keyboard.press('Escape');
   L.verifier(dialogues.length === nbDial, 'XSS : aucune boîte de dialogue ouverte (' + dialogues.slice(nbDial).join(' / ') + ')');
   sql("UPDATE emplacements SET nom = 'Cube 14 — Luc' WHERE id = 4");
@@ -787,31 +804,31 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   console.log('10. Préremplissage par l\'adresse');
   // =====================================================================================================================
-  await L.aller(g, 'reception&piece_id=9&emplacement_id=2');
+  await aller(g, 'reception&piece_id=9&emplacement_id=2');
   await attendreLignes(g, 1);
   l = await lignes(g);
   L.verifier(l[0][0] === 'P-0009' && l[0][2] === '1', 'reception&piece_id=9 : ligne P-0009, quantité 1');
   L.verifier(await g.inputValue('#emplacement') === '2', 'reception&emplacement_id=2 : emplacement présélectionné');
   await g.waitForFunction(() => document.querySelector('#lignes tbody tr input[aria-label^="Coût"]').value !== '');
   L.verifier(await g.inputValue('#lignes tbody tr input[aria-label^="Coût"]') === '53,40', 'coût proposé pour la pièce préremplie (coût moyen de l\'entreprise 2) : ' + await g.inputValue('#lignes tbody tr input[aria-label^="Coût"]'));
-  await L.aller(g, 'transfert&piece_id=1&emplacement_id=3');
+  await aller(g, 'transfert&piece_id=1&emplacement_id=3');
   await attendreLignes(g, 1);
   L.verifier(await g.inputValue('#emplacement') === '3' && (await lignes(g))[0][0] === 'P-0001', 'transfert&piece_id&emplacement_id : source et ligne');
-  await L.aller(g, 'sortie&piece_id=3&emplacement_id=3'); await attendreLignes(g, 1);
+  await aller(g, 'sortie&piece_id=3&emplacement_id=3'); await attendreLignes(g, 1);
   L.verifier(await g.inputValue('#emplacement') === '3' && (await lignes(g))[0][0] === 'P-0003' && num((await lignes(g))[0][2]) === num(stock(3, 3)), 'sortie&piece_id&emplacement_id : disponible = stock du cube');
-  await L.aller(g, 'reception&piece_id=99999&emplacement_id=abc');
+  await aller(g, 'reception&piece_id=99999&emplacement_id=abc');
   L.verifier((await g.textContent('.content-wrapper')).includes('n\'existe pas') && (await lignes(g)).length === 0, 'piece_id inexistant : avertissement, aucune ligne');
   sql("UPDATE pieces SET actif = 0 WHERE id = 14");
-  await L.aller(g, 'reception&piece_id=14');
+  await aller(g, 'reception&piece_id=14');
   L.verifier((await g.textContent('.content-wrapper')).includes('désactivée') && (await lignes(g)).length === 0, 'piece_id désactivée : avertissement, aucune ligne');
   sql("UPDATE pieces SET actif = 1 WHERE id = 14");
-  await L.aller(g, 'reception&piece_id=%3Cscript%3E&emplacement_id=%22%3E');
+  await aller(g, 'reception&piece_id=%3Cscript%3E&emplacement_id=%22%3E');
   L.verifier((await lignes(g)).length === 0 && await g.evaluate(() => window.__x) === undefined && !(await g.$$eval('#emplacement option', o => o.some(x => x.value === '">'))), 'paramètres hostiles : ignorés');
   // dernier emplacement mémorisé
-  await L.aller(g, 'sortie'); await g.selectOption('#emplacement', '4');
-  await L.aller(g, 'sortie');
+  await aller(g, 'sortie'); await g.selectOption('#emplacement', '4');
+  await aller(g, 'sortie');
   L.verifier(await g.inputValue('#emplacement') === '4', 'le dernier emplacement utilisé est mémorisé (localStorage)');
-  await L.aller(g, 'sortie&emplacement_id=3');
+  await aller(g, 'sortie&emplacement_id=3');
   L.verifier(await g.inputValue('#emplacement') === '3', 'l\'adresse a priorité sur la mémoire');
   // stockage du navigateur indisponible : la page fonctionne quand même
   const ctxSans = await b.newContext();
@@ -820,7 +837,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   pSans.on('pageerror', x => pSans.erreurs.push('pageerror: ' + x.message));
   await pSans.goto(L.BASE + '/login.php'); await pSans.fill('input[name=username]', 'gestionnaire1'); await pSans.fill('input[name=password]', MDP);
   await Promise.all([pSans.waitForNavigation(), pSans.click('button[type=submit]')]);
-  await L.aller(pSans, 'sortie'); await pSans.selectOption('#emplacement', '1');
+  await aller(pSans, 'sortie'); await pSans.selectOption('#emplacement', '1');
   await scan(pSans, 'P-0002', 1);
   L.verifier(pSans.erreurs.length === 0 && (await lignes(pSans)).length === 1, 'localStorage bloqué : la page de saisie fonctionne sans erreur : ' + JSON.stringify(pSans.erreurs));
   await ctxSans.close();
@@ -834,7 +851,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   const r301 = await appel(g, 'app/action/reception_save.php', { emplacement_id: 1, lignes: lignes301 });
   L.verifier(r301.status === 400 && /Trop de lignes \(maximum 300\)/.test(r301.json.erreur), 'serveur : 301 lignes refusées avec un message clair : ' + (r301.json && r301.json.erreur));
   const nbMouvAvant = parseInt(sql('SELECT COUNT(*) FROM mouvements'), 10);
-  await L.aller(g, 'ajustement');
+  await aller(g, 'ajustement');
   await g.selectOption('#emplacement', '1'); await g.selectOption('#motif', 'autre');
   for (let i = 1; i <= 301; i++) { await L.scanner(g, '#scan', 'T-' + String(i).padStart(4, '0')); if (i % 50 === 0 || i > 298) await attendreLignes(g, i); else await g.waitForFunction(k => document.querySelectorAll('#lignes tbody tr').length >= k, i, { timeout: 8000 }); }
   L.verifier((await lignes(g)).length === 301, 'interface : 301 lignes ajoutées au scanner');
@@ -846,7 +863,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.click('#btn-enregistrer'); ok = await succesSaisie(g);
   L.verifier(/Ajustement AJU/.test(ok) && parseInt(sql('SELECT COUNT(*) FROM mouvements'), 10) === nbMouvAvant + 300, '300 lignes : enregistrées en un seul document (' + (parseInt(sql('SELECT COUNT(*) FROM mouvements'), 10) - nbMouvAvant) + ' mouvements)');
   const idDoc300 = parseInt(sql("SELECT MAX(id) FROM documents"), 10);
-  await L.aller(g, 'document_voir&id=' + idDoc300);
+  await aller(g, 'document_voir&id=' + idDoc300);
   L.verifier((await g.$$eval('#table-lignes tbody tr', r => r.length)) === 300, 'détail : 300 lignes affichées');
 
   // =====================================================================================================================
@@ -854,16 +871,16 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   const tab = await connecterAs('gestionnaire1', { width: 768, height: 1024 });
   for (const route of ['reception', 'transfert', 'sortie', 'ajustement', 'documents', 'document_voir&id=3']) {
-    await L.aller(tab, route); await attendre(400);
+    await aller(tab, route); await attendre(400);
     const largeur = await tab.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
     L.verifier(largeur[0] <= largeur[1] + 1, 'tablette : ' + route + ' sans défilement horizontal (' + largeur.join(' / ') + ')');
   }
-  await L.aller(tab, 'reception');
+  await aller(tab, 'reception');
   const haut = async (sel) => (await tab.$eval(sel, x => x.getBoundingClientRect().height));
   L.verifier(await haut('#btn-enregistrer') >= 44 && await haut('#emplacement') >= 44 && await haut('#date') >= 44 && await haut('#scan') >= 44, 'tablette : bouton et champs ≥ 44 px de haut');
   await scan(tab, 'P-0001', 1);
   L.verifier(await tab.$eval('#lignes tbody tr input', x => x.getAttribute('inputmode')) === 'decimal', 'tablette : quantités en inputmode=decimal');
-  L.verifier(await tab.$eval('#lignes tbody tr button', x => x.getBoundingClientRect().height) >= 44, 'tablette : bouton de retrait de ligne ≥ 44 px');
+  L.verifier(await tab.$eval('#lignes tbody tr button[aria-label^="Retirer"]', x => x.getBoundingClientRect().height) >= 44, 'tablette : bouton de retrait de ligne ≥ 44 px');
   L.verifier(await tab.$eval('#scan', x => x.getAttribute('inputmode')) === 'none', 'le champ de scan n\'ouvre pas le clavier virtuel (inputmode=none)');
 
   }
@@ -873,7 +890,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   const NBSP = ' ';
   // ---- lecteur de codes-barres : une frappe tombée ailleurs que dans le champ de scan n'est jamais perdue ni ne corrompt une valeur
-  await L.aller(g, 'sortie&emplacement_id=1');
+  await aller(g, 'sortie&emplacement_id=1');
   await g.selectOption('#motif', 'service');
   await g.keyboard.type('P-0003'); await g.keyboard.press('Enter');          // le focus est sur la liste des motifs (liste fermée)
   await attendreLignes(g, 1);
@@ -896,14 +913,14 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.keyboard.type('P-0004'); await g.keyboard.press('Enter');          // focus sur la date
   await attendreLignes(g, 4);
   L.verifier(await g.inputValue('#date') === await g.$eval('#date', x => x.max), 'scan alors que le focus est sur la date : la date n\'est pas modifiée');
-  await L.aller(g, 'reception&emplacement_id=1');
+  await aller(g, 'reception&emplacement_id=1');
   await g.selectOption('#fournisseur', '2');
   await g.click('#maj-prix');
   await g.keyboard.type('P-0001'); await g.keyboard.press('Enter');          // focus sur la case à cocher
   await attendreLignes(g, 1);
   L.verifier(await g.isChecked('#maj-prix'), 'scan alors que le focus est sur une case à cocher : la ligne est ajoutée');
   // rafale de scans pendant que le serveur est lent : aucun scan perdu
-  await L.aller(g, 'sortie&emplacement_id=1');
+  await aller(g, 'sortie&emplacement_id=1');
   await g.route('**/scan_code.php*', async r => { await attendre(250); await r.continue(); });
   for (const c of ['P-0001', 'P-0002', 'P-0004', 'P-0005', 'P-0006', 'P-0007']) { await g.fill('#scan', c); await g.press('#scan', 'Enter'); await attendre(100); }
   await g.waitForFunction(() => document.querySelectorAll('#lignes tbody tr').length === 6, null, { timeout: 12000 });
@@ -913,7 +930,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
 
   // ---- transfert : le premier code EMP-… de la saisie choisit la source (même si une source est mémorisée)
   await g.evaluate(() => { try { localStorage.setItem('bea.mv.transfert.emplacement', '1'); } catch (x) { /* ignoré */ } });
-  await L.aller(g, 'transfert');
+  await aller(g, 'transfert');
   L.verifier(await g.inputValue('#emplacement') === '1', 'transfert : la source mémorisée est préremplie');
   await L.scanner(g, '#scan', 'EMP-000003'); await g.waitForFunction(() => document.getElementById('emplacement').value === '3');
   L.verifier(await g.inputValue('#destination') === '', 'transfert : le premier code scanné remplace la source mémorisée (destination vide)');
@@ -929,35 +946,34 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await L.scanner(g, '#scan', 'EMP-000004'); await g.waitForFunction(() => document.getElementById('emplacement').value === '4');
   L.verifier(await g.inputValue('#destination') === '', 'après un enregistrement : le premier code scanné choisit de nouveau la source');
   // même nom d'emplacement dans deux entreprises : l'entreprise est précisée dans les messages
-  await L.aller(g, 'transfert&emplacement_id=1');
+  await aller(g, 'transfert&emplacement_id=1');
   await viderToasts(g);
   await L.scanner(g, '#scan', 'EMP-000001'); await attendreToast(g, 'déjà la source');
   L.verifier(/Entrepôt Beauchemin|Entrepôt principal/.test(await toastTexte(g)), 'transfert : source scannée de nouveau : message clair');
   // source imposée par l'adresse : le premier code scanné est alors la destination
-  await L.aller(g, 'transfert&emplacement_id=3');
+  await aller(g, 'transfert&emplacement_id=3');
   await L.scanner(g, '#scan', 'EMP-000004'); await g.waitForFunction(() => document.getElementById('destination').value === '4');
   L.verifier(await g.inputValue('#emplacement') === '3', 'transfert&emplacement_id=3 : la source de l\'adresse est conservée, le code scanné devient la destination');
   // une erreur sur un champ d'en-tête reste affichée tant que le champ n'est pas corrigé (ajouter une pièce ne l'efface pas)
-  await L.aller(g, 'sortie');
+  await aller(g, 'sortie');
   await scan(g, 'P-0002', 1);
   await g.click('#btn-enregistrer'); await erreurSaisie(g);
   await scan(g, 'P-0001', 2);
   L.verifier(!(await g.$eval('#mv-erreur', x => x.hidden)), 'erreur d\'en-tête (emplacement manquant) : elle reste affichée quand on ajoute une pièce');
   await g.selectOption('#emplacement', '1');
   L.verifier(await g.$eval('#mv-erreur', x => x.hidden), 'elle disparaît quand le champ est corrigé');
-  // textes selon le rôle (un employé ne peut pas faire de facture interne)
-  await L.aller(e, 'transfert');
-  const aideEmp = await texteNorm(e, '.content-wrapper');
-  L.verifier(/demandez à un gestionnaire de faire une facture interne/.test(aideEmp) && !/utilisez une facture interne/.test(aideEmp), 'employé : le transfert renvoie à un gestionnaire, pas à une page qu\'il ne peut pas ouvrir');
-  await L.aller(g, 'transfert');
-  L.verifier(/utilisez une facture interne/.test(await texteNorm(g, '.content-wrapper')), 'gestionnaire : le transfert renvoie à la facture interne');
+  // aucun texte d'aide affiché en permanence : ni sous les champs, ni sous les boutons, ni sous les tableaux (le message n'apparaît que quand on scanne un emplacement d'une autre entreprise)
+  await aller(e, 'transfert');
+  L.verifier(!/facture interne/i.test(await texteNorm(e, '.content-wrapper')), 'employé : le déplacement n\'affiche aucune explication sur les factures internes');
+  await aller(g, 'transfert');
+  L.verifier(!/facture interne/i.test(await texteNorm(g, '.content-wrapper')) && (await g.$$('.content-wrapper .form-text, .content-wrapper p.text-muted, .content-wrapper .alert-info')).length === 0, 'gestionnaire : le déplacement n\'affiche ni explication ni note');
   await ouvrirDocuments(e);
-  L.verifier(!/annuler/i.test(await texteNorm(e, '.content-wrapper p.text-muted')), 'employé : la liste des documents ne parle pas d\'annulation');
+  L.verifier((await e.$$('.content-wrapper p.text-muted')).length === 0, 'employé : la liste des documents n\'a aucune note sous le tableau');
   await ouvrirDocuments(g);
-  L.verifier(/l'annuler/.test(await texteNorm(g, '.content-wrapper p.text-muted')), 'gestionnaire : la liste des documents mentionne l\'annulation');
+  L.verifier((await g.$$('.content-wrapper p.text-muted')).length === 0, 'gestionnaire : la liste des documents n\'a aucune note sous le tableau');
 
   // ---- totaux de ligne exacts (cents), pas de nombres à virgule
-  await L.aller(g, 'reception&emplacement_id=1');
+  await aller(g, 'reception&emplacement_id=1');
   await scan(g, 'P-0011', 1);
   await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]', '0,5');
   await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '2,01');
@@ -1000,7 +1016,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.click('#btn-enregistrer'); await succesSaisie(g);
   L.verifier(nbDocs() === nbAvantEnr + 1, 'les saisies refusées plus haut n\'ont créé aucun document, la bonne en crée un');
   await scan(g, 'P-0001', 1);
-  L.verifier(await g.$eval('#mv-succes', x => x.hidden), 'le message de réussite du document précédent disparaît dès qu\'on scanne une nouvelle pièce');
+  L.verifier((await lignes(g)).length === 1 && await g.evaluate(() => document.activeElement.id) === 'scan' && (await g.$$('#mv-succes')).length === 0, 'après l\'enregistrement : pas de bandeau persistant, le champ de scan est prêt pour la pièce suivante');
   // erreur du serveur « Ligne N » : traduite en code de pièce, rangée surlignée
   await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '3');
   await scan(g, 'P-0002', 2); await scan(g, 'P-0004', 3);
@@ -1009,7 +1025,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.click('#btn-enregistrer'); err = await erreurSaisie(g);
   await g.unroute('**/reception_save.php');
   L.verifier(/^Pièce «\s?P-0004\s?» : coût invalide\./.test(err) && await g.$eval('#lignes tbody tr:nth-child(3) input[aria-label^="Coût"]', x => x.classList.contains('is-invalid')), 'erreur du serveur « Ligne 3 » : traduite en code de pièce, coût de la rangée surligné : ' + err);
-  await g.click('#lignes tbody tr:nth-child(3) button'); await g.click('#lignes tbody tr:nth-child(2) button'); await g.click('#lignes tbody tr:nth-child(1) button');
+  await g.click('#lignes tbody tr:nth-child(3) button[aria-label^="Retirer"]'); await g.click('#lignes tbody tr:nth-child(2) button[aria-label^="Retirer"]'); await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Retirer"]');
 
   // ---- typographie : espaces insécables dans les guillemets et avant « : »
   await scan(g, 'P-0011', 1);
@@ -1018,12 +1034,12 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.click('#btn-enregistrer'); await g.waitForSelector('#mv-erreur:not([hidden])');
   const brutErr = await g.textContent('#mv-erreur');
   L.verifier(brutErr.includes('«' + NBSP + 'P-0011' + NBSP + '»') && !/« P-|P-0011 »/.test(brutErr), 'typographie : espaces insécables dans « P-0011 » : ' + JSON.stringify(brutErr));
-  await g.click('#lignes tbody tr button');
-  await L.aller(g, 'sortie&emplacement_id=3'); await g.selectOption('#motif', 'service'); await scan(g, 'P-0003', 1);
+  await g.click('#lignes tbody tr button[aria-label^="Retirer"]');
+  await aller(g, 'sortie&emplacement_id=3'); await g.selectOption('#motif', 'service'); await scan(g, 'P-0003', 1);
   await g.fill('#lignes tbody tr:nth-child(1) input', '999'); await g.click('#btn-enregistrer'); await g.waitForSelector('#mv-erreur:not([hidden])');
   const brutStock = await g.textContent('#mv-erreur');
   L.verifier(/« P-0003 — .* »/.test(brutStock) && / : ?disponible| : disponible/.test(brutStock.replace(/«.*?»/g, '')) && await g.$eval('#lignes tbody tr:nth-child(1) input', x => x.classList.contains('is-invalid')), 'message de stock insuffisant : typographie et quantité surlignée : ' + JSON.stringify(brutStock));
-  await g.click('#lignes tbody tr button');
+  await g.click('#lignes tbody tr button[aria-label^="Retirer"]');
 
   // ---- avertissement avant de quitter une saisie en cours
   {
@@ -1032,7 +1048,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
     pq.on('dialog', d => { types.push(d.type()); d.dismiss().catch(() => {}); });
     await pq.goto(L.BASE + '/login.php'); await pq.fill('input[name=username]', 'gestionnaire1'); await pq.fill('input[name=password]', MDP);
     await Promise.all([pq.waitForNavigation(), pq.click('button[type=submit]')]);
-    await L.aller(pq, 'sortie&emplacement_id=1');
+    await aller(pq, 'sortie&emplacement_id=1');
     await pq.click('#scan'); await pq.keyboard.type('P-0002'); await pq.keyboard.press('Enter'); await attendreLignes(pq, 1);
     await pq.goto(L.BASE + '/index.php?page=documents').catch(() => {});
     L.verifier(types.includes('beforeunload') && /page=sortie/.test(pq.url()), 'quitter la page avec des lignes saisies : avertissement (et on reste sur la page) : ' + types.join(',') + ' ' + pq.url());
@@ -1044,7 +1060,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   }
 
   // ---- ajustement : colonne « Stock actuel », bouton +/−, quantité signée, avertissement de signe
-  await L.aller(g, 'ajustement&emplacement_id=3');
+  await aller(g, 'ajustement&emplacement_id=3');
   await scan(g, 'P-0003', 1);
   l = await lignes(g);
   L.verifier(num(l[0][2]) === num(stock(3, 3)), 'ajustement : « Stock actuel » = solde de l\'emplacement (' + l[0][2] + ')');
@@ -1075,7 +1091,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   const erreursAvantRoutes = g.erreurs.length;
   await viderToasts(g);
   await g.route('**/documents_data.php', r => r.fulfill({ status: 500, contentType: 'text/html', body: 'x' }));
-  await L.aller(g, 'documents'); await attendre(900);
+  await aller(g, 'documents'); await attendre(900);
   const html500 = await g.textContent('.content-wrapper');
   L.verifier(!(await g.$eval('#documents-erreur', x => x.hidden)) && /Impossible de charger la liste des documents/.test(await texteNorm(g, '#documents-erreur')) && !/DataTables|Ajax|datatables\.net/.test(html500 + await toastTexte(g)), 'erreur 500 : message français durable, aucun texte anglais : ' + await texteNorm(g, '#documents-erreur'));
   await g.unroute('**/documents_data.php');
@@ -1106,8 +1122,8 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   const empInexistant = await appel(e, 'app/action/sortie_save.php', { emplacement_id: 99999, motif: 'service', lignes: [{ piece_id: 1, quantite: '1' }] });
   const empAutre = await appel(e, 'app/action/sortie_save.php', { emplacement_id: 2, motif: 'service', lignes: [{ piece_id: 1, quantite: '1' }] });
   L.verifier(empInexistant.status === empAutre.status && empInexistant.texte === empAutre.texte, 'emplacement inexistant ou d\'une autre entreprise : réponse identique : ' + empAutre.texte);
-  await L.aller(e, 'document_voir&id=99999'); const pageInexistante = await texteNorm(e, '.content-wrapper');
-  await L.aller(e, 'document_voir&id=2'); const pageAutreEnt = await texteNorm(e, '.content-wrapper');
+  await aller(e, 'document_voir&id=99999'); const pageInexistante = await texteNorm(e, '.content-wrapper');
+  await aller(e, 'document_voir&id=2'); const pageAutreEnt = await texteNorm(e, '.content-wrapper');
   L.verifier(pageInexistante === pageAutreEnt && /introuvable/i.test(pageAutreEnt), 'document inexistant ou d\'une autre entreprise : même page');
   // paramètres de tableau envoyés au tableau des documents : aucune erreur (le journal est relu à la fin)
   const rTab2 = await liste(g, { draw: '1', start: '0', length: '10', 'search[value][]': 'x', 'order[0][column]': '0', 'columns[0][data][]': 'x', 'order[0][dir][]': 'x' });
@@ -1115,7 +1131,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
 
   // ---- annulation : libellés, avertissement sur les prix du fournisseur, message d'impossibilité, focus
   const rMaj = await appel(g, 'app/action/reception_save.php', { emplacement_id: 1, fournisseur_id: 1, maj_prix: true, reference: 'FAC-PRIX-1', lignes: [{ piece_id: 4, quantite: '1', cout_unitaire: '1090' }] });
-  await L.aller(g, 'document_voir&id=' + rMaj.json.id);
+  await aller(g, 'document_voir&id=' + rMaj.json.id);
   await g.click('#btn-annuler'); await g.waitForSelector('#modal-annuler.show');
   L.verifier(/ne rétablit pas ces prix/.test(await texteNorm(g, '#annuler-prix')), 'annulation d\'une réception qui a mis à jour les prix du fournisseur : avertissement : ' + await texteNorm(g, '#annuler-prix').catch(() => '(absent)'));
   L.verifier(await texteNorm(g, '#annuler-confirmer') === 'Confirmer l\'annulation' && await texteNorm(g, '#annuler-retour') === 'Ne pas annuler', 'fenêtre d\'annulation : boutons « Confirmer l\'annulation » et « Ne pas annuler »');
@@ -1124,7 +1140,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.waitForFunction(() => document.activeElement && document.activeElement.id === 'btn-annuler', null, { timeout: 3000 }).catch(() => {});
   L.verifier(await g.evaluate(() => document.activeElement && document.activeElement.id) === 'btn-annuler', 'fermeture de la fenêtre : le focus revient au bouton « Annuler ce document »');
   const rSansMaj = await appel(g, 'app/action/reception_save.php', { emplacement_id: 1, fournisseur_id: 1, reference: 'FAC-PRIX-2', lignes: [{ piece_id: 4, quantite: '1', cout_unitaire: '110' }] });
-  await L.aller(g, 'document_voir&id=' + rSansMaj.json.id);
+  await aller(g, 'document_voir&id=' + rSansMaj.json.id);
   await g.click('#btn-annuler'); await g.waitForSelector('#modal-annuler.show');
   L.verifier((await g.$$('#annuler-prix')).length === 0, 'réception sans mise à jour des prix : pas d\'avertissement');
   await g.fill('#annuler-motif', 'Erreur'); await Promise.all([g.waitForNavigation(), g.click('#annuler-confirmer')]);
@@ -1148,12 +1164,12 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(rFin.status === 400 && !/Centre-ville|Boutique|disponible\s?:?\s?\d|demandé/.test(rFin.json.erreur) && sql("SELECT statut FROM documents WHERE id=" + finId) === 'valide', 'annulation d\'une facture interne par un gestionnaire sans accès à l\'autre entreprise : aucun détail du stock de l\'autre entreprise : ' + (rFin.json && rFin.json.erreur));
 
   // ---- onglets, champs obligatoires, focus, contrastes
-  await L.aller(g, 'reception');
+  await aller(g, 'reception');
   const titres = [await g.title()];
-  await L.aller(g, 'documents'); titres.push(await g.title());
-  await L.aller(g, 'document_voir&id=1'); titres.push(await g.title());
-  L.verifier(titres[0].startsWith('Réception de marchandise') && titres[1].startsWith('Documents') && /^Document [A-Z]{3}-\d{4}-\d{5} — Beauchemin$/.test(titres[2]) && new Set(titres).size === 3, 'titre d\'onglet propre à chaque écran : ' + titres.join(' | '));
-  await L.aller(g, 'sortie');
+  await aller(g, 'documents'); titres.push(await g.title());
+  await aller(g, 'document_voir&id=1'); titres.push(await g.title());
+  L.verifier(titres[0].startsWith('Recevoir') && titres[1].startsWith('Documents') && /^Document [A-Z]{3}-\d{4}-\d{5} — Beauchemin$/.test(titres[2]) && new Set(titres).size === 3, 'titre d\'onglet propre à chaque écran : ' + titres.join(' | '));
+  await aller(g, 'sortie');
   L.verifier(await g.$eval('#emplacement', x => x.required && x.getAttribute('aria-required') === 'true') && await g.$eval('#date', x => x.required) && await g.$eval('#motif', x => x.required), 'champs obligatoires : required et aria-required');
   await g.focus('#reference');
   L.verifier(await g.$eval('#reference', x => getComputedStyle(x).boxShadow !== 'none'), 'focus visible : un contour marqué entoure le champ actif');
@@ -1161,7 +1177,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(couleurs === 'rgb(30, 126, 52)', 'badge « Valide » : contraste suffisant (' + couleurs + ')');
 
   // ---- montants de 1 000 $ et plus : séparateur de milliers valide (aucun caractère de remplacement)
-  await L.aller(g, 'document_voir&id=1');
+  await aller(g, 'document_voir&id=1');
   const totalDoc = await g.textContent('#total-document');
   L.verifier(/^7[\s\u00a0]721,40[\s\u00a0]\$$/.test(totalDoc.trim()) && !totalDoc.includes('\ufffd'), 'total de 7 721,40 $ affiché sans caractère corrompu : ' + JSON.stringify(totalDoc));
   const rawG2 = await liste(g, { draw: '1', start: '0', length: '100' });
@@ -1170,28 +1186,28 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // ---- tablette : menu, mise en page, cibles tactiles
   {
     const tb = await connecterAs('gestionnaire1', { width: 768, height: 1024 });
-    await L.aller(tb, 'transfert');
+    await aller(tb, 'transfert');
     const droite = await tb.$eval('.main-sidebar', x => x.getBoundingClientRect().right);
     L.verifier(droite <= 0, 'tablette 768 px : menu replié entièrement caché (bord droit à ' + droite + ' px)');
     await tb.click('[data-widget=pushmenu]');
     await attendre(500);
     L.verifier(await tb.evaluate(() => document.body.classList.contains('sidebar-open')), 'tablette 768 px : le bouton du menu s\'ouvre au toucher');
     for (const route of ['reception', 'transfert', 'sortie', 'ajustement']) {
-      await L.aller(tb, route);
+      await aller(tb, route);
       const d = await tb.$eval('#date', x => [x.clientWidth, x.scrollWidth]);
       L.verifier(d[0] >= 140 && d[1] <= d[0], 'tablette 768 px : champ date lisible en entier sur ' + route + ' (' + d.join('/') + ')');
     }
-    await L.aller(tb, 'reception'); await scan(tb, 'P-0001', 1);
+    await aller(tb, 'reception'); await scan(tb, 'P-0001', 1);
     const hauteurs = await tb.evaluate(() => [...document.querySelectorAll('#lignes input, #lignes button')].map(x => Math.round(x.getBoundingClientRect().height)));
     L.verifier(hauteurs.length >= 3 && hauteurs.every(h => h >= 44), 'tablette : champs de quantité, de coût et bouton de retrait ≥ 44 px (' + hauteurs.join(',') + ')');
-    await L.aller(tb, 'document_voir&id=3');
+    await aller(tb, 'document_voir&id=3');
     const hBoutons = await tb.evaluate(() => [...document.querySelectorAll('.mv-barre .btn, #table-lignes td.code a')].map(x => Math.round(x.getBoundingClientRect().height)));
     L.verifier(hBoutons.length >= 3 && hBoutons.every(h => h >= 44), 'tablette : boutons du document et liens de pièces ≥ 44 px (' + hBoutons.join(',') + ')');
     await ouvrirDocuments(tb);
     const hSel = await tb.$eval('#table-documents_length select', x => Math.round(x.getBoundingClientRect().height));
     const vis = await tb.evaluate(() => { const c = document.querySelector('.table-responsive').getBoundingClientRect(); return [...document.querySelectorAll('#table-documents thead th')].filter(th => th.offsetParent !== null).map(th => [th.textContent.trim(), Math.round(th.getBoundingClientRect().right - c.right)]); });
-    const statut = vis.find(x => x[0] === 'Statut'), total = vis.find(x => x[0] === 'Total');
-    L.verifier(hSel >= 44 && statut && statut[1] <= 0 && total && total[1] <= 0, 'tablette : liste des documents, « Statut » et « Total » visibles sans défilement, sélecteur ≥ 44 px (' + hSel + ' ; ' + JSON.stringify(vis.slice(-3)) + ')');
+    const numero = vis.find(x => x[0] === 'Numéro'), total = vis.find(x => x[0] === 'Total');
+    L.verifier(hSel >= 44 && numero && numero[1] <= 0 && total && total[1] <= 0 && vis.length <= 6, 'tablette : liste des documents, « Numéro » et « Total » visibles sans défilement (6 colonnes au plus), sélecteur ≥ 44 px (' + hSel + ' ; ' + JSON.stringify(vis.slice(-3)) + ')');
     await tb.setViewportSize({ width: 1024, height: 768 }); await ouvrirDocuments(tb);
     const debord1024 = await tb.$eval('.table-responsive', x => [x.scrollWidth, x.clientWidth]);
     L.verifier(debord1024[0] <= debord1024[1] + 1, 'tablette en paysage 1024 px, menu ouvert : « Total » visible, aucun défilement horizontal (' + debord1024.join('/') + ')');
@@ -1209,7 +1225,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // =====================================================================================================================
   {
     // rafale de 25 scans + clic IMMÉDIAT sur Enregistrer : toutes les unités doivent être dans le document
-    await L.aller(g, 'transfert'); await g.selectOption('#emplacement', '1');
+    await aller(g, 'transfert'); await g.selectOption('#emplacement', '1');
     await g.waitForFunction(() => document.querySelectorAll('#destination option').length > 1);
     await g.selectOption('#destination', '3');
     const avant1 = num(stock(1, 1)), avant3 = num(stock(1, 3));
@@ -1224,18 +1240,118 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
     // pièce désactivée avec du stock : acceptée (et signalée) en sortie, refusée en réception
     sql('UPDATE pieces SET actif = 0 WHERE id = 5');
     const s5 = num(stock(5, 1));
-    await L.aller(g, 'sortie'); await g.selectOption('#emplacement', '1'); await g.selectOption('#motif', 'perte');
+    await aller(g, 'sortie'); await g.selectOption('#emplacement', '1'); await g.selectOption('#motif', 'perte');
     await scan(g, 'P-0005', 1);
     L.verifier((await texteNorm(g, '#lignes')).includes('désactivée'), 'sortie : pièce désactivée acceptée et signalée par une mention');
     await g.click('#btn-enregistrer'); await succesSaisie(g);
     L.verifier(num(stock(5, 1)) === s5 - 1, 'sortie : le stock d\'une pièce désactivée diminue (' + s5 + ' -> ' + stock(5, 1) + ')');
-    await L.aller(g, 'sortie&piece_id=5&emplacement_id=1');
+    await aller(g, 'sortie&piece_id=5&emplacement_id=1');
     await attendreLignes(g, 1);
     L.verifier((await lignes(g))[0][0] === 'P-0005', 'sortie : la pièce désactivée est préremplie par l\'adresse (piece_id)');
-    await L.aller(g, 'reception'); await g.selectOption('#emplacement', '1'); await viderToasts(g);
+    await aller(g, 'reception'); await g.selectOption('#emplacement', '1'); await viderToasts(g);
     await L.scanner(g, '#scan', 'P-0005'); await attendreToast(g, 'désactivée');
     L.verifier((await lignes(g)).length === 0, 'réception : une pièce désactivée est refusée');
     sql('UPDATE pieces SET actif = 1 WHERE id = 5');
+  }
+
+  // =====================================================================================================================
+  console.log('12c. Parcours simplifié : 3 étapes, « Plus d\'options », boutons − / +, recherche dans le champ de scan, téléphone');
+  // =====================================================================================================================
+  {
+    const verbes = { reception: 'Recevoir', transfert: 'Déplacer', sortie: 'Utiliser', ajustement: 'Corriger' };
+    for (const [route, verbe] of Object.entries(verbes)) {
+      const acteur = (route === 'reception' || route === 'ajustement') ? g : e;
+      await L.aller(acteur, route);
+      const menu = (await acteur.textContent('.main-sidebar a[href="index.php?page=' + route + '"]')).trim();
+      const titre = (await acteur.textContent('h1')).trim();
+      L.verifier(titre === menu, route + ' : le titre de la page est le libellé du menu (« ' + titre + ' » / « ' + menu + ' »)');
+      L.verifier(await acteur.$eval('#btn-enregistrer', x => x.textContent.trim()) === verbe && (await acteur.$$('.mv-carte .btn-primary')).length === 1, route + ' : un seul bouton principal, libellé par un verbe : « ' + verbe + ' »');
+      L.verifier(await acteur.evaluate(() => document.activeElement.id) === 'scan' && await acteur.$eval('#scan', x => x.getAttribute('placeholder').split(' ').length <= 4), route + ' : le champ de scan est actif, invite de 4 mots au plus');
+      L.verifier((await acteur.$$('.content-wrapper .form-text, .content-wrapper p.text-muted, .content-wrapper .alert-info, .content-wrapper .mv-info')).length === 0, route + ' : aucun texte d\'aide sous les champs, les boutons ou le tableau');
+      L.verifier((await acteur.$$('#recherche, .select2-container')).length === 0, route + ' : un seul moyen d\'ajouter une pièce (pas de second champ de recherche)');
+      // « Plus d'options » : les champs rares sont cachés jusqu'au clic
+      L.verifier(await acteur.getAttribute('#mv-plus', 'aria-expanded') === 'false' && await acteur.$eval('#mv-options', x => x.hidden) && !(await acteur.isVisible('#note')) && !(await acteur.isVisible('#date')), route + ' : date et note cachées derrière « Plus d\'options »');
+      await acteur.click('#mv-plus');
+      L.verifier(await acteur.isVisible('#note') && await acteur.isVisible('#date') && await acteur.getAttribute('#mv-plus', 'aria-expanded') === 'true', route + ' : « Plus d\'options » déplie la date et la note');
+      await acteur.click('#mv-plus');
+      L.verifier(!(await acteur.isVisible('#note')), route + ' : un second clic replie');
+    }
+    // réception : fournisseur visible, facture / prix / date / note cachés ; la case des prix n'apparaît qu'avec un fournisseur
+    await L.aller(g, 'reception');
+    L.verifier(await g.isVisible('#fournisseur') && !(await g.isVisible('#reference')) && !(await g.isVisible('#maj-prix')), 'réception : le fournisseur se voit, la facture et la mise à jour des prix sont cachées');
+    await g.click('#mv-plus');
+    L.verifier(await g.isVisible('#reference') && !(await g.isVisible('#maj-prix')), 'réception : sans fournisseur, la case « mettre à jour les prix » n\'est pas proposée');
+    await g.selectOption('#fournisseur', '2');
+    L.verifier(await g.isVisible('#maj-prix') && !(await g.$eval('#maj-prix', x => x.disabled)), 'réception : avec un fournisseur, la case apparaît');
+    await g.selectOption('#fournisseur', '');
+    L.verifier(!(await g.isVisible('#maj-prix')) && await g.$eval('#maj-prix', x => x.disabled && !x.checked), 'réception : sans fournisseur, la case disparaît (décochée)');
+
+    // une erreur sur un champ caché ouvre « Plus d'options » et désigne le champ
+    await L.aller(g, 'sortie&emplacement_id=1');
+    await g.selectOption('#motif', 'service'); await scan(g, 'P-0002', 1);
+    await g.$eval('#date', (x, v) => { x.value = v; x.dispatchEvent(new Event('input', { bubbles: true })); }, new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10));
+    L.verifier(!(await g.isVisible('#date')), 'sortie : la date est cachée au départ');
+    await g.click('#btn-enregistrer'); err = await erreurSaisie(g);
+    L.verifier(/futur/.test(err) && await g.isVisible('#date') && await g.evaluate(() => document.activeElement.id) === 'date', 'erreur sur un champ caché : « Plus d\'options » s\'ouvre et le champ fautif est actif : ' + err);
+    await g.$eval('#date', x => { x.value = x.max; x.dispatchEvent(new Event('input', { bubbles: true })); });
+
+    // boutons − / + (sans signe : jamais sous 1)
+    const q = () => g.inputValue('#lignes tbody tr:nth-child(1) input');
+    L.verifier(await q() === '1' && await g.$eval('#lignes tbody tr:nth-child(1) button[aria-label^="Diminuer"]', b => b.disabled), 'sortie : quantité 1, bouton − désactivé');
+    await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Augmenter"]'); await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Augmenter"]');
+    L.verifier(await q() === '3', 'sortie : + + = 3');
+    await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Diminuer"]');
+    L.verifier(await q() === '2', 'sortie : − = 2');
+    const hBtns = await g.$$eval('#lignes tbody tr:nth-child(1) .mv-pas button', x => x.map(b => Math.round(b.getBoundingClientRect().height)));
+    L.verifier(hBtns.length === 2 && hBtns.every(h => h >= 44), 'sortie : boutons − / + ≥ 44 px (' + hBtns.join(',') + ')');
+    const sP2 = num(stock(2, 1));
+    await g.click('#btn-enregistrer'); ok = await succesSaisie(g);
+    L.verifier(num(stock(2, 1)) === sP2 - 2 && /Sortie SOR-\d{4}-\d{5} enregistrée/.test(ok), 'sortie : la quantité réglée avec les boutons est celle qui sort (-2) : ' + ok);
+    L.verifier((await lignes(g)).length === 0 && await g.evaluate(() => document.activeElement.id) === 'scan' && await g.inputValue('#motif') === 'service', 'après la sortie : écran vidé, motif gardé, curseur dans le champ de scan');
+
+    // correction de stock : les boutons traversent zéro (1 → −1) et le bouton +/− reste disponible
+    await L.aller(g, 'ajustement&emplacement_id=3');
+    await scan(g, 'P-0003', 1);
+    const qa = () => g.inputValue('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]');
+    L.verifier(await qa() === '1' && !(await g.$eval('#lignes tbody tr:nth-child(1) button[aria-label^="Diminuer"]', b => b.disabled)), 'correction : le bouton − reste actif (quantités négatives permises)');
+    await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Diminuer"]');
+    L.verifier(await qa() === '-1', 'correction : − depuis 1 saute le zéro : -1 (' + await qa() + ')');
+    await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Diminuer"]');
+    L.verifier(await qa() === '-2', 'correction : − = -2');
+    await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Augmenter"]'); await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Augmenter"]');
+    L.verifier(await qa() === '1' && await g.$eval('#lignes tbody tr:nth-child(1) input[aria-label^="Quantité"]', x => !x.classList.contains('is-invalid')), 'correction : + + depuis -2 saute le zéro : 1 (' + await qa() + ')');
+    await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Retirer"]');
+
+    // recherche dans le champ de scan (réception) : on tape un nom, on choisit, la ligne s'ajoute
+    await L.aller(g, 'reception&emplacement_id=1');
+    await g.fill('#scan', 'gicleur');
+    await g.waitForSelector('#scan-suggestions:not([hidden]) li:has-text("P-0003")');
+    await g.click('#scan-suggestions li:has-text("P-0003")');
+    await attendreLignes(g, 1);
+    L.verifier((await lignes(g))[0][0] === 'P-0003' && await g.evaluate(() => document.activeElement.id) === 'scan' && await g.inputValue('#scan') === '', 'réception : un nom tapé dans le champ de scan propose les pièces ; le choix ajoute la ligne et le curseur reste dans le champ');
+    await g.click('#lignes tbody tr:nth-child(1) button[aria-label^="Retirer"]');
+    // Entrée sur un nom : la liste s'affiche sans rien ajouter au hasard ; sur un texte inconnu : « Code inconnu »
+    await viderToasts(g);
+    await g.fill('#scan', 'gicleur'); await g.press('#scan', 'Enter');
+    await g.waitForSelector('#scan-suggestions:not([hidden]) li');
+    L.verifier((await lignes(g)).length === 0 && !(await toastTexte(g)).includes('Code inconnu'), 'réception : Entrée sur un nom affiche la liste, aucune pièce ajoutée sans choix');
+    await L.scanner(g, '#scan', 'zzzz-inconnu'); await attendreToast(g, 'Code inconnu');
+    L.verifier(await g.$eval('#scan-suggestions', x => x.hidden), 'réception : texte sans correspondance : « Code inconnu », liste fermée');
+
+    // téléphone (390 px) : pas de défilement horizontal, chaque ligne devient une carte avec ses boutons − / + et son coût
+    const tel = await connecterAs('gestionnaire1', { width: 390, height: 844 });
+    for (const route of ['reception&emplacement_id=1&piece_id=1', 'sortie&emplacement_id=1&piece_id=1', 'transfert&emplacement_id=1&piece_id=1', 'ajustement&emplacement_id=1&piece_id=1']) {
+      await L.aller(tel, route); await attendreLignes(tel, 1);
+      if (route.startsWith('reception')) { await tel.waitForFunction(() => document.querySelector('#lignes tbody tr input[aria-label^="Coût"]').value !== ''); }
+      const mesures = await tel.evaluate(() => {
+        const v = window.innerWidth, d = document.documentElement.scrollWidth;
+        const dedans = [...document.querySelectorAll('#lignes tbody tr input, #lignes tbody tr button, #btn-enregistrer, #scan, #emplacement')].map(x => { const r = x.getBoundingClientRect(); return [x.getAttribute('aria-label') || x.id || x.tagName, Math.round(r.left), Math.round(r.right)]; });
+        return { v, d, entete: getComputedStyle(document.querySelector('#lignes thead')).display, dehors: dedans.filter(x => x[1] < 0 || x[2] > v + 1) };
+      });
+      L.verifier(mesures.d <= mesures.v + 1 && mesures.entete === 'none' && mesures.dehors.length === 0, 'téléphone ' + route.split('&')[0] + ' : sans défilement horizontal, ligne en carte, champs et boutons dans l\'écran ' + JSON.stringify(mesures.dehors));
+    }
+    const hTel = await tel.$$eval('#lignes tbody tr button, #lignes tbody tr input, #btn-enregistrer, #scan', x => x.map(b => Math.round(b.getBoundingClientRect().height)));
+    L.verifier(hTel.every(h => h >= 44), 'téléphone : tous les champs et boutons de la ligne ≥ 44 px (' + hTel.join(',') + ')');
   }
 
   // =====================================================================================================================

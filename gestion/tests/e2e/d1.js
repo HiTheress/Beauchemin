@@ -1,4 +1,4 @@
-// Test de bout en bout du module D1 — Scanner / chercher et comptage d'inventaire.
+// Test de bout en bout du module D1 — Scanner et Compter (comptage d'inventaire).
 //   cd gestion && tools/serveur.sh start bea_d1 8105 --neuf
 //   NODE_PATH=$(npm root -g) BASE_URL=http://127.0.0.1:8105 node tests/e2e/d1.js      (la base est celle du serveur ; DB_NAME=bea_d1 pour la forcer)
 // Le test remet d'abord la base de démonstration à zéro (tools/serveur.sh reset $DB_NAME), crée ses propres données
@@ -57,7 +57,7 @@ function invariantOk() {
 const dialogues = [];
 function suivre(page) { page.setDefaultTimeout(12000); page.on('dialog', d => { dialogues.push(d.message()); d.dismiss().catch(() => {}); }); return page; }
 /** Erreurs de console « réelles » : les 4xx provoqués volontairement (validation, refus d'accès) sont ignorés, ainsi que les lectures abandonnées par un changement de page. */
-const reelles = p => p.erreurs.filter(e => !/status of 40[0-9]/.test(e) && !/ERR_ABORTED/.test(e) && !/requestfailed: \S+\/(scanner_code|scanner_contenu|scan_code|comptage_detail|comptage_data|comptage_apercu|emplacements_liste|pieces_recherche)\.php/.test(e));
+const reelles = p => p.erreurs.filter(e => !/status of 40[0-9]/.test(e) && !/ERR_ABORTED/.test(e) && !/requestfailed: \S+\/(scanner_code|scanner_contenu|scan_code|comptage_detail|comptage_data|comptage_apercu|emplacements_liste|pieces_recherche|dashboard_data)\.php/.test(e));
 
 async function appel(p, url, corps, opts) {
   opts = opts || {};
@@ -81,7 +81,10 @@ async function connecterComme(page, utilisateur) {
 async function fileVide(p) { await p.waitForFunction(() => { const s = document.querySelector('#scan'); return s && s.getAttribute('data-attente') === '0'; }, null, { timeout: 20000 }); }
 async function espionBip(p) { await p.evaluate(() => { window.__bips = []; const o = window.bip; window.bip = function (ok) { window.__bips.push(!!ok); return o(ok); }; }); }
 /** Les cases à cocher Bootstrap « custom-control » sont masquées : on clique leur étiquette, comme le ferait un utilisateur. */
-async function cocher(p, id, etat) { if ((await p.isChecked(id)) !== etat) { await p.click('label[for="' + id.replace('#', '') + '"]'); } }
+async function cocher(p, id, etat) {
+  if (id === '#cv-aveugle') { await p.evaluate(() => { const d = document.querySelector('#cv-options'); if (d) { d.open = true; } }); }   // caché derrière « Plus d'options »
+  if ((await p.isChecked(id)) !== etat) { await p.click('label[for="' + id.replace('#', '') + '"]'); }
+}
 const focusId = p => p.evaluate(() => document.activeElement && document.activeElement.id);
 const texte = async (p, sel) => norm(await p.textContent(sel));
 /** Lignes du tableau de comptage : { code: { compte, attendu, ecart } } */
@@ -141,13 +144,13 @@ async function section(nom, fn) {
   const P1 = idPiece('P-0001'), P3 = idPiece('P-0003'), P5 = idPiece('P-0005'), P7 = idPiece('P-0007'), P9 = idPiece('P-0009'), P11 = idPiece('P-0011');
 
   // =====================================================================================================================
-  //  SCANNER / CHERCHER
+  //  SCANNER
   // =====================================================================================================================
   await section('Scanner : fiche d\'une pièce (gestionnaire)', async () => {
     await L.aller(g, 'scanner');
     await espionBip(g);
     verifier(await focusId(g) === 'scan', 'le champ de scan est focalisé au chargement');
-    verifier((await texte(g, 'h1')).includes('Scanner / Chercher'), 'titre de la page');
+    verifier((await texte(g, 'h1')) === 'Scanner', 'titre de la page = libellé du menu');
     await L.scanner(g, '#scan', 'P-0001');
     await g.waitForSelector('#sc-resultat .sc-fiche');
     const f = await texte(g, '#sc-resultat');
@@ -161,10 +164,11 @@ async function section(nom, fn) {
     verifier(f.includes('012345678905') && f.includes('Fabricant'), 'codes-barres alias');
     verifier(await g.locator('#sc-resultat .sc-alerte').count() === 0, 'pas d\'alerte « sous le minimum » pour P-0001 (11 ≥ 10)');
     const href = async nom => g.getAttribute('#sc-resultat .sc-actions a:has-text("' + nom + '")', 'href');
-    verifier((await href('Transférer')).includes('page=transfert') && (await href('Transférer')).includes('piece_id=' + P1), 'bouton Transférer avec &piece_id=');
-    verifier((await href('Sortir')).includes('page=sortie') && (await href('Sortir')).includes('piece_id=' + P1), 'bouton Sortir avec &piece_id=');
-    verifier((await href('Réceptionner')).includes('page=reception') && (await href('Réceptionner')).includes('piece_id=' + P1), 'bouton Réceptionner (gestionnaire) avec &piece_id=');
-    verifier((await href('Fiche complète')).includes('page=piece_voir') && (await href('Fiche complète')).includes('id=' + P1), 'bouton Fiche complète');
+    verifier((await href('Déplacer')).includes('page=transfert') && (await href('Déplacer')).includes('piece_id=' + P1), 'bouton Déplacer avec &piece_id=');
+    verifier((await href('Utiliser')).includes('page=sortie') && (await href('Utiliser')).includes('piece_id=' + P1), 'bouton Utiliser avec &piece_id=');
+    verifier((await href('Recevoir')).includes('page=reception') && (await href('Recevoir')).includes('piece_id=' + P1), 'bouton Recevoir (gestionnaire) avec &piece_id=');
+    verifier((await href('Voir la fiche')).includes('page=piece_voir') && (await href('Voir la fiche')).includes('id=' + P1), 'bouton Voir la fiche');
+    verifier(await g.locator('#sc-resultat .sc-actions .btn-primary').count() === 1, 'une seule action principale dans la fiche');
     verifier(await focusId(g) === 'scan', 'le curseur est revenu dans le champ de scan après le scan');
     verifier((await g.evaluate(() => window.__bips)).slice(-1)[0] === true, 'bip de succès');
 
@@ -206,15 +210,15 @@ async function section(nom, fn) {
     verifier(f.includes('Cube 12 — Marc') && f.includes('Cube de service') && f.includes('Beauchemin'), 'identité de l\'emplacement');
     const codes = await g.$$eval('#sc-resultat tbody tr', rs => rs.map(r => r.children[0].textContent.trim()));
     verifier(JSON.stringify(codes) === JSON.stringify(['P-0001', 'P-0003', 'P-0005', 'P-0011']), 'liste des pièces du cube : ' + codes);
-    verifier(f.includes('4 pièces différentes'), 'nombre de pièces');
+    verifier(f.includes('4 pièces'), 'nombre de pièces');
     const valeur = sql("SELECT ROUND(SUM(s.quantite * sc.cout_moyen), 2) FROM stock s JOIN stock_couts sc ON sc.entreprise_id = 1 AND sc.piece_id = s.piece_id WHERE s.emplacement_id = 3");
     verifier(f.includes('valeur totale : ' + fr(valeur)), 'valeur totale du cube (' + fr(valeur) + ') visible pour un gestionnaire');
-    verifier(await g.locator('#sc-compter').isVisible(), 'bouton « Compter cet emplacement »');
-    verifier((await g.getAttribute('#sc-resultat .sc-actions a:has-text("Transférer")', 'href')).includes('emplacement_id=3'), 'lien de transfert depuis l\'emplacement');
+    verifier(await g.locator('#sc-compter').isVisible(), 'bouton « Compter »');
+    verifier((await g.getAttribute('#sc-resultat .sc-actions a:has-text("Déplacer")', 'href')).includes('emplacement_id=3'), 'lien de déplacement depuis l\'emplacement');
     // Choix dans la liste (sans scanner)
     await g.selectOption('#emp-choix', '4');
     await g.waitForFunction(() => /Cube 14/.test((document.querySelector('#sc-resultat .sc-nom') || { textContent: '' }).textContent));
-    verifier((await texte(g, '#sc-resultat')).includes('2 pièces différentes'), 'cube 14 choisi dans la liste');
+    verifier((await texte(g, '#sc-resultat')).includes('2 pièces'), 'cube 14 choisi dans la liste');
     // Clic sur un code de pièce dans le contenu
     await L.scanner(g, '#scan', 'EMP-000003');
     await g.waitForSelector('#sc-resultat .sc-fiche-emp .sc-voir-piece');
@@ -250,11 +254,11 @@ async function section(nom, fn) {
   await section('Scanner : pièce désactivée et XSS', async () => {
     sql("UPDATE pieces SET actif = 0 WHERE code = 'P-0014'");
     await L.scanner(g, '#scan', 'P-0014');
-    await g.waitForSelector('#sc-resultat .badge-secondary');
+    await g.waitForSelector('#sc-resultat .alert-secondary');
     const f = await texte(g, '#sc-resultat');
     verifier(f.includes('Pièce désactivée'), 'pièce désactivée signalée');
-    verifier(await g.locator('#sc-resultat .sc-actions a:has-text("Transférer")').count() === 0 && await g.locator('#sc-resultat .sc-actions a:has-text("Sortir")').count() === 0 && await g.locator('#sc-resultat .sc-actions a:has-text("Réceptionner")').count() === 0, 'aucune action de mouvement sur une pièce désactivée');
-    verifier(await g.locator('#sc-resultat .sc-actions a:has-text("Fiche complète")').count() === 1, 'la fiche complète reste accessible');
+    verifier(await g.locator('#sc-resultat .sc-actions a:has-text("Déplacer")').count() === 0 && await g.locator('#sc-resultat .sc-actions a:has-text("Utiliser")').count() === 0 && await g.locator('#sc-resultat .sc-actions a:has-text("Recevoir")').count() === 0, 'aucune action de mouvement sur une pièce désactivée');
+    verifier(await g.locator('#sc-resultat .sc-actions a:has-text("Voir la fiche")').count() === 1, 'la fiche reste accessible');
     // XSS
     sql("UPDATE pieces SET nom = '" + XSS + "' WHERE code = 'P-0005'");
     await L.scanner(g, '#scan', 'P-0005');
@@ -300,8 +304,8 @@ async function section(nom, fn) {
     const f = await texte(e, '#sc-resultat');
     verifier(f.includes('Thermocouple 36 po') && f.includes('Total : 11'), 'fiche visible pour un employé');
     verifier(!/Coût moyen|Prix chez|Meilleur prix|\$/.test(f), 'aucun coût ni prix dans la fiche d\'un employé');
-    verifier(await e.locator('#sc-resultat .sc-actions a:has-text("Réceptionner")').count() === 0, 'pas de bouton Réceptionner pour un employé');
-    verifier(await e.locator('#sc-resultat .sc-actions a:has-text("Transférer")').count() === 1 && await e.locator('#sc-resultat .sc-actions a:has-text("Sortir")').count() === 1, 'Transférer et Sortir disponibles');
+    verifier(await e.locator('#sc-resultat .sc-actions a:has-text("Recevoir")').count() === 0, 'pas de bouton Recevoir pour un employé');
+    verifier(await e.locator('#sc-resultat .sc-actions a:has-text("Déplacer")').count() === 1 && await e.locator('#sc-resultat .sc-actions a:has-text("Utiliser")').count() === 1, 'Déplacer et Utiliser disponibles');
     const brut = await appel(e, 'app/ajax/scanner_code.php?code=P-0001', null);
     verifier(brut.status === 200 && !/cout|prix|valeur|fournisseur/i.test(brut.texte), 'JSON de la fiche sans coût ni prix : ' + brut.texte.slice(0, 200));
     // Pièce de l'autre entreprise : seules les quantités de la sienne
@@ -313,7 +317,7 @@ async function section(nom, fn) {
     await L.scanner(e, '#scan', 'EMP-000003');
     await e.waitForSelector('#sc-resultat .sc-fiche-emp');
     const fe = await texte(e, '#sc-resultat');
-    verifier(fe.includes('4 pièces différentes') && !/valeur|Coût|\$/.test(fe), 'contenu d\'un cube sans valeur pour un employé');
+    verifier(fe.includes('4 pièces') && !/valeur|Coût|\$/.test(fe), 'contenu d\'un cube sans valeur pour un employé');
     verifier(await e.locator('#sc-compter').isVisible(), 'un employé peut compter un emplacement');
     const brutE = await appel(e, 'app/ajax/scanner_contenu.php?emplacement_id=3', null);
     verifier(brutE.status === 200 && !/cout|prix|valeur/i.test(brutE.texte), 'JSON du contenu sans coût ni valeur');
@@ -378,6 +382,8 @@ async function section(nom, fn) {
     await e.click('#btn-nouveau');
     verifier((await texte(e, '#cp-nouveau-msg')).includes('Choisissez'), 'message si aucun emplacement choisi');
     await e.selectOption('#nouveau-emp', '3');
+    verifier(await e.locator('#nouveau-note').isHidden(), 'la note est cachée derrière « Plus d\'options »');
+    await e.click('#cp-plus');
     await e.fill('#nouveau-note', 'Fin de mois');
     await Promise.all([e.waitForURL(/comptage_voir/), e.click('#btn-nouveau')]);
     await e.waitForSelector('#cv-statut');
@@ -387,7 +393,7 @@ async function section(nom, fn) {
     verifier(sql('SELECT statut FROM comptages WHERE id = ' + C1) === 'en_cours' && sql('SELECT note FROM comptages WHERE id = ' + C1) === 'Fin de mois', 'comptage en base');
     verifier(await e.locator('#cv-aveugle').isChecked(), 'comptage à l\'aveugle coché par défaut pour un employé');
     verifier(await focusId(e) === 'scan', 'champ de scan focalisé sur l\'écran de comptage');
-    verifier(await e.locator('#btn-appliquer').count() === 0 && (await texte(e, '#btn-approbation')) === 'À faire approuver par un gestionnaire', 'un employé n\'a pas « Appliquer » : « À faire approuver par un gestionnaire »');
+    verifier(await e.locator('#btn-appliquer').count() === 0 && (await texte(e, '#btn-approbation')) === 'Terminer le comptage', 'un employé a « Terminer le comptage » (à faire appliquer par un gestionnaire), pas de bouton qui applique');
     // Un seul comptage ouvert par emplacement : message du service + lien vers l'existant
     await L.aller(e, 'comptage');
     await e.waitForFunction(() => !document.querySelector('#nouveau-emp').disabled);
@@ -571,18 +577,18 @@ async function section(nom, fn) {
     await cocher(g, '#cv-aveugle', false);
     await g.waitForFunction(() => document.querySelectorAll('#cv-table .cp-attendu').length === 3);
     // aperçu
-    verifier(await g.locator('#btn-approbation').count() === 0 && (await texte(g, '#btn-appliquer')) === 'Appliquer le comptage', 'bouton « Appliquer le comptage » pour un gestionnaire');
+    verifier(await g.locator('#btn-approbation').count() === 0 && (await texte(g, '#btn-appliquer')) === 'Terminer le comptage', 'bouton « Terminer le comptage » pour un gestionnaire (ouvre les corrections à vérifier)');
     await g.click('#btn-appliquer');
     await g.waitForSelector('#ap-table');
     const ap = await texte(g, '#ap-corps');
-    verifier(ap.includes('stock actuel') && ap.includes('P-0001') && ap.includes('+3') && ap.includes('-2') && ap.includes('-17,5'), 'aperçu : écarts contre le stock actuel : ' + ap.slice(0, 400));
+    verifier(ap.includes('Stock actuel') && ap.includes('P-0001') && ap.includes('+3') && ap.includes('-2') && ap.includes('-17,5'), 'aperçu : écarts contre le stock actuel : ' + ap.slice(0, 400));
     verifier(await g.locator('#ap-confirmer').isDisabled(), 'confirmation explicite : bouton désactivé tant que la case n\'est pas cochée');
-    verifier(await g.locator('#ap-zero-zone').isHidden() && ap.includes('(1 en stock dans cet emplacement)'), 'case « Mettre à 0 les pièces non scannées » décochée par défaut');
+    verifier(await g.locator('#ap-zero-zone').isHidden() && ap.includes('Mettre à 0 les pièces non comptées (1)'), 'case « Mettre à 0 les pièces non comptées » décochée par défaut');
     await cocher(g, '#ap-zero', true);
     await g.waitForSelector('#ap-zero-zone', { state: 'visible' });
-    verifier((await texte(g, '#ap-zero-zone')).includes('P-0005') && (await texte(g, '#ap-bilan')).includes('4 pièces seront ajustées'), 'la liste des pièces remises à 0 s\'affiche : ' + await texte(g, '#ap-bilan'));
+    verifier((await texte(g, '#ap-zero-zone')).includes('P-0005') && (await texte(g, '#ap-bilan')).includes('4 pièces seront corrigées'), 'la liste des pièces remises à 0 s\'affiche : ' + await texte(g, '#ap-bilan'));
     await cocher(g, '#ap-zero', false);
-    verifier((await texte(g, '#ap-bilan')).includes('3 pièces seront ajustées'), 'décochée : 3 ajustements');
+    verifier((await texte(g, '#ap-bilan')).includes('3 pièces seront corrigées'), 'décochée : 3 corrections');
     await cocher(g, '#ap-ok', true);
     verifier(!(await g.locator('#ap-confirmer').isDisabled()), 'bouton activé après confirmation');
     await g.click('#ap-confirmer');
@@ -633,7 +639,7 @@ async function section(nom, fn) {
     await g.waitForSelector('#ap-table');
     await cocher(g, '#ap-zero', true);
     const z = await texte(g, '#ap-zero-zone');
-    verifier(z.includes('P-0010') && z.includes('3') && (await texte(g, '#ap-bilan')).includes('2 pièces seront ajustées'), 'P-0010 sera remis à 0 : ' + z + ' / ' + await texte(g, '#ap-bilan'));
+    verifier(z.includes('P-0010') && z.includes('3') && (await texte(g, '#ap-bilan')).includes('2 pièces seront corrigées'), 'P-0010 sera remis à 0 : ' + z + ' / ' + await texte(g, '#ap-bilan'));
     await cocher(g, '#ap-ok', true);
     // double clic : un seul ajustement
     await g.dblclick('#ap-confirmer');
@@ -643,7 +649,7 @@ async function section(nom, fn) {
     const lignesDoc = sql("SELECT GROUP_CONCAT(CONCAT(p.code, ':', l.quantite) ORDER BY p.code) FROM document_lignes l JOIN pieces p ON p.id = l.piece_id JOIN documents d ON d.id = l.document_id WHERE d.emplacement_id = 4 AND d.type = 'ajustement'");
     verifier(lignesDoc === 'P-0009:1.000,P-0010:-3.000', 'lignes de l\'ajustement : ' + lignesDoc);
     // le comptage appliqué montre aussi les pièces remises à 0
-    verifier((await texte(g, '#cv-table')).includes('non scannée : remise à 0') && (await texte(g, '#cv-table')).includes('P-0010'), 'le comptage appliqué liste les pièces remises à 0');
+    verifier((await texte(g, '#cv-table')).includes('non comptée : remise à 0') && (await texte(g, '#cv-table')).includes('P-0010'), 'le comptage appliqué liste les pièces remises à 0');
     verifier(invariantOk(), 'invariant : stock = somme des mouvements');
     // Comptage sans aucun écart : pas d'ajustement
     await L.aller(g, 'comptage');
@@ -876,7 +882,7 @@ async function section(nom, fn) {
     await t.waitForSelector('#cv-statut');
     await rafale(t, ['P-0009', 'P-0009']); await fileVide(t);
     await sansDebordement('écran de comptage');
-    const h2 = await t.$$eval('#cv-actions .btn, #cv-table .cp-qte, #cv-table .cp-retirer, #cv-aveugle + label', bs => bs.map(b => b.getBoundingClientRect().height));
+    const h2 = await t.$$eval('#cv-actions .btn, #cv-table .cp-qte, #cv-table .cp-retirer, #cv-table .cp-moins, #cv-table .cp-plus', bs => bs.map(b => b.getBoundingClientRect().height));
     verifier(h2.length >= 5 && h2.every(h => h >= 44), 'comptage : zones cliquables ≥ 44 px (' + h2.map(h => Math.round(h)) + ')');
     verifier(await t.getAttribute('#cv-table .cp-qte', 'inputmode') === 'decimal', 'comptage : champs de quantité inputmode=decimal');
     await t.click('#btn-annuler'); await t.waitForSelector('#modal-annuler.show'); await t.click('#an-confirmer');
@@ -914,19 +920,19 @@ async function section(nom, fn) {
     await g.click('#btn-appliquer');
     await g.waitForSelector('#ap-table');
     let bilan = await texte(g, '#ap-bilan');
-    verifier(bilan.includes('305 pièces seront ajustées') && bilan.includes('2 documents d\'ajustement') && bilan.includes('300 pièces au plus chacun'), 'l\'aperçu annonce DEUX documents au-delà de 300 écarts : ' + bilan);
+    verifier(bilan.includes('305 pièces seront corrigées') && bilan.includes('2 documents'), 'l\'aperçu annonce DEUX documents au-delà de 300 écarts : ' + bilan);
     await cocher(g, '#ap-zero', true);
     bilan = await texte(g, '#ap-bilan');
-    verifier(restant === '1' && bilan.includes(total + ' pièces seront ajustées') && bilan.includes('2 documents d\'ajustement') && (await texte(g, '#ap-zero-zone')).includes('P-0009'), 'avec « non scannées à 0 » : 305 + ' + restant + ' = ' + total + ' pièces, toujours 2 documents : ' + bilan);
+    verifier(restant === '1' && bilan.includes(total + ' pièces seront corrigées') && bilan.includes('2 documents') && (await texte(g, '#ap-zero-zone')).includes('P-0009'), 'avec « non scannées à 0 » : 305 + ' + restant + ' = ' + total + ' pièces, toujours 2 documents : ' + bilan);
     await cocher(g, '#ap-ok', true);
-    verifier(!(await g.locator('#ap-confirmer').isDisabled()) && (await texte(g, '#ap-confirmer')).includes(total + ' ajustements'), 'le bouton annonce ' + total + ' ajustements');
+    verifier(!(await g.locator('#ap-confirmer').isDisabled()) && (await texte(g, '#ap-confirmer')).includes('(' + total + ')'), 'le bouton annonce ' + total + ' corrections : ' + await texte(g, '#ap-confirmer'));
     await g.click('#ap-confirmer');
     await g.waitForSelector('#lien-ajustement-resultat');
     const alerteFin = await texte(g, '#cv-alerte');
     await attendre(300);
     const cSucces = await contrasteDe(g, '#cv-alerte .alert-success');
     verifier(cSucces !== null && cSucces >= 4.5, 'constat 32 : le message vert « Comptage appliqué » est lisible (contraste ' + cSucces + ':1)');
-    verifier(/Ajustements AJU-\d{4}-\d{5}, AJU-\d{4}-\d{5}/.test(alerteFin) && alerteFin.includes(total + ' pièces') && await g.locator('#cv-alerte a').count() === 2, 'message final : les DEUX documents d\'ajustement sont liés : ' + alerteFin);
+    verifier(/AJU-\d{4}-\d{5}, AJU-\d{4}-\d{5}/.test(alerteFin) && alerteFin.includes(total + ' pièces') && await g.locator('#cv-alerte a').count() === 2, 'message final : les DEUX documents d\'ajustement sont liés : ' + alerteFin);
     const docs = sql("SELECT GROUP_CONCAT(n SEPARATOR ',') FROM (SELECT (SELECT COUNT(*) FROM document_lignes l WHERE l.document_id = d.id) AS n FROM documents d WHERE d.type = 'ajustement' AND d.motif = 'comptage' AND d.emplacement_id = 4 AND d.id > " + dernierDoc + " ORDER BY d.id) t");
     verifier(docs === '300,' + (total - 300), 'deux ajustements en base : 300 lignes puis ' + (total - 300) + ' : ' + docs);
     verifier(sql("SELECT COUNT(*) FROM stock s JOIN pieces p ON p.id = s.piece_id WHERE p.code LIKE 'GROS-%' AND s.emplacement_id = 4 AND s.quantite = 2") === '305' && stock('P-0009', 4) === '0.000' && stock('P-0010', 4) === '0.000', 'stock : 305 pièces à 2, non scannées remises à 0');
@@ -934,7 +940,7 @@ async function section(nom, fn) {
     // lecture après coup : en-tête avec les deux documents, écarts appliqués de TOUTES les lignes (y compris celles du 2e document)
     await g.waitForFunction(() => document.querySelector('#cv-statut') && document.querySelector('#cv-statut').textContent === 'Appliqué');
     const ent = await texte(g, '#cv-entete');
-    verifier(/Ajustements/.test(ent) && ent.includes('2 documents') && await g.locator('#cv-entete a').count() === 2, 'l\'en-tête du comptage appliqué liste les deux ajustements : ' + ent);
+    verifier(/Corrections/.test(ent) && ent.includes('2 documents') && await g.locator('#cv-entete a').count() === 2, 'l\'en-tête du comptage appliqué liste les deux ajustements : ' + ent);
     const brut = await appel(g, 'app/ajax/comptage_detail.php?id=' + CG, null);
     verifier(brut.json.comptage.documents.length === 2 && brut.json.lignes.length === 305 && brut.json.lignes.every(l => l.ecart_applique === '1.000') && brut.json.remises_a_zero.length === parseInt(restant, 10), 'comptage_detail : 2 documents, 305 lignes à +1 appliqué, ' + restant + ' remise à 0 : ' + brut.texte.slice(0, 200));
     await L.aller(g, 'comptage'); await g.waitForSelector('#table-comptages tbody tr td');
@@ -956,7 +962,7 @@ async function section(nom, fn) {
     verifier(r.status === 200, 'un autre écran modifie le comptage pendant que l\'aperçu est ouvert');
     await g.click('#ap-confirmer');
     await g.waitForSelector('#ap-changement');
-    verifier((await texte(g, '#ap-changement')).includes('a changé depuis l\'aperçu') && sql('SELECT statut FROM comptages WHERE id = ' + CF) === 'en_cours' && stock('P-0004', 1) === '12.000', 'application REFUSÉE : le comptage a changé depuis l\'aperçu, rien n\'est appliqué');
+    verifier((await texte(g, '#ap-changement')).includes('a changé') && sql('SELECT statut FROM comptages WHERE id = ' + CF) === 'en_cours' && stock('P-0004', 1) === '12.000', 'application REFUSÉE : le comptage a changé depuis l\'aperçu, rien n\'est appliqué');
     verifier(!(await g.isChecked('#ap-ok')) && await g.locator('#ap-confirmer').isDisabled(), 'la confirmation est à refaire (case décochée, bouton désactivé)');
     verifier((await texte(g, '#ap-table')).includes('P-0004') && (await texte(g, '#ap-table')).includes('50'), 'l\'aperçu est relu : P-0004 compté 50 apparaît');
     // --- l'empreinte lie aussi l'application à la case « non scannées à 0 » (POST direct)
@@ -1087,7 +1093,7 @@ async function section(nom, fn) {
     verifier(await e.locator('.scan-box.ok').count() === 1 && await e.$eval('.scan-box', b => getComputedStyle(b).backgroundColor) === 'rgb(212, 237, 218)', 'constat 32 : retour visuel net après un scan réussi (cadre vert plein)');
     const ligne1 = '#cv-table tr[data-piece="' + P1 + '"] .cp-retirer';
     // (8) clic dans le COIN du bouton ✕ (et non sur l'icône) : il s'arme, le focus reste sur lui ; un scan qui arrive ne le valide jamais
-    await e.click(ligne1, { position: { x: 4, y: 4 } });
+    await e.click(ligne1, { position: { x: 22, y: 5 } });
     verifier(await e.locator('.cp-retirer.cp-arme').count() === 1 && (await texte(e, ligne1)) === 'Retirer ?', 'constat 8 : premier clic : le bouton passe à « Retirer ? »');
     verifier(await e.evaluate(() => document.activeElement.classList.contains('cp-retirer')), 'constat 8 : le focus reste sur le bouton armé (la cible du clic n\'a pas quitté la page)');
     await attendre(400);   // fin de la transition de couleur de Bootstrap
@@ -1098,15 +1104,15 @@ async function section(nom, fn) {
     verifier(await e.locator('#cv-table tr[data-piece="' + P1 + '"]').count() === 1 && sql("SELECT COUNT(*) FROM comptage_lignes WHERE comptage_id = " + CE + " AND piece_id = " + P1) === '1', 'constat 8 : un scan pendant l\'armement NE retire PAS la ligne');
     verifier(sql("SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = " + CE + " AND piece_id = " + idPiece('P-0003')) === '1.000' && await e.locator('.cp-retirer.cp-arme').count() === 0, 'constat 8 : le scan est compté (il n\'est plus tapé dans le bouton) et le bouton est désarmé');
     // le bouton armé retombe seul au bout de quelques secondes
-    await e.click(ligne1, { position: { x: 4, y: 4 } });
+    await e.click(ligne1, { position: { x: 22, y: 5 } });
     await attendre(4400);
     verifier(await e.locator('.cp-retirer.cp-arme').count() === 0 && (await e.$eval(ligne1, b => b.getAttribute('aria-label'))) === 'Retirer P-0001 du comptage', 'constat 8 : l\'armement tombe seul après 4 s');
     // cliquer ailleurs le désarme aussi
-    await e.click(ligne1, { position: { x: 4, y: 4 } }); await e.click('h2.card-title >> nth=0');
+    await e.click(ligne1, { position: { x: 22, y: 5 } }); await e.click('h2.card-title >> nth=0');
     verifier(await e.locator('.cp-retirer.cp-arme').count() === 0, 'constat 8 : un clic ailleurs désarme le bouton');
 
     // (26) bouton « À faire approuver » : le focus retourne au champ de scan
-    await e.click('#btn-approbation', { position: { x: 4, y: 4 } });
+    await e.click('#btn-approbation', { position: { x: 60, y: 5 } });
     verifier((await texte(e, '#cv-alerte')).includes('Seul un gestionnaire') && await focusId(e) === 'scan', 'constat 26 : après « À faire approuver », le curseur est dans le champ de scan');
     await rafale(e, ['P-0004']); await fileVide(e);
     verifier(sql("SELECT quantite_comptee FROM comptage_lignes WHERE comptage_id = " + CE + " AND piece_id = " + P4) === '1.000', 'constat 26 : le scan suivant est compté');
@@ -1189,7 +1195,7 @@ async function section(nom, fn) {
       });
       verifier(m.table <= m.wrap + 1 && m.doc <= m.win + 1, 'constats 15/28 : liste des comptages sans défilement horizontal à ' + w + ' px (tableau ' + m.table + ' / conteneur ' + m.wrap + ')');
       verifier(m.lien < 30, 'constats 15/28 : le numéro COM-… tient sur une ligne à ' + w + ' px (hauteur ' + Math.round(m.lien) + ')');
-      verifier(JSON.stringify(m.ajust) === JSON.stringify(['Numéro', 'Emplacement', 'Statut', 'Commencé le', 'Pièces', 'Ajustement']), 'constat 36 : en-têtes « Commencé le », « Pièces » (' + m.ajust + ')');
+      verifier(JSON.stringify(m.ajust) === JSON.stringify(['Numéro', 'Emplacement', 'Statut', 'Commencé le', 'Pièces', 'Correction']), 'constat 36 : en-têtes « Commencé le », « Pièces », « Correction » (' + m.ajust + ')');
       // largeur du texte le plus long de chaque liste (mesuré avec la police du champ) comparée à la largeur utile du champ
       const filtres = await pl.$$eval('#f-statut, #f-entreprise', ss => ss.map(s => {
         const c = document.createElement('canvas').getContext('2d'), st = getComputedStyle(s); c.font = st.font;
@@ -1245,7 +1251,7 @@ async function section(nom, fn) {
       return sels.map(([sel, pseudo]) => { const el = document.querySelector(sel); if (!el) { return [sel, null]; } const f = parse(getComputedStyle(el, pseudo || null).color).slice(0, 3), b = fond(el); const a = lum(f), c = lum(b); return [sel, Math.round(((Math.max(a, c) + 0.05) / (Math.min(a, c) + 0.05)) * 100) / 100]; });
     }, sels);
     // (36) libellés
-    verifier((await texte(ps, '#btn-clavier')) === 'Clavier à l\'écran', 'constat 36 : bouton « Clavier à l\'écran »');
+    verifier((await texte(ps, '#btn-clavier')) === 'Clavier', 'constat 36 : bouton « Clavier »');
     // (31) champ de scan : état actif visible, état inactif distinct
     const etatScan = () => ps.$eval('#scan', el => { const b = el.closest('.scan-box'), c = getComputedStyle(b); return { ombre: c.boxShadow, bordure: c.borderTopColor, fond: c.backgroundColor, invite: el.getAttribute('placeholder') }; });
     await ps.focus('#scan'); await attendre(400); const actif = await etatScan();
@@ -1254,13 +1260,13 @@ async function section(nom, fn) {
     verifier(actif.ombre !== 'none' && actif.ombre !== inactif.ombre && actif.bordure !== inactif.bordure && actif.fond !== inactif.fond, 'constat 31 : le champ de scan actif se distingue nettement de l\'inactif : ' + JSON.stringify([actif, inactif]));
     verifier(/inactif/.test(inactif.invite) && /Scannez/.test(actif.invite), 'constat 31 : le texte d\'invite dit « Champ inactif » sans le focus');
     await ps.focus('#emp-choix');
-    const anneau = await ps.evaluate(() => (getComputedStyle(document.documentElement).getPropertyValue('--accent-ring').match(/\d+/g) || []).slice(0, 3).join(', '));
+    const anneau = await ps.$eval('#emp-choix', el => (getComputedStyle(el).getPropertyValue('--accent-ring').match(/\d+/g) || []).slice(0, 3).join(', '));   // la couleur de marque suit l'entreprise active
     verifier(anneau !== '' && (await ps.$eval('#emp-choix', el => getComputedStyle(el).boxShadow)).includes('rgba(' + anneau), 'constat 31 : la liste d\'emplacements a un halo de focus visible (couleur de marque ' + anneau + ')');
     // fiche d'une pièce (gestionnaire) : accessibilité, libellés, contrastes
     await L.scanner(ps, '#scan', 'P-0001'); await ps.waitForSelector('#sc-resultat .sc-fiche');
     await ps.waitForFunction(() => /Fiche de P-0001/.test(document.querySelector('#sc-annonce').textContent));
     verifier((await ps.textContent('#sc-annonce')).includes('Fiche de P-0001, Thermocouple 36 po'), 'constat 37 : le résultat est annoncé aux lecteurs d\'écran (zone vocale) : ' + await ps.textContent('#sc-annonce'));
-    verifier(await ps.getByRole('combobox', { name: /Chercher une pièce par son nom/ }).count() >= 1, 'constat 37 : le champ de recherche a pour nom accessible son étiquette');
+    verifier(await ps.getByRole('combobox', { name: /Chercher une pièce/ }).count() >= 1, 'constat 37 : le champ de recherche a pour nom accessible son étiquette');
     const voir = await ps.$$eval('.sc-voir-emp', bs => bs.map(b => b.getAttribute('aria-label')));
     verifier(voir.length >= 1 && voir.every(a => a.startsWith('Voir le contenu — ')), 'constat 36 : aria-label « Voir le contenu — {emplacement} » (sans élision fautive) : ' + voir);
     const th = await ps.$$eval('#sc-resultat table[aria-label="Prix chez les fournisseurs"] th', ts => ts.map(t => t.textContent.trim()));
@@ -1280,10 +1286,11 @@ async function section(nom, fn) {
     verifier(alEff[1] - alEff[0] < 40, 'constat 39 : « Effacer » aligné à droite de la carte « Derniers scans » (bord ' + Math.round(alEff[0]) + ' / carte ' + Math.round(alEff[1]) + ')');
     // (16) valeur d'un emplacement : mention de l'arrondi
     await L.scanner(ps, '#scan', 'EMP-000003'); await ps.waitForSelector('#sc-resultat .sc-fiche-emp');
-    verifier((await texte(ps, '#sc-resume-emp')).includes('arrondie sur l\'ensemble') && (await texte(ps, '#sc-resume-emp')).includes('quelques sous'), 'constat 16 : la valeur totale dit qu\'elle est arrondie sur l\'ensemble : ' + await texte(ps, '#sc-resume-emp'));
+    const infoValeur = await ps.getAttribute('#sc-resume-emp .sc-info', 'title');
+    verifier(infoValeur && infoValeur.includes('arrondie sur l\'ensemble') && infoValeur.includes('quelques sous') && !(await texte(ps, '#sc-resume-emp')).includes('arrondie'), 'constat 16 : la valeur totale dit, dans une infobulle, qu\'elle est arrondie sur l\'ensemble : ' + infoValeur);
     // (36) pièce désactivée : UN seul message, avec la marche à suivre
-    await L.scanner(ps, '#scan', 'P-0014'); await ps.waitForSelector('#sc-resultat .badge-secondary');
-    verifier(await ps.locator('#sc-messages .alert').count() === 0 && await ps.locator('#sc-resultat .alert-secondary').count() === 1 && (await texte(ps, '#sc-resultat .alert-secondary')).includes('demandez à un gestionnaire'), 'constat 36 : pièce désactivée : un seul message de désactivation (plus de bandeau jaune redondant), avec la marche à suivre');
+    await L.scanner(ps, '#scan', 'P-0014'); await ps.waitForSelector('#sc-resultat .alert-secondary');
+    verifier(await ps.locator('#sc-messages .alert').count() === 0 && await ps.locator('#sc-resultat .alert-secondary').count() === 1 && /demandez à un gestionnaire/i.test(await texte(ps, '#sc-resultat .alert-secondary')), 'constat 36 : pièce désactivée : un seul message de désactivation (plus de bandeau jaune redondant), avec la marche à suivre');
     await ps.waitForFunction(() => /désactivée/.test(document.querySelector('#sc-annonce').textContent));
     verifier(true, 'la désactivation est aussi annoncée aux lecteurs d\'écran');
     // constats 32 (suite) : contrastes sur l'écran de comptage (message d'approbation = employé ; badge « Appliqué » ; quantité plus grosse)

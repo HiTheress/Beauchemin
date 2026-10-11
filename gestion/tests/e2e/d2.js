@@ -1,4 +1,4 @@
-// Test de bout en bout du module D2 — Stock, tableau de bord, historique des mouvements, pièces sous le minimum.
+// Test de bout en bout du module D2 — Accueil, Stock, Historique, À recommander.
 //   cd gestion && tools/serveur.sh start bea_d2 8106 --neuf
 //   NODE_PATH=$(npm root -g) BASE_URL=http://127.0.0.1:8106 DB_NAME=bea_d2 node tests/e2e/d2.js
 // Le test remet d'abord la base de démonstration à zéro (tools/serveur.sh reset $DB_NAME), ajoute son jeu de données
@@ -101,11 +101,11 @@ async function redessine(p, tableSel, action) {
 }
 /**
  * Lignes d'un tableau : cellules visibles (texte normalisé) + classes.
- * Les tableaux « Stock » (vue par emplacement) et « Historique » regroupent plusieurs informations par cellule (l'entreprise sous
- * l'emplacement, le type et la mention sous le numéro du document, l'heure sous la date) : on les remet ici à une information par
- * cellule, pour que les attentes restent lisibles. Stock par emplacement : [code, pièce, catégorie, entreprise, emplacement, quantité,
- * unité, coût, valeur] (entreprise vide pour un utilisateur d'une seule entreprise) ; Historique : [date heure, numéro, type, pièce,
- * (entreprise), emplacement, quantité, utilisateur, (coût, valeur), mention].
+ * Les tableaux regroupent plusieurs informations par cellule (l'entreprise sous l'emplacement, l'unité sous la quantité, le type et
+ * l'utilisateur sous le numéro du document, l'heure sous la date) : on les remet ici à une information par cellule, pour que les
+ * attentes restent lisibles. Stock (les deux vues) : [code, pièce, entreprise, emplacement, quantité, unité, minimum, valeur] (cellule
+ * vide quand la colonne n'existe pas dans la vue) ; Historique : [date heure, numéro, type, pièce, (entreprise), emplacement, quantité,
+ * utilisateur, (valeur), mention] ; À recommander : [code, nom, (entreprise), quantité, minimum, manque, …].
  */
 async function lignes(p, sel) {
   return p.$$eval(sel + ' tbody tr', (rows, sel) => {
@@ -116,15 +116,22 @@ async function lignes(p, sel) {
     return rows.filter(r => !r.querySelector('td.dataTables_empty')).map(r => {
       const k = [...r.children];
       let cells = k.map(nt);
-      if (sel === '#table-stock' && entetes.includes('Emplacement') && !entetes.includes('Entreprise')) {
-        const i = entetes.indexOf('Emplacement');
-        cells = [...k.slice(0, i).map(nt), petit(k[i]) || '', sansPetit(k[i]), ...k.slice(i + 1).map(nt)];
+      if (sel === '#table-stock') {
+        const col = nom => entetes.indexOf(nom);
+        const c = nom => (col(nom) >= 0 ? k[col(nom)] : null);
+        const ent = c('Entreprise') ? nt(c('Entreprise')) : (c('Emplacement') ? (petit(c('Emplacement')) || '') : '');
+        cells = [nt(c('Code')), nt(c('Pièce')), ent, c('Emplacement') ? sansPetit(c('Emplacement')) : '', sansPetit(c('Quantité')), petit(c('Quantité')) || '', c('Minimum') ? nt(c('Minimum')) : '', c('Valeur') ? nt(c('Valeur')) : ''];
       }
       if (sel === '#table-historique') {
         const date = (k[0].firstChild ? k[0].firstChild.textContent.trim() : '') + ' ' + (petit(k[0]) || '');
         const badge = k[1].querySelector('.badge');
         const ent = petit(k[3]);
-        cells = [date.trim(), nt(k[1].querySelector('a')), petit(k[1]) || '', nt(k[2]), ...(ent !== null ? [ent] : []), sansPetit(k[3]), ...k.slice(4).map(nt), badge ? nt(badge) : ''];
+        const type = k[1].querySelector('.sk-type'), util = k[1].querySelector('.sk-util');
+        cells = [date.trim(), nt(k[1].querySelector('a')), type ? nt(type) : '', nt(k[2]), ...(ent !== null ? [ent] : []), sansPetit(k[3]), nt(k[4]), util ? nt(util) : '', ...k.slice(5).map(nt), badge ? nt(badge) : ''];
+      }
+      if (sel === '#table-sous-minimum') {
+        const code = k[0].querySelector('.code'), nom = k[0].querySelector('.sk-nom');
+        cells = [code ? nt(code) : '', nom ? nt(nom) : '', ...k.slice(1).map(nt)];
       }
       return { cells, classes: r.className, html: r.innerHTML };
     });
@@ -134,6 +141,13 @@ const entetes = async (p, sel) => p.$$eval(sel + ' thead th', ths => ths.filter(
 const texte = async (p, sel) => norm(await p.textContent(sel));
 const lisible = async (p, sel) => norm(await p.innerText(sel));
 const attendre = ms => new Promise(r => setTimeout(r, ms));
+/** Nombre de lignes par page (le menu « Afficher N lignes » n'existe plus : on passe par DataTables). */
+const pageLen = (p, sel, n) => redessine(p, sel, () => p.evaluate(([s, n]) => { jQuery(s).DataTable().page.len(n).draw(); }, [sel, n]));
+/** Historique : ouvre « Plus d'options » (entreprise, emplacement, type, utilisateur, numéro) s'il est fermé. */
+const plus = async p => { if ((await p.getAttribute('#h-plus', 'aria-expanded')) !== 'true') { await p.click('#h-plus'); } };
+/** Accueil : texte des documents récents (liste sous le graphique). */
+const recents = p => p.$$eval('#gr-lectures .gr-lecture a', as => as.map(x => [x.textContent.replace(/\s+/g, ' ').trim(), x.getAttribute('href')]));
+const chargeAccueil = p => p.waitForFunction(() => document.getElementById('ds-sous').textContent.trim() !== '…');
 async function toastTexte(p) { try { await p.waitForSelector('#toasts .alert', { timeout: 5000 }); } catch (e) { return ''; } return norm(await p.textContent('#toasts')); }
 async function espionBip(p) { await p.evaluate(() => { window.__bips = []; const o = window.bip; window.bip = function (ok) { window.__bips.push(!!ok); return o(ok); }; }); }
 
@@ -183,12 +197,15 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     const info = await texte(a, '#table-stock_info');
     verifier(info.includes('de ' + total), 'nombre de lignes (' + total + ') : ' + info);
     const h = await entetes(a, '#table-stock');
-    verifier(h.join('|').startsWith('Code|Pièce|Catégorie|Emplacement|Quantité|Unité') && h.some(x => x.startsWith('Coût moyen')) && h.some(x => x.startsWith('Valeur')), 'colonnes visibles (admin) : ' + h.join('|'));
+    verifier(h.join('|') === 'Code|Pièce|Emplacement|Quantité|Valeur', 'colonnes visibles (admin, 5 au plus) : ' + h.join('|'));
     verifier(!h.includes('Minimum'), 'la colonne Minimum est cachée dans la vue par emplacement');
     const rows = await lignes(a, '#table-stock');
-    const p1 = rows.find(r => r.cells[0] === 'P-0001' && r.cells[4].startsWith('Entrepôt principal'));
-    verifier(p1 && p1.cells[1].startsWith('Thermocouple 36 po') && p1.cells[2] === 'Contrôles' && p1.cells[3] === 'Beauchemin' && p1.cells[5] === '8' && p1.cells[6] === 'unité', 'ligne P-0001 : ' + JSON.stringify(p1 && p1.cells));
-    verifier(p1 && p1.cells[7] === '14,50 $' && p1.cells[8] === '116,00 $', 'coût moyen 14,50 $ et valeur 116,00 $ (8 x 14,50) : ' + JSON.stringify(p1 && p1.cells.slice(5)));
+    const p1 = rows.find(r => r.cells[0] === 'P-0001' && r.cells[3].startsWith('Entrepôt principal'));
+    verifier(p1 && p1.cells[1].startsWith('Thermocouple 36 po') && p1.cells[2] === 'Beauchemin' && p1.cells[4] === '8' && p1.cells[5] === 'unité', 'ligne P-0001 : ' + JSON.stringify(p1 && p1.cells));
+    verifier(p1 && p1.cells[7] === '116,00 $', 'valeur 116,00 $ (8 x 14,50) : ' + JSON.stringify(p1 && p1.cells.slice(4)));
+    // catégorie et coût moyen ne sont plus des colonnes (fiche de la pièce, export CSV) : on les vérifie dans les données du serveur
+    const j1 = (await appel(a, 'app/ajax/stock_data.php', DT({ q: 'P-0001' }))).json.data.find(d => d.emplacement.startsWith('Entrepôt principal'));
+    verifier(j1 && j1.categorie === 'Contrôles' && parseFloat(j1.cout_moyen) === 14.5 && j1.valeur === '116.00', 'JSON P-0001 : catégorie Contrôles, coût moyen 14,50, valeur 116,00 : ' + JSON.stringify(j1 && [j1.categorie, j1.cout_moyen, j1.valeur]));
     // premier tri : par code, croissant
     const codes = rows.map(r => r.cells[0]);
     verifier(codes.join() === [...codes].sort().join(), 'tri par code croissant');
@@ -196,16 +213,18 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     const href = await a.getAttribute('#table-stock tbody tr:first-child a', 'href');
     verifier(/page=piece_voir&id=\d+/.test(href), 'lien vers piece_voir : ' + href);
     // quantité décimale (au pied) : 12,5 ; sans zéros inutiles
-    const dec = rows.find(r => r.cells[0] === 'DEC-1' && r.cells[4].startsWith('Entrepôt principal'));
-    verifier(dec && dec.cells[5] === '12,5' && dec.cells[6] === 'pi' && dec.cells[8] === '37,50 $', 'quantité décimale 12,5 et valeur 37,50 $ : ' + JSON.stringify(dec && dec.cells));
+    const dec = rows.find(r => r.cells[0] === 'DEC-1' && r.cells[3].startsWith('Entrepôt principal'));
+    verifier(dec && dec.cells[4] === '12,5' && dec.cells[5] === 'pi' && dec.cells[7] === '37,50 $', 'quantité décimale 12,5 et valeur 37,50 $ : ' + JSON.stringify(dec && dec.cells));
     // emplacement désactivé : stock conservé, étiquette claire
-    const anc = rows.find(r => r.cells[0] === 'DEC-1' && r.cells[4].startsWith('Ancien cube'));
-    verifier(anc && anc.cells[4].includes('(désactivé)') && anc.cells[5] === '4,5', 'emplacement désactivé étiqueté : ' + JSON.stringify(anc && anc.cells));
+    const anc = rows.find(r => r.cells[0] === 'DEC-1' && r.cells[3].startsWith('Ancien cube'));
+    verifier(anc && anc.cells[3].includes('(désactivé)') && anc.cells[4] === '4,5', 'emplacement désactivé étiqueté : ' + JSON.stringify(anc && anc.cells));
     // pièce désactivée avec du stock : visible avec l'étiquette
     const ina = rows.find(r => r.cells[0] === 'INAC-1');
-    verifier(ina && ina.cells[1].includes('Désactivée') && ina.cells[5] === '2', 'pièce désactivée avec stock : badge « Désactivée »');
+    verifier(ina && ina.cells[1].includes('Désactivée') && ina.cells[4] === '2', 'pièce désactivée avec stock : badge « Désactivée »');
     // aucune ligne à zéro par défaut
-    verifier(!rows.some(r => r.cells[0] === 'P-0005' && r.cells[4].startsWith('Cube 12')), 'les quantités à zéro sont masquées par défaut');
+    verifier(!rows.some(r => r.cells[0] === 'P-0005' && r.cells[3].startsWith('Cube 12')), 'les quantités à zéro sont masquées par défaut');
+    verifier(await a.isHidden('#f-effacer'), '« Effacer » est caché tant qu\'aucun filtre n\'est posé');
+    verifier(await a.locator('.content-wrapper p, .content-wrapper small.text-muted').evaluateAll(els => els.filter(x => x.offsetParent !== null && !x.closest('table') && !x.closest('.dataTables_wrapper')).map(x => x.textContent.trim()).filter(Boolean)).then(t => t.length === 0), 'aucun texte explicatif affiché sur la page Stock');
   });
 
   await section('Stock : sécurité du texte (XSS) et sous le minimum', async () => {
@@ -213,16 +232,18 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await redessine(a, '#table-stock', () => a.fill('#f-recherche', 'XSS'));
     const rows = await lignes(a, '#table-stock');
     verifier(rows.length === 2, 'recherche « XSS » : 2 lignes (emplacement 1 et 2) : ' + rows.length);
-    verifier(rows.every(r => r.cells[1].includes(XSS) && r.cells[2] === '<b>Cat piégée</b>' && r.cells[6] === '<i>u</i>'), 'nom, catégorie et unité affichés en texte, pas en HTML : ' + JSON.stringify(rows[0] && rows[0].cells));
+    verifier(rows.every(r => r.cells[1].includes(XSS) && r.cells[5] === '<i>u</i>'), 'nom et unité affichés en texte, pas en HTML : ' + JSON.stringify(rows[0] && rows[0].cells));
+    const jx = await appel(a, 'app/ajax/stock_data.php', DT({ q: 'XSS' }));
+    verifier(jx.json.data.length === 2 && jx.json.data.every(d => d.categorie.includes('&lt;b&gt;') && !d.categorie.includes('<b>')), 'catégorie piégée échappée dans les données du serveur : ' + jx.json.data[0].categorie);
     verifier(await a.locator('#table-stock img, #table-stock b, #table-stock i').count() === 0, 'aucune balise injectée dans le tableau');
     verifier(dialogues.length === 0, 'aucune boîte de dialogue JavaScript (alert) : ' + dialogues.join('|'));
     verifier(rows.every(r => /sk-bas/.test(r.classes)) && rows.every(r => r.cells[1].includes('Sous le minimum')), 'lignes sous le minimum en surbrillance avec la mention');
     // surbrillance exacte : lignes de la pièce sous le minimum de leur entreprise, et seulement celles-là
     await redessine(a, '#table-stock', () => a.fill('#f-recherche', ''));
-    await redessine(a, '#table-stock', () => a.selectOption('#table-stock_length select', '100'));
+    await pageLen(a, '#table-stock', 100);
     const sm = sousMin().map(r => r[0] + '|' + ENT[r[1]]);
     const toutes = await lignes(a, '#table-stock');
-    const attenduBas = toutes.map(r => sm.includes(r.cells[0] + '|' + r.cells[3]));
+    const attenduBas = toutes.map(r => sm.includes(r.cells[0] + '|' + r.cells[2]));
     verifier(toutes.every((r, i) => /sk-bas/.test(r.classes) === attenduBas[i]), 'surbrillance = exactement les pièces sous le minimum de leur entreprise (' + attenduBas.filter(Boolean).length + ' lignes)');
     verifier(attenduBas.filter(Boolean).length >= 5, 'au moins 5 lignes en surbrillance dans le jeu de données');
   });
@@ -230,17 +251,17 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
   await section('Stock : filtres (entreprise, emplacement, catégorie, zéro) et vues', async () => {
     await L.aller(a, 'stock');
     await a.waitForSelector('#table-stock tbody tr');
-    await redessine(a, '#table-stock', () => a.selectOption('#table-stock_length select', '100'));
+    await pageLen(a, '#table-stock', 100);
     // entreprise
     await redessine(a, '#table-stock', () => a.selectOption('#f-entreprise', '2'));
     let rows = await lignes(a, '#table-stock');
-    verifier(rows.length === parseInt(NB_STOCK('2'), 10) && rows.every(r => r.cells[3] === 'Boutique Chaleur'), 'filtre entreprise 2 : ' + rows.length + ' lignes, toutes Boutique Chaleur');
+    verifier(rows.length === parseInt(NB_STOCK('2'), 10) && rows.every(r => r.cells[2] === 'Boutique Chaleur'), 'filtre entreprise 2 : ' + rows.length + ' lignes, toutes Boutique Chaleur');
     const opts = await a.$$eval('#f-emplacement option', os => os.map(o => o.textContent));
     verifier(opts.length === 3 && opts[0] === 'Tous les emplacements' && opts.every(o => !/Cube 1[24]|Ancien/.test(o)), 'la liste des emplacements suit l\'entreprise : ' + opts.join(' | '));
     // emplacement
     await redessine(a, '#table-stock', () => a.selectOption('#f-emplacement', '5'));
     rows = await lignes(a, '#table-stock');
-    verifier(rows.length === parseInt(sql('SELECT COUNT(*) FROM stock WHERE emplacement_id = 5 AND quantite > 0'), 10) && rows.every(r => r.cells[4] === 'Boutique Centre-ville'), 'filtre emplacement 5 : ' + rows.length + ' lignes');
+    verifier(rows.length === parseInt(sql('SELECT COUNT(*) FROM stock WHERE emplacement_id = 5 AND quantite > 0'), 10) && rows.every(r => r.cells[3] === 'Boutique Centre-ville'), 'filtre emplacement 5 : ' + rows.length + ' lignes');
     // retour à toutes les entreprises : l'emplacement invalide est oublié
     await redessine(a, '#table-stock', () => a.selectOption('#f-entreprise', ''));
     verifier(await a.inputValue('#f-emplacement') === '5', 'l\'emplacement choisi reste choisi si toujours permis');
@@ -251,10 +272,14 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     // catégorie
     await redessine(a, '#table-stock', () => a.selectOption('#f-categorie', { label: 'Brûleurs' }));
     rows = await lignes(a, '#table-stock');
-    verifier(rows.length === parseInt(sql("SELECT COUNT(*) FROM stock s JOIN pieces p ON p.id = s.piece_id JOIN emplacements e ON e.id = s.emplacement_id JOIN categories c ON c.id = p.categorie_id WHERE c.nom = 'Brûleurs' AND s.quantite > 0 AND e.entreprise_id = 1"), 10) && rows.length > 0 && rows.every(r => r.cells[2] === 'Brûleurs'), 'filtre catégorie « Brûleurs » : ' + rows.length);
+    verifier(rows.length === parseInt(sql("SELECT COUNT(*) FROM stock s JOIN pieces p ON p.id = s.piece_id JOIN emplacements e ON e.id = s.emplacement_id JOIN categories c ON c.id = p.categorie_id WHERE c.nom = 'Brûleurs' AND s.quantite > 0 AND e.entreprise_id = 1"), 10) && rows.length > 0, 'filtre catégorie « Brûleurs » : ' + rows.length);
+    const idBr = sql("SELECT id FROM categories WHERE nom = 'Brûleurs'");
+    const jb = (await appel(a, 'app/ajax/stock_data.php', DT({ entreprise_id: '1', categorie_id: idBr }))).json;
+    verifier(jb.recordsFiltered === rows.length && jb.data.every(d => d.categorie === 'Brûleurs'), 'données du filtre catégorie : toutes les lignes sont des Brûleurs');
     await redessine(a, '#table-stock', () => a.selectOption('#f-categorie', 'aucune'));
     rows = await lignes(a, '#table-stock');
-    verifier(rows.length > 0 && rows.every(r => r.cells[2] === ''), 'filtre « Sans catégorie » : ' + rows.length + ' lignes sans catégorie');
+    const jn = (await appel(a, 'app/ajax/stock_data.php', DT({ entreprise_id: '1', categorie_id: 'aucune' }))).json;
+    verifier(rows.length > 0 && jn.recordsFiltered === rows.length && jn.data.every(d => !d.categorie), 'filtre « Sans catégorie » : ' + rows.length + ' lignes sans catégorie');
     await redessine(a, '#table-stock', () => a.selectOption('#f-categorie', ''));
     // quantités à zéro
     const sansZero = (await lignes(a, '#table-stock')).length;
@@ -262,13 +287,13 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     rows = await lignes(a, '#table-stock');
     const attenduZero = parseInt(sql("SELECT COUNT(*) FROM stock s JOIN pieces p ON p.id = s.piece_id JOIN emplacements e ON e.id = s.emplacement_id WHERE e.entreprise_id = 1 AND (p.actif = 1 OR s.quantite > 0)"), 10);
     verifier(rows.length === attenduZero && rows.length > sansZero, '« Afficher les quantités à zéro » : ' + sansZero + ' -> ' + rows.length + ' (attendu ' + attenduZero + ')');
-    const z = rows.find(r => r.cells[0] === 'P-0005' && r.cells[4].startsWith('Cube 12'));
-    verifier(z && z.cells[5] === '0', 'la ligne à zéro (P-0005 au Cube 12) apparaît avec 0');
+    const z = rows.find(r => r.cells[0] === 'P-0005' && r.cells[3].startsWith('Cube 12'));
+    verifier(z && z.cells[4] === '0', 'la ligne à zéro (P-0005 au Cube 12) apparaît avec 0');
     await redessine(a, '#table-stock', () => a.click('label[for=f-zero]'));
     // vue par pièce
     await redessine(a, '#table-stock', () => a.click('[data-vue=piece]'));
     const h = await entetes(a, '#table-stock');
-    verifier(!h.includes('Emplacement') && h.includes('Entreprise') && h.includes('Minimum') && h.includes('Quantité totale'), 'vue par pièce : colonnes ' + h.join('|'));
+    verifier(h.join('|') === 'Code|Pièce|Entreprise|Quantité|Minimum|Valeur', 'vue par pièce : colonnes (6 au plus) ' + h.join('|'));
     verifier((await a.getAttribute('[data-vue=piece]', 'aria-pressed')) === 'true' && (await a.getAttribute('[data-vue=emplacement]', 'aria-pressed')) === 'false', 'bouton de vue actif (aria-pressed)');
     verifier(await a.isDisabled('#f-emplacement'), 'le filtre emplacement est désactivé dans la vue par pièce');
     rows = await lignes(a, '#table-stock');
@@ -279,7 +304,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await redessine(a, '#table-stock', () => a.selectOption('#f-entreprise', ''));
     rows = await lignes(a, '#table-stock');
     const x = rows.filter(r => r.cells[0] === 'P-0009');
-    verifier(x.length === 2 && x.map(r => r.cells[3]).join() === 'Beauchemin,Boutique Chaleur', 'vue par pièce, toutes entreprises : P-0009 une ligne par entreprise : ' + JSON.stringify(x.map(r => r.cells.slice(0, 5))));
+    verifier(x.length === 2 && x.map(r => r.cells[2]).join() === 'Beauchemin,Boutique Chaleur', 'vue par pièce, toutes entreprises : P-0009 une ligne par entreprise : ' + JSON.stringify(x.map(r => r.cells.slice(0, 5))));
     // zéro en vue par pièce : toutes les pièces actives
     await redessine(a, '#table-stock', () => a.click('label[for=f-zero]'));
     rows = await lignes(a, '#table-stock');
@@ -298,7 +323,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await a.goto(L.BASE + '/index.php?page=stock&emplacement_id=5');
     await a.waitForSelector('#table-stock tbody tr');
     let rows = await lignes(a, '#table-stock');
-    verifier(await a.inputValue('#f-entreprise') === '2' && await a.inputValue('#f-emplacement') === '5' && rows.length > 0 && rows.every(r => r.cells[4] === 'Boutique Centre-ville'), 'URL ?emplacement_id=5 : emplacement et entreprise préchoisis (' + rows.length + ' lignes)');
+    verifier(await a.inputValue('#f-entreprise') === '2' && await a.inputValue('#f-emplacement') === '5' && rows.length > 0 && rows.every(r => r.cells[3] === 'Boutique Centre-ville'), 'URL ?emplacement_id=5 : emplacement et entreprise préchoisis (' + rows.length + ' lignes)');
     await a.goto(L.BASE + '/index.php?page=stock&vue=piece&zero=1&q=P-0013&categorie_id=5');
     await a.waitForSelector('#table-stock tbody tr');
     rows = await lignes(a, '#table-stock');
@@ -326,7 +351,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await redessine(a, '#table-stock', async () => { await a.fill('#f-recherche', 'ZZZ-INCONNU'); await a.press('#f-recherche', 'Enter'); });
     verifier((await toastTexte(a)).includes('Aucune pièce ne correspond à « ZZZ-INCONNU »'), 'message clair pour un code inconnu');
     verifier((await a.evaluate(() => window.__bips)).slice(-1)[0] === false, 'bip d\'erreur sur code inconnu');
-    verifier((await texte(a, '#table-stock tbody')).includes('Aucune ligne de stock ne correspond'), 'message de tableau vide utile');
+    verifier((await texte(a, '#table-stock tbody')) === 'Aucune pièce trouvée.', 'message de tableau vide : une ligne');
     // recherche par nom (plusieurs mots), insensible aux accents et à la casse
     await redessine(a, '#table-stock', () => a.fill('#f-recherche', 'electrode paire'));
     rows = await lignes(a, '#table-stock');
@@ -349,7 +374,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await redessine(a, '#table-stock', () => a.click('#table-stock thead th:has-text("Quantité")'));
     await redessine(a, '#table-stock', () => a.click('#table-stock thead th:has-text("Quantité")'));
     const rows = await lignes(a, '#table-stock');
-    const q = rows.map(r => num(r.cells[5]));
+    const q = rows.map(r => num(r.cells[4]));
     verifier(q.length > 5 && q.every((v, i) => i === 0 || q[i - 1] >= v), 'tri par quantité décroissante : ' + q.slice(0, 8).join(','));
     // pagination sans doublon ni trou avec un tri à égalités (quantité), pages de 10
     const vus = new Set(); let total = 0;
@@ -364,17 +389,23 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await redessine(a, '#table-stock', () => a.fill('#f-recherche', 'P-0007'));
     await Promise.all([a.waitForNavigation(), a.click('#table-stock tbody tr:first-child a.code')]);
     verifier(/page=piece_voir&id=\d+/.test(a.url()), 'un clic sur la pièce ouvre piece_voir : ' + a.url());
+    // un clic n'importe où sur la ligne ouvre aussi la fiche
+    await L.aller(a, 'stock');
+    await redessine(a, '#table-stock', () => a.fill('#f-recherche', 'P-0007'));
+    await Promise.all([a.waitForNavigation(), a.click('#table-stock tbody tr:first-child td.nombre')]);
+    verifier(/page=piece_voir&id=\d+/.test(a.url()), 'un clic sur la ligne ouvre piece_voir : ' + a.url());
+    await a.waitForLoadState('networkidle');
   });
 
   await section('Stock : employé (aucun coût, une seule entreprise)', async () => {
     await L.aller(e, 'stock');
     await e.waitForSelector('#table-stock tbody tr');
     const h = await entetes(e, '#table-stock');
-    verifier(h.join('|') === 'Code|Pièce|Catégorie|Emplacement|Quantité|Unité', 'colonnes de l\'employé : ' + h.join('|'));
+    verifier(h.join('|') === 'Code|Pièce|Emplacement|Quantité', 'colonnes de l\'employé : ' + h.join('|'));
     const rows = await lignes(e, '#table-stock');
     verifier(rows.length === parseInt(NB_STOCK('1'), 10), 'l\'employé ne voit que les lignes de Beauchemin : ' + rows.length + ' lignes');
     verifier(!(await e.content()).includes('Coût moyen'), 'aucune mention de coût dans la page de l\'employé');
-    verifier(await e.locator('#f-entreprise option').count() === 1, 'un seul choix d\'entreprise');
+    verifier(await e.locator('#f-entreprise').count() === 0, 'une seule entreprise : aucun choix d\'entreprise à faire');
     // réponse JSON brute
     const r = await appel(e, 'app/ajax/stock_data.php', DT());
     verifier(r.status === 200 && r.json.recordsTotal === rows.length, 'JSON : même nombre de lignes');
@@ -436,11 +467,12 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
   await section('Historique : affichage et tri (admin)', async () => {
     await L.aller(a, 'historique');
     await a.waitForSelector('#table-historique tbody tr');
-    verifier((await texte(a, 'h1')) === 'Historique des mouvements', 'titre');
+    verifier((await texte(a, 'h1')) === 'Historique', 'titre');
     const total = parseInt(NB_MOUV('1,2'), 10);
     verifier((await texte(a, '#table-historique_info')).includes('de ' + total), 'nombre de mouvements (' + total + ') : ' + await texte(a, '#table-historique_info'));
     const h = await entetes(a, '#table-historique');
-    verifier(h.join('|') === 'Date et heure|Document|Pièce|Emplacement|Quantité|Utilisateur|Coût unitaire|Valeur', 'colonnes (admin) : ' + h.join('|'));
+    verifier(h.join('|') === 'Date|Document|Pièce|Emplacement|Quantité|Valeur', 'colonnes (admin, 6 au plus) : ' + h.join('|'));
+    verifier(await a.isHidden('#h-options') && await a.isHidden('#f-effacer') && (await a.getAttribute('#h-plus', 'aria-expanded')) === 'false', 'filtres simples seulement (pièce, période) : « Plus d\'options » fermé, « Effacer » caché');
     let rows = await lignes(a, '#table-historique');
     const dernier = sql('SELECT d.numero FROM mouvements m JOIN documents d ON d.id = m.document_id ORDER BY m.id DESC LIMIT 1');
     verifier(rows[0].cells[1] === dernier, 'le plus récent d\'abord : ' + rows[0].cells[1] + ' = ' + dernier);
@@ -453,7 +485,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     verifier(/page=document_voir&id=\d+/.test(hd), 'lien vers document_voir : ' + hd);
     verifier(await a.locator('#table-historique tbody tr:first-child td:nth-child(3) a[href*="piece_voir"]').count() === 1, 'un seul lien vers piece_voir (code et nom dans le même lien)');
     // tri : date croissante = plus ancien d'abord
-    await redessine(a, '#table-historique', () => a.click('#table-historique thead th:has-text("Date et heure")'));
+    await redessine(a, '#table-historique', () => a.click('#table-historique thead th:has-text("Date")'));
     rows = await lignes(a, '#table-historique');
     const premier = sql('SELECT d.numero FROM mouvements m JOIN documents d ON d.id = m.document_id ORDER BY m.id ASC LIMIT 1');
     verifier(rows[0].cells[1] === premier, 'tri par date croissante : ' + rows[0].cells[1] + ' = ' + premier);
@@ -474,6 +506,8 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
   await section('Historique : filtres', async () => {
     await L.aller(a, 'historique');
     await a.waitForSelector('#table-historique tbody tr');
+    await plus(a);
+    verifier(await a.isVisible('#f-type') && (await texte(a, '#h-plus')) === 'Moins d\'options', '« Plus d\'options » montre les filtres rares');
     // type de document
     await redessine(a, '#table-historique', () => a.selectOption('#f-type', 'transfert'));
     let rows = await lignes(a, '#table-historique');
@@ -516,7 +550,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await redessine(a, '#table-historique', () => a.fill('#f-au', '2026-09-15'));
     verifier((await lignes(a, '#table-historique')).length === 1, 'la date de fin est incluse');
     await redessine(a, '#table-historique', () => a.fill('#f-au', '2026-09-14'));
-    verifier((await lignes(a, '#table-historique')).length === 0 && (await texte(a, '#table-historique tbody')).includes('Aucun mouvement ne correspond'), 'plage vide : message utile');
+    verifier((await lignes(a, '#table-historique')).length === 0 && (await texte(a, '#table-historique tbody')) === 'Aucun mouvement trouvé.', 'plage vide : message d\'une ligne');
     await a.fill('#f-du', '');
     await redessine(a, '#table-historique', () => a.fill('#f-au', ''));
     // du > au : refus clair du serveur
@@ -550,13 +584,15 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await a.waitForSelector('#table-historique tbody tr');
     rows = await lignes(a, '#table-historique');
     verifier(rows.length > 0 && rows.every(r => r.cells[2] === 'Sortie' && r.cells[5].startsWith('Cube 12')), 'URL ?emplacement_id=3&type=sortie : ' + rows.length);
+    verifier(!(await a.isHidden('#h-options')) && (await a.getAttribute('#h-plus', 'aria-expanded')) === 'true', 'un filtre rare posé par l\'adresse ouvre « Plus d\'options » (jamais de filtre actif caché)');
   });
 
   await section('Historique : employé (pas de coûts, pas d\'autre entreprise) et exports', async () => {
     await L.aller(e, 'historique');
     await e.waitForSelector('#table-historique tbody tr');
     const h = await entetes(e, '#table-historique');
-    verifier(h.join('|') === 'Date et heure|Document|Pièce|Emplacement|Quantité|Utilisateur', 'colonnes de l\'employé (aucun coût) : ' + h.join('|'));
+    verifier(h.join('|') === 'Date|Document|Pièce|Emplacement|Quantité', 'colonnes de l\'employé (aucun coût) : ' + h.join('|'));
+    verifier(await e.locator('#f-entreprise').count() === 0, 'employé : pas de choix d\'entreprise (une seule)');
     const attendu = parseInt(NB_MOUV('1'), 10);
     verifier((await texte(e, '#table-historique_info')).includes('de ' + attendu), 'l\'employé voit les ' + attendu + ' mouvements de Beauchemin seulement : ' + await texte(e, '#table-historique_info'));
     const r = await appel(e, 'app/ajax/historique_data.php', DT({ length: 500, 'order[0][column]': 0, 'columns[0][data]': 'ordre' }));
@@ -587,8 +623,9 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     // gestionnaire : colonnes de coût dans le tableau
     await L.aller(g, 'historique');
     await g.waitForSelector('#table-historique tbody tr');
-    verifier((await entetes(g, '#table-historique')).includes('Coût unitaire'), 'le gestionnaire voit les colonnes de coût');
+    verifier((await entetes(g, '#table-historique')).includes('Valeur'), 'le gestionnaire voit la valeur');
     // lien d'export suit les filtres
+    await plus(g);
     await redessine(g, '#table-historique', () => g.selectOption('#f-type', 'sortie'));
     verifier(/type=sortie/.test(await g.getAttribute('#btn-export', 'href')), 'le lien d\'export de l\'historique reprend les filtres');
   });
@@ -596,15 +633,15 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
   // =====================================================================================================================
   //  SOUS LE MINIMUM
   // =====================================================================================================================
-  await section('Sous le minimum : liste, tri, lien Réceptionner (admin)', async () => {
+  await section('À recommander : liste, tri, liens Voir la pièce et Recevoir (admin)', async () => {
     await L.aller(a, 'sous_minimum');
     await a.waitForSelector('#table-sous-minimum tbody tr');
     const attendu = sousMin();
     let rows = await lignes(a, '#table-sous-minimum');
     verifier(rows.length === attendu.length, 'nombre de pièces sous le minimum : ' + rows.length + ' (attendu ' + attendu.length + ')');
-    verifier((await texte(a, '#sm-portee')).includes(attendu.length + ' pièces sous le minimum'), 'résumé : ' + await texte(a, '#sm-portee'));
+    verifier((await texte(a, '#sm-portee')).includes(' · ' + attendu.length + ' pièces'), 'résumé : ' + await texte(a, '#sm-portee'));
     const h = await entetes(a, '#table-sous-minimum');
-    verifier(h.slice(0, 6).join('|') === 'Code|Pièce|Entreprise|Quantité|Minimum|Manque', 'colonnes : ' + h.join('|'));
+    verifier(h.slice(0, 5).join('|') === 'Pièce|Entreprise|Quantité|Minimum|Manque' && h.length === 6, 'colonnes : ' + h.join('|'));
     // du plus grand manque au plus petit
     const manques = rows.map(r => num(r.cells[5]));
     verifier(manques.every((v, i) => i === 0 || manques[i - 1] >= v), 'tri de départ : plus grand manque d\'abord : ' + manques.join(','));
@@ -613,12 +650,14 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     verifier(await a.locator('#table-sous-minimum img').count() === 0 && dialogues.length === 0, 'nom piégé affiché en texte');
     const p3 = rows.find(r => r.cells[0] === 'P-0003');
     verifier(p3 && p3.cells[3] === '10' && p3.cells[4] === '20' && p3.cells[5] === '10 unité', 'P-0003 : 10 sur 20, manque 10 unité');
-    // lien « Réceptionner » : pièce + entrepôt de l'entreprise
-    const liens = await a.$$eval('#table-sous-minimum tbody tr', trs => trs.map(t => [t.children[0].textContent.trim(), t.children[2].textContent.trim(), (t.querySelector('a.btn') || {}).href || '']));
+    // lien « Recevoir » : pièce + entrepôt de l'entreprise
+    const liens = await a.$$eval('#table-sous-minimum tbody tr', trs => trs.map(t => [t.querySelector('.code').textContent.trim(), t.children[1].textContent.trim(), (t.querySelector('a.sk-btn-recevoir') || {}).href || '']));
+    const voir = await a.$$eval('#table-sous-minimum tbody tr a.sk-btn-voir', as => as.map(x => [x.textContent.trim(), x.getAttribute('href'), x.className]));
+    verifier(voir.length === attendu.length && voir.every(([t, h, c]) => t === 'Voir la pièce' && /^index\.php\?page=piece_voir&id=\d+$/.test(h) && /btn-primary/.test(c)), 'chaque ligne a un lien principal « Voir la pièce » vers la fiche : ' + JSON.stringify(voir[0]));
     const lx = liens.find(l => l[0] === 'XSS-1' && l[1] === 'Boutique Chaleur');
-    verifier(lx && new URL(lx[2]).searchParams.get('page') === 'reception' && new URL(lx[2]).searchParams.get('piece_id') === String(F.xss) && new URL(lx[2]).searchParams.get('emplacement_id') === '2', 'Réceptionner pour Boutique Chaleur : piece_id et entrepôt 2 : ' + (lx && lx[2]));
+    verifier(lx && new URL(lx[2]).searchParams.get('page') === 'reception' && new URL(lx[2]).searchParams.get('piece_id') === String(F.xss) && new URL(lx[2]).searchParams.get('emplacement_id') === '2', 'Recevoir pour Boutique Chaleur : piece_id et entrepôt 2 : ' + (lx && lx[2]));
     const lb = liens.find(l => l[0] === 'XSS-1' && l[1] === 'Beauchemin');
-    verifier(lb && new URL(lb[2]).searchParams.get('emplacement_id') === '1', 'Réceptionner pour Beauchemin : entrepôt 1');
+    verifier(lb && new URL(lb[2]).searchParams.get('emplacement_id') === '1', 'Recevoir pour Beauchemin : entrepôt 1');
     // tri par clic : quantité croissante
     await a.click('#table-sous-minimum thead th:has-text("Quantité")');
     rows = await lignes(a, '#table-sous-minimum');
@@ -642,57 +681,69 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await Promise.all([a.waitForNavigation(), a.selectOption('#entreprise-courante', '0')]);
   });
 
-  await section('Sous le minimum : employé, gestionnaire, état vide', async () => {
+  await section('À recommander : employé, gestionnaire, état vide', async () => {
     await L.aller(e, 'sous_minimum');
     await e.waitForSelector('#table-sous-minimum tbody tr');
     const rows = await lignes(e, '#table-sous-minimum');
-    verifier(rows.length === sousMin().filter(r => r[1] === '1').length && rows.every(r => r.cells[2] === 'Beauchemin'), 'employé : seulement Beauchemin (' + rows.length + ')');
-    verifier(await e.locator('#table-sous-minimum a.btn').count() === 0 && !(await entetes(e, '#table-sous-minimum')).includes('Réceptionner'), 'employé : aucun bouton « Réceptionner »');
     const r = await appel(e, 'app/ajax/sous_minimum_data.php', null);
+    verifier(rows.length === sousMin().filter(r => r[1] === '1').length && r.json.lignes.length === rows.length && r.json.lignes.every(l => l.entreprise === 'Beauchemin'), 'employé : seulement Beauchemin (' + rows.length + ')');
+    verifier((await entetes(e, '#table-sous-minimum')).join('|') === 'Pièce|Quantité|Minimum|Manque|Action', 'employé : une seule entreprise, pas de colonne « Entreprise » : ' + (await entetes(e, '#table-sous-minimum')).join('|'));
+    verifier(await e.locator('#table-sous-minimum a.sk-btn-recevoir').count() === 0 && await e.locator('#table-sous-minimum a.sk-btn-voir').count() === rows.length, 'employé : « Voir la pièce » oui, aucun bouton « Recevoir »');
     verifier(r.status === 200 && !/emplacement_reception_id|cout|valeur|prix/i.test(r.texte) && r.json.peut_receptionner === false, 'JSON brut de l\'employé : pas d\'emplacement de réception ni de coût');
     // gestionnaire de Beauchemin : bouton présent
     await L.aller(gb, 'sous_minimum');
     await gb.waitForSelector('#table-sous-minimum tbody tr');
-    verifier(await gb.locator('#table-sous-minimum a.btn:has-text("Réceptionner")').count() === sousMin().filter(r => r[1] === '1').length, 'gestionnaire : bouton « Réceptionner » sur chaque ligne');
-    const lien = await gb.getAttribute('#table-sous-minimum tbody tr:first-child a.btn', 'href');
+    verifier(await gb.locator('#table-sous-minimum a.sk-btn-recevoir:has-text("Recevoir")').count() === sousMin().filter(r => r[1] === '1').length, 'gestionnaire : bouton « Recevoir » sur chaque ligne');
+    const lien = await gb.getAttribute('#table-sous-minimum tbody tr:first-child a.sk-btn-recevoir', 'href');
     verifier(/^index\.php\?page=reception&piece_id=\d+&emplacement_id=1$/.test(lien), 'lien de réception : ' + lien);
+    // un clic sur la ligne ouvre la fiche de la pièce
+    await Promise.all([gb.waitForNavigation(), gb.click('#table-sous-minimum tbody tr:first-child td.nombre')]);
+    verifier(/page=piece_voir&id=\d+/.test(gb.url()), 'un clic sur la ligne ouvre la fiche : ' + gb.url());
+    await gb.waitForLoadState('networkidle');
+    await L.aller(gb, 'sous_minimum');
     // état vide : tous les minimums à zéro (restaurés ensuite)
     sql('DROP TABLE IF EXISTS seuils_sauv; CREATE TABLE seuils_sauv AS SELECT * FROM seuils; UPDATE seuils SET minimum = 0');
     try {
       await L.aller(e, 'sous_minimum');
       await e.waitForSelector('#sm-vide:not([hidden])');
       const v = await texte(e, '#sm-vide');
-      verifier(v.startsWith('Aucune pièce sous le minimum.') && !/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(v), 'état vide en texte : ' + v);
+      verifier(v === 'Rien à recommander.' && !/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(v), 'état vide : une ligne : ' + v);
       verifier(await e.isHidden('#sm-tableau'), 'le tableau est masqué quand la liste est vide');
       const d = await appel(e, 'app/ajax/sous_minimum_data.php', null);
       verifier(d.json.lignes.length === 0, 'JSON vide');
       const csv = parseCsv((await appel(e, 'app/ajax/sous_minimum_export.php', null)).texte);
       verifier(csv.length === 1, 'export vide : seulement l\'en-tête');
-      // tableau de bord : 0 et message
+      // accueil : 0, sans alerte
       await L.aller(e, 'dashboard');
       await e.waitForFunction(() => document.getElementById('ds-sous').textContent.trim() === '0');
-      verifier(!(await e.isHidden('#ds-bas-vide')) && (await texte(e, '#ds-bas-vide')) === 'Aucune pièce sous le minimum.', 'tableau de bord : aucune pièce sous le minimum');
+      verifier(await e.evaluate(() => !document.getElementById('ds-carte-sous').classList.contains('ds-alerte')), 'accueil : 0 à recommander, pas d\'alerte');
     } finally {
       sql('UPDATE seuils s JOIN seuils_sauv b ON b.entreprise_id = s.entreprise_id AND b.piece_id = s.piece_id SET s.minimum = b.minimum; DROP TABLE seuils_sauv');
     }
   });
 
   // =====================================================================================================================
-  //  TABLEAU DE BORD
+  //  ACCUEIL
   // =====================================================================================================================
-  await section('Tableau de bord : cartes (gestionnaire, 2 entreprises)', async () => {
+  await section('Accueil : boutons, chiffres et graphiques (gestionnaire, 2 entreprises)', async () => {
     await L.aller(g, 'dashboard');
-    await g.waitForFunction(() => document.getElementById('ds-pieces').textContent.trim() !== '…');
-    verifier((await texte(g, 'h1')) === 'Tableau de bord', 'titre');
+    await chargeAccueil(g);
+    verifier((await texte(g, 'h1')) === 'Accueil', 'titre');
     verifier((await texte(g, '#ds-portee')) === 'Entreprise : Beauchemin, Boutique Chaleur', 'portée : ' + await texte(g, '#ds-portee'));
-    verifier((await texte(g, '#ds-pieces')) === sql('SELECT COUNT(*) FROM pieces WHERE actif = 1'), 'pièces actives : ' + await texte(g, '#ds-pieces'));
+    // pièces actives et en stock : l'anneau « Pièces en stock » (une seule version de ce chiffre sur la page)
+    const actifsN = sql('SELECT COUNT(*) FROM pieces WHERE actif = 1');
     const enStock = sql('SELECT COUNT(DISTINCT s.piece_id) FROM stock s JOIN pieces p ON p.id = s.piece_id WHERE s.quantite > 0 AND p.actif = 1');
-    verifier((await texte(g, '#ds-pieces-detail')) === 'dont ' + enStock + ' en stock', 'pièces en stock : ' + await texte(g, '#ds-pieces-detail'));
-    verifier((await texte(g, '#ds-sous')) === String(sousMin().length), 'sous le minimum : ' + await texte(g, '#ds-sous') + ' (attendu ' + sousMin().length + ')');
-    verifier(await g.evaluate(() => document.getElementById('ds-carte-sous').classList.contains('ds-alerte')), 'carte « sous le minimum » en alerte');
+    verifier((await texte(g, '#gr-ring-txt')) === enStock + ' sur ' + actifsN, 'pièces en stock : ' + await texte(g, '#gr-ring-txt'));
+    verifier((await texte(g, '#ds-sous')) === String(sousMin().length), 'à recommander : ' + await texte(g, '#ds-sous') + ' (attendu ' + sousMin().length + ')');
+    verifier(await g.evaluate(() => document.getElementById('ds-carte-sous').classList.contains('ds-alerte')), 'tuile « À recommander » en alerte');
+    verifier((await texte(g, '#ds-t-sous')) === 'À recommander' && (await texte(g, '#ds-t-jour')) === 'Aujourd\'hui', 'titres des deux tuiles');
     const mj = sql("SELECT COUNT(*) FROM mouvements WHERE DATE(date_mouvement) = '" + aujourdhui + "'");
     const dj = sql("SELECT COUNT(DISTINCT document_id) FROM mouvements WHERE DATE(date_mouvement) = '" + aujourdhui + "'");
-    verifier((await texte(g, '#ds-jour')) === mj && (await texte(g, '#ds-jour-detail')) === 'dans ' + dj + ' documents', 'mouvements du jour : ' + await texte(g, '#ds-jour') + ' / ' + await texte(g, '#ds-jour-detail') + ' (attendu ' + mj + ' dans ' + dj + ')');
+    verifier((await texte(g, '#ds-jour')) === mj && (await texte(g, '#ds-jour-unite')) === (parseInt(mj, 10) > 1 ? 'mouvements' : 'mouvement'), 'mouvements du jour : ' + await texte(g, '#ds-jour') + ' ' + await texte(g, '#ds-jour-unite') + ' (attendu ' + mj + ')');
+    const dd0 = (await appel(g, 'app/ajax/dashboard_data.php?entreprise_id=0', null)).json;
+    verifier(dd0.cartes.mouvements_jour === parseInt(mj, 10) && dd0.cartes.documents_jour === parseInt(dj, 10), 'données : mouvements du jour et documents du jour (' + dd0.cartes.mouvements_jour + ' / ' + dd0.cartes.documents_jour + ', attendu ' + mj + ' / ' + dj + ')');
+    // pas de doublon : une seule version de chaque bloc
+    verifier(await g.locator('#ds-valeur, #ds-pieces, #ds-bas, #ds-docs').count() === 0 && await g.locator('#gr-valeur').count() === 1 && await g.locator('#gr-fact').count() === 1 && await g.locator('#ds-factures').count() === 1, 'valeur et factures : une seule version de chaque');
     // graphiques du kit de widgets : activité (7 jours), anneau de couverture, répartition par type, finances (gestionnaire)
     await g.waitForFunction(() => document.querySelectorAll('#gr-graph svg').length > 0);
     const gr = await g.evaluate(() => ({
@@ -706,14 +757,14 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     }));
     const actifs = Number(sql('SELECT COUNT(*) FROM pieces WHERE actif = 1')), enSt = Number(enStock);
     verifier(gr.barres >= 14 && gr.jours === 7, 'graphique d\'activité : 7 jours (piste + barre) : ' + JSON.stringify(gr));
-    verifier(gr.anneau >= 3 && gr.texteAnneau === Math.round(100 * enSt / actifs) + ' %', 'anneau de couverture du stock : ' + gr.texteAnneau + ' (attendu ' + Math.round(100 * enSt / actifs) + ' %)');
+    verifier(gr.anneau >= 2 && gr.texteAnneau === Math.round(100 * enSt / actifs) + ' %', 'anneau de couverture du stock : ' + gr.texteAnneau + ' (attendu ' + Math.round(100 * enSt / actifs) + ' %)');
     verifier(gr.types >= 1 && gr.finances >= 2 && gr.valeur === 2, 'répartition par type, factures et valeur par entreprise tracées : ' + JSON.stringify(gr));
     const sommeJours = await g.evaluate(() => (document.getElementById('gr-total').textContent || '').replace(/\s/g, ''));
     const attenduAct = sql("SELECT COUNT(*) FROM mouvements m JOIN emplacements e ON e.id = m.emplacement_id WHERE m.date_mouvement >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)");
     verifier(sommeJours === attenduAct, 'total d\'activité sur 7 jours : ' + sommeJours + ' (attendu ' + attenduAct + ')');
     // valeur d'inventaire par entreprise
     const val = id => sql('SELECT ROUND(SUM(s.quantite * sc.cout_moyen), 2) FROM stock s JOIN emplacements e ON e.id = s.emplacement_id JOIN stock_couts sc ON sc.entreprise_id = e.entreprise_id AND sc.piece_id = s.piece_id WHERE e.entreprise_id = ' + id);
-    const v = await lisible(g, '#ds-valeur');
+    const v = await lisible(g, '#gr-valeur');
     verifier(v.includes('Beauchemin ' + fr(val(1))) && v.includes('Boutique Chaleur ' + fr(val(2))), 'valeur d\'inventaire par entreprise : ' + v + ' (attendu ' + fr(val(1)) + ' / ' + fr(val(2)) + ')');
     // factures internes du mois
     const emis = id => sql("SELECT COALESCE(SUM(total), 0) FROM documents WHERE type = 'facture_interne' AND statut = 'valide' AND date_document BETWEEN '" + aujourdhui.slice(0, 8) + "01' AND LAST_DAY('" + aujourdhui + "') AND entreprise_id = " + id);
@@ -723,27 +774,25 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     verifier(f.includes('Beauchemin Émis ' + fr(emis(1))) && f.includes('Reçu ' + fr(recu(1))) && f.includes('Solde ' + (num(solde1) > 0 ? '+' : '') + fr(solde1).replace('-', '-')) , 'factures internes du mois : ' + f);
     verifier(f.includes('à recevoir') && f.includes('à payer'), 'solde : à recevoir / à payer');
     verifier((await texte(g, '#ds-mois')).includes(String(new Date().getFullYear())), 'mois affiché : ' + await texte(g, '#ds-mois'));
-    // raccourcis
-    const raccourcis = await g.$$eval('.ds-raccourcis a', as => as.map(x => [x.textContent.trim(), x.getAttribute('href'), x.getBoundingClientRect().height]));
-    verifier(raccourcis.map(r => r[0]).join('|') === 'Scanner|Transfert|Sortie|Réception|Facture interne', 'raccourcis du gestionnaire : ' + raccourcis.map(r => r[0]).join('|'));
-    verifier(raccourcis.every(r => r[2] >= 44), 'raccourcis de 44 px ou plus');
-    verifier(raccourcis.map(r => r[1]).join('|') === 'index.php?page=scanner|index.php?page=transfert|index.php?page=sortie|index.php?page=reception|index.php?page=facture_interne', 'liens des raccourcis');
-    // 10 derniers documents
-    const docs = await lignes(g, '#ds-docs-zone');
-    const numeros = async p => p.$$eval('#ds-docs tr', trs => trs.map(t => t.querySelector('a').textContent.trim()));
+    // boutons d'action : en premier sur la page, un verbe chacun, Recevoir en plus pour un gestionnaire
+    const raccourcis = await g.$$eval('.ds-raccourcis a', as => as.map(x => [x.textContent.trim(), x.getAttribute('href'), x.getBoundingClientRect().height, x.getBoundingClientRect().top]));
+    verifier(raccourcis.map(r => r[0]).join('|') === 'Scanner|Déplacer|Utiliser|Recevoir', 'boutons du gestionnaire : ' + raccourcis.map(r => r[0]).join('|'));
+    verifier(raccourcis.every(r => r[2] >= 44), 'boutons d\'action de 44 px ou plus');
+    verifier(raccourcis.map(r => r[1]).join('|') === 'index.php?page=scanner|index.php?page=transfert|index.php?page=sortie|index.php?page=reception', 'liens des boutons');
+    const topTuile = await g.$eval('#ds-carte-sous', x => x.getBoundingClientRect().top);
+    verifier(raccourcis.every(r => r[3] < topTuile) && await g.locator('.ds-raccourcis .btn-primary').count() === 4, 'les boutons d\'action sont la première rangée, au-dessus des chiffres');
+    // derniers documents : la liste sous le graphique (5 liens) ; les 10 documents et leurs totaux viennent des données
     const attendu = sqlLignes('SELECT numero FROM documents ORDER BY id DESC LIMIT 10').map(r => r[0]);
-    verifier(docs.length === 10 && (await numeros(g)).join() === attendu.join(), 'les 10 derniers documents : ' + (await numeros(g)).join());
-    verifier(docs.some(r => /Annulé$/.test(r.cells[0])) && docs.every(r => /\d [$]|\d,\d\d \$/.test(r.cells[3])), 'statut « Annulé » (sous le numéro) et total pour le gestionnaire');
-    verifier(docs.every(r => /^[A-Z]{3}-\d{4}-\d{5}(Réception|Transfert|Sortie|Ajustement|Facture interne)(Annulé)?$/.test(r.cells[0])), 'le type de document est écrit sous le numéro : ' + docs[0].cells[0]);
-    const hd = await g.getAttribute('#ds-docs tr:first-child a', 'href');
-    verifier(/^index\.php\?page=document_voir&id=\d+$/.test(hd), 'lien vers document_voir : ' + hd);
-    // 5 pièces les plus sous le minimum
-    const bas = await lignes(g, '#ds-bas-zone');
+    const rec = await recents(g);
+    verifier(rec.length === 5 && rec.every(([t, h], i) => t.startsWith(attendu[i] + ' · ') && /^index\.php\?page=document_voir&id=\d+$/.test(h)), 'les 5 derniers documents (liens vers document_voir) : ' + rec.map(r => r[0]).join(' | '));
+    verifier(dd0.derniers_documents.map(d => d.numero).join() === attendu.join(), 'données : les 10 derniers documents');
+    verifier(dd0.derniers_documents.some(d => d.statut === 'annule') && dd0.derniers_documents.every(d => /^\d+\.\d\d$/.test(d.total)), 'données : statut « annulé » et total pour le gestionnaire');
+    // pièces les plus sous le minimum : données (le chiffre est sur l'accueil, la liste sur « À recommander »)
     const attBas = sousMin().map(r => [parseFloat(r[2]) - parseFloat(r[3]), r[0]]).sort((x, y) => y[0] - x[0]).slice(0, 5);
-    verifier(bas.length === Math.min(5, sousMin().length) && bas[0].cells[0].startsWith(attBas[0][1]) && bas.every(r => !!r.cells[3]), 'pièces les plus sous le minimum : ' + bas.map(r => r.cells[0].slice(0, 12)).join(' | '));
-    verifier(bas[0].cells[0].includes(XSS) && await g.locator('#ds-bas img, #ds-docs img').count() === 0 && dialogues.length === 0, 'nom piégé affiché en texte sur le tableau de bord');
-    // liens des cartes
-    verifier(await g.locator('#ds-carte-sous a[href="index.php?page=sous_minimum"]').count() === 1, 'lien vers sous_minimum');
+    verifier(dd0.plus_bas.length === Math.min(5, sousMin().length) && dd0.plus_bas[0].code === attBas[0][1] && dd0.plus_bas.every(b => !!b.manque), 'données : les pièces les plus sous le minimum : ' + dd0.plus_bas.map(b => b.code).join(' | '));
+    verifier(await g.locator('#ds-widgets img').count() === 0 && dialogues.length === 0, 'aucune balise injectée sur l\'accueil');
+    // liens des tuiles
+    verifier(await g.locator('a#ds-carte-sous[href="index.php?page=sous_minimum"]').count() === 1, 'la tuile « À recommander » mène à sous_minimum');
     const lj = await g.getAttribute('#ds-jour-lien', 'href');
     verifier(lj === 'index.php?page=historique&du=' + aujourdhui + '&au=' + aujourdhui, 'lien « mouvements du jour » : ' + lj);
     await Promise.all([g.waitForNavigation(), g.click('#ds-jour-lien')]);
@@ -751,50 +800,56 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     verifier((await texte(g, '#table-historique_info')).includes('de ' + mj), 'le lien mène à l\'historique du jour (' + mj + ' mouvements)');
   });
 
-  await section('Tableau de bord : entreprise de la barre du haut', async () => {
+  await section('Accueil : entreprise de la barre du haut', async () => {
     await L.aller(g, 'dashboard');
     await Promise.all([g.waitForNavigation(), g.selectOption('#entreprise-courante', '2')]);
-    await g.waitForFunction(() => document.getElementById('ds-pieces').textContent.trim() !== '…');
+    await chargeAccueil(g);
     verifier((await texte(g, '#ds-portee')) === 'Entreprise : Boutique Chaleur', 'portée : ' + await texte(g, '#ds-portee'));
     const enStock = sql('SELECT COUNT(DISTINCT s.piece_id) FROM stock s JOIN emplacements e ON e.id = s.emplacement_id JOIN pieces p ON p.id = s.piece_id WHERE e.entreprise_id = 2 AND s.quantite > 0 AND p.actif = 1');
-    verifier((await texte(g, '#ds-pieces-detail')) === 'dont ' + enStock + ' en stock', 'pièces en stock de Boutique Chaleur : ' + await texte(g, '#ds-pieces-detail'));
+    verifier((await texte(g, '#gr-ring-txt')) === enStock + ' sur ' + sql('SELECT COUNT(*) FROM pieces WHERE actif = 1'), 'pièces en stock de Boutique Chaleur : ' + await texte(g, '#gr-ring-txt'));
     verifier((await texte(g, '#ds-sous')) === String(sousMin().filter(r => r[1] === '2').length), 'sous le minimum de Boutique Chaleur : ' + await texte(g, '#ds-sous'));
-    const v = await lisible(g, '#ds-valeur');
+    const v = await lisible(g, '#gr-valeur');
     verifier(v.startsWith('Boutique Chaleur') && !v.includes('Beauchemin'), 'valeur : seulement Boutique Chaleur : ' + v);
     const f = await lisible(g, '#ds-factures');
     verifier(f.startsWith('Boutique Chaleur') && !f.includes('Beauchemin Émis'), 'factures : seulement Boutique Chaleur');
     const mj = sql("SELECT COUNT(*) FROM mouvements m JOIN emplacements e ON e.id = m.emplacement_id WHERE e.entreprise_id = 2 AND DATE(m.date_mouvement) = '" + aujourdhui + "'");
     verifier((await texte(g, '#ds-jour')) === mj, 'mouvements du jour de Boutique Chaleur : ' + await texte(g, '#ds-jour') + ' (attendu ' + mj + ')');
-    const numerosBch = await g.$$eval('#ds-docs tr', trs => trs.map(t => t.querySelector('a').textContent.trim()));
     const attendu = sqlLignes('SELECT numero FROM documents WHERE entreprise_id = 2 OR entreprise_dest_id = 2 ORDER BY id DESC LIMIT 10').map(r => r[0]);
-    verifier(numerosBch.join() === attendu.join(), 'documents émis ou reçus par Boutique Chaleur : ' + numerosBch.join());
+    const numerosBch = (await recents(g)).map(r => r[0].split(' · ')[0]);
+    verifier(numerosBch.join() === attendu.slice(0, 5).join(), 'documents émis ou reçus par Boutique Chaleur (les 5 derniers) : ' + numerosBch.join());
+    const dBch = (await appel(g, 'app/ajax/dashboard_data.php?entreprise_id=2', null)).json;
+    verifier(dBch.derniers_documents.map(d => d.numero).join() === attendu.join(), 'données : les 10 derniers documents de Boutique Chaleur');
     // la page Stock suit aussi la barre du haut
     await L.aller(g, 'stock');
     await g.waitForSelector('#table-stock tbody tr');
-    verifier(await g.inputValue('#f-entreprise') === '2' && (await lignes(g, '#table-stock')).every(r => r.cells[3] === 'Boutique Chaleur'), 'Stock : entreprise de la barre du haut par défaut');
+    verifier(await g.inputValue('#f-entreprise') === '2' && (await lignes(g, '#table-stock')).every(r => r.cells[2] === 'Boutique Chaleur'), 'Stock : entreprise de la barre du haut par défaut');
     await L.aller(g, 'historique');
     await g.waitForSelector('#table-historique tbody tr');
     verifier(await g.inputValue('#f-entreprise') === '2', 'Historique : entreprise de la barre du haut par défaut');
     await Promise.all([g.waitForNavigation(), g.selectOption('#entreprise-courante', '0')]);
   });
 
-  await section('Tableau de bord : employé (aucun montant)', async () => {
+  await section('Accueil : employé (aucun montant)', async () => {
     await L.aller(e, 'dashboard');
-    await e.waitForFunction(() => document.getElementById('ds-pieces').textContent.trim() !== '…');
+    await chargeAccueil(e);
     verifier((await texte(e, '#ds-portee')) === 'Entreprise : Beauchemin', 'portée de l\'employé');
-    verifier(await e.locator('#ds-valeur, #ds-factures, #ds-t-valeur, #ds-t-factures').count() === 0, 'pas de carte « valeur » ni « factures internes » pour l\'employé');
+    verifier(await e.locator('#gr-valeur, #gr-fact, #ds-factures, #ds-t-val, #ds-t-fact, #ds-mois').count() === 0, 'pas de bloc « valeur du stock » ni « factures » pour l\'employé');
     const raccourcis = await e.$$eval('.ds-raccourcis a', as => as.map(x => x.textContent.trim()));
-    verifier(raccourcis.join('|') === 'Scanner|Transfert|Sortie', 'raccourcis de l\'employé : ' + raccourcis.join('|'));
+    verifier(raccourcis.join('|') === 'Scanner|Déplacer|Utiliser', 'boutons de l\'employé : ' + raccourcis.join('|'));
+    verifier((await recents(e)).length === 5 && (await recents(e)).every(r => !/\$/.test(r[0])), 'employé : les 5 derniers documents, sans montant');
     const corps = await texte(e, '.content-wrapper');
     verifier(!/\$/.test(corps), 'aucun montant (symbole $) sur le tableau de bord de l\'employé');
     verifier((await entetes(e, '.content-wrapper table')).every(t => t !== 'Total'), 'pas de colonne « Total »');
     const r = await appel(e, 'app/ajax/dashboard_data.php', null);
     verifier(r.status === 200 && r.json.montants === false && !('valeur' in r.json) && !('factures' in r.json) && r.json.derniers_documents.every(d => !('total' in d)), 'JSON brut : ni valeur, ni factures, ni total');
-    verifier(!/"total"|"valeur"|"emis"|"recu"|cout/.test(r.texte), 'JSON brut de l\'employé : aucun champ de coût');
+    // aucune clé d'argent, à aucune profondeur ; « activite.total » est un nombre de mouvements (pas un montant)
+    const cles = (o, chemin = '') => (o && typeof o === 'object') ? Object.entries(o).flatMap(([k, v]) => [chemin + '.' + k, ...cles(v, Array.isArray(o) ? chemin : chemin + '.' + k)]) : [];
+    const argent = cles(r.json).filter(c => /(^|\.)(total|valeur|emis|recu|solde|cout[a-z_]*|prix[a-z_]*)$/.test(c) && c !== '.activite.total');
+    verifier(argent.length === 0 && !/"valeur"|"emis"|"recu"|cout/.test(r.texte), 'JSON brut de l\'employé : aucun champ de coût : ' + argent.join(','));
     verifier(!r.texte.includes('Boutique Centre-ville') && !r.json.portee.noms.includes('Boutique Chaleur'), 'JSON brut : aucune donnée de Boutique Chaleur (emplacements masqués)');
     // l'employé de Boutique Chaleur ne voit que son entreprise
     await L.aller(b, 'dashboard');
-    await b.waitForFunction(() => document.getElementById('ds-pieces').textContent.trim() !== '…');
+    await chargeAccueil(b);
     verifier((await texte(b, '#ds-portee')) === 'Entreprise : Boutique Chaleur', 'emp_bch : sa seule entreprise');
     const rb = await appel(b, 'app/ajax/dashboard_data.php', null);
     verifier(rb.json.derniers_documents.every(d => d.emplacement === null || d.emplacement === 'Entrepôt principal' || d.emplacement === 'Boutique Centre-ville'), 'emp_bch : aucun emplacement de Beauchemin');
@@ -878,7 +933,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
       verifier((await z.textContent('h1')).length > 0, route + ' : la page se charge pour un utilisateur sans entreprise');
     }
     await L.aller(z, 'stock');
-    verifier((await lignes(z, '#table-stock')).length === 0 && (await texte(z, '#table-stock tbody')).includes('Aucune ligne de stock'), 'stock vide');
+    verifier((await lignes(z, '#table-stock')).length === 0 && (await texte(z, '#table-stock tbody')) === 'Aucune pièce trouvée.', 'stock vide');
     const r = await appel(z, 'app/ajax/stock_data.php', DT());
     verifier(r.status === 200 && r.json.recordsTotal === 0, 'JSON : aucune ligne');
     const h = await appel(z, 'app/ajax/historique_data.php', DT());
@@ -902,8 +957,10 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     const t = await L.nouvellePage(browser, { width: 768, height: 1024 });
     await L.connecter(t, 'gestionnaire');
     await t.waitForLoadState('networkidle');
-    for (const [route, filtres] of [['stock', '#f-recherche, #f-entreprise, #f-emplacement, #f-categorie, [data-vue], #f-effacer, #btn-export'], ['historique', '#f-entreprise, #f-emplacement, #f-type, #f-du, #f-au, #f-utilisateur, #f-numero, #f-effacer, #btn-export'], ['sous_minimum', '#sm-actualiser, #sm-export, #table-sous-minimum a.btn'], ['dashboard', '.ds-raccourcis a, #ds-actualiser']]) {
+    for (const [route, filtres] of [['stock', '#f-recherche, #f-entreprise, #f-emplacement, #f-categorie, [data-vue], #f-effacer, #btn-export'], ['historique', '#f-piece + .select2 .select2-selection, #f-entreprise, #f-emplacement, #f-type, #f-du, #f-au, #f-utilisateur, #f-numero, #h-plus, #f-effacer, #btn-export'], ['sous_minimum', '#sm-actualiser, #sm-export, #table-sous-minimum a.btn'], ['dashboard', '.ds-raccourcis a, #ds-actualiser, a.ds-carte, #ds-widgets .gr-btn, #ds-widgets .gr-lecture a']]) {
       await L.aller(t, route);
+      if (route === 'historique') { await plus(t); }
+      if (route === 'stock') { await t.fill('#f-recherche', 'zzz'); }   // un filtre posé : « Effacer » apparaît et compte aussi
       await t.waitForTimeout(600);
       const petits = await t.$$eval(filtres, els => els.filter(x => x.offsetParent !== null).map(x => [x.id || x.textContent.trim().slice(0, 20), Math.round(x.getBoundingClientRect().height)]).filter(([, h]) => h < 44));
       verifier(petits.length === 0, route + ' : toutes les zones cliquables ≥ 44 px : ' + JSON.stringify(petits));
@@ -934,7 +991,11 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await g.waitForSelector('#table-stock tbody tr');
     await g.focus('#f-recherche');
     await g.keyboard.press('Tab');
-    verifier(await g.evaluate(() => document.activeElement.id) === 'f-entreprise', 'ordre de tabulation : recherche -> entreprise');
+    verifier(await g.evaluate(() => document.activeElement.getAttribute('data-vue')) === 'emplacement', 'ordre de tabulation : recherche -> affichage');
+    await g.keyboard.press('Tab'); await g.keyboard.press('Tab');
+    verifier(await g.evaluate(() => document.activeElement.id) === 'btn-export', 'ordre de tabulation : affichage -> export');
+    await g.keyboard.press('Tab');
+    verifier(await g.evaluate(() => document.activeElement.id) === 'f-entreprise', 'ordre de tabulation : export -> filtres');
     verifier(await g.evaluate(() => { const s = getComputedStyle(document.getElementById('f-recherche')); return true; }), 'focus visible');
   });
 
@@ -982,7 +1043,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     verifier(rows.length === 2 && rows.every(r => r.cells[0] === 'P-0001') && await a.evaluate(() => document.activeElement.id) === 'f-recherche', 'Tab en fin de code : recherche immédiate, le focus reste dans le champ');
     verifier((await a.evaluate(() => window.__bips)).slice(-1)[0] === true, 'Tab en fin de code : bip de succès');
     await a.keyboard.press('Tab');
-    verifier(await a.evaluate(() => document.activeElement.id) === 'f-entreprise', 'un second Tab (texte inchangé) passe au champ suivant');
+    verifier(await a.evaluate(() => document.activeElement.getAttribute('data-vue')) === 'emplacement', 'un second Tab (texte inchangé) passe au champ suivant');
     await vide(a);
     await a.focus('#f-categorie');
     await a.click('#f-recherche');   // clic dans un champ qui n'avait pas le focus : le texte est sélectionné, le code suivant le remplace
@@ -1020,7 +1081,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await a.waitForTimeout(700);
     rows = await lignes(a, '#table-stock');
     const attEmp = parseInt(sql('SELECT COUNT(*) FROM stock WHERE emplacement_id = 3 AND quantite > 0'), 10);
-    verifier(rows.length === attEmp && rows.length > 0 && rows.every(r => r.cells[4].startsWith('Cube 12')), 'scan de EMP-000003 : contenu du Cube 12 (' + rows.length + ' / ' + attEmp + ')');
+    verifier(rows.length === attEmp && rows.length > 0 && rows.every(r => r.cells[3].startsWith('Cube 12')), 'scan de EMP-000003 : contenu du Cube 12 (' + rows.length + ' / ' + attEmp + ')');
     verifier(await a.inputValue('#f-entreprise') === '1' && await a.inputValue('#f-recherche') === '', 'l\'entreprise de l\'emplacement est choisie et le champ est vidé');
     verifier((await a.evaluate(() => window.__bips)).slice(-1)[0] === true && !(await textesToasts(a)).some(t => /Aucune pièce ne correspond/.test(t)), 'scan d\'emplacement : bip de succès, pas de message d\'échec');
     // 6. pièce qui existe mais n'est en stock nulle part : message explicite (pas « aucune pièce »)
@@ -1030,7 +1091,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await a.fill('#f-recherche', 'SANS-STOCK-1');
     await a.press('#f-recherche', 'Enter');
     const t6 = await toastTexte(a);
-    verifier(/La pièce « SANS-STOCK-1 » \(Pièce neuve sans stock\) existe, mais aucune ligne de stock/.test(t6), 'pièce sans stock : message explicite : ' + t6);
+    verifier(/La pièce « SANS-STOCK-1 » \(Pièce neuve sans stock\) n'est pas en stock\./.test(t6), 'pièce sans stock : message explicite : ' + t6);
     // 7. un employé qui scanne le code d'un emplacement d'une autre entreprise : rien n'est révélé
     await L.aller(e, 'stock');
     await e.waitForSelector('#table-stock tbody tr');
@@ -1053,6 +1114,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     verifier((await info(g)).includes('de ' + att), 'Stock : vue par pièce, Boutique Chaleur, zéros : ' + await info(g) + ' (attendu ' + att + ')');
     await Promise.all([g.waitForNavigation(), g.click('#table-stock tbody tr:first-child a.code')]);
     verifier(/page=piece_voir/.test(g.url()), 'clic sur la pièce : fiche');
+    await g.waitForLoadState('networkidle');
     await g.goBack();
     await g.waitForSelector('#table-stock tbody tr');
     await g.waitForLoadState('networkidle');
@@ -1073,6 +1135,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     // « Toutes mes entreprises » choisi explicitement alors que la barre du haut est sur Boutique Chaleur
     await redessine(g, '#table-stock', () => g.selectOption('#f-entreprise', ''));
     await Promise.all([g.waitForNavigation(), g.click('#table-stock tbody tr:first-child a.code')]);
+    await g.waitForLoadState('networkidle');
     await g.goBack();
     await g.waitForSelector('#table-stock tbody tr');
     await g.waitForLoadState('networkidle');
@@ -1083,6 +1146,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     const nT = sql("SELECT COUNT(*) FROM mouvements m JOIN documents d ON d.id = m.document_id WHERE d.type = 'transfert' AND m.utilisateur_id = " + ID_ADMIN + " AND DATE(m.date_mouvement) = '" + aujourdhui + "'");
     await L.aller(g, 'historique');
     await g.waitForSelector('#table-historique tbody tr');
+    await plus(g);
     await redessine(g, '#table-historique', () => g.selectOption('#f-type', 'transfert'));
     await redessine(g, '#table-historique', () => g.selectOption('#f-utilisateur', ID_ADMIN));
     await redessine(g, '#table-historique', () => g.fill('#f-du', aujourdhui));
@@ -1091,9 +1155,11 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     verifier((await ih()).includes('de ' + nT), 'Historique : filtres posés : ' + await ih() + ' (attendu ' + nT + ')');
     await Promise.all([g.waitForNavigation(), g.click('#table-historique tbody tr:first-child td:nth-child(2) a')]);
     verifier(/page=document_voir/.test(g.url()), 'clic sur un document');
+    await g.waitForLoadState('networkidle');
     await g.goBack();
     await g.waitForSelector('#table-historique tbody tr');
     await g.waitForLoadState('networkidle');
+    verifier(!(await g.isHidden('#h-options')), 'Retour (Historique) : « Plus d\'options » est ouvert (des filtres rares sont posés)');
     verifier(await g.inputValue('#f-type') === 'transfert' && await g.inputValue('#f-utilisateur') === ID_ADMIN && await g.inputValue('#f-du') === aujourdhui && await g.inputValue('#f-au') === aujourdhui, 'Retour (Historique) : les filtres affichés sont ceux qui étaient posés');
     verifier((await ih()).includes('de ' + nT), 'Retour (Historique) : le tableau correspond aux filtres : ' + await ih());
     const hh = await g.getAttribute('#btn-export', 'href');
@@ -1106,6 +1172,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     await g.waitForSelector('.select2-results__option[aria-selected]:has-text("XSS-1")');
     await redessine(g, '#table-historique', () => g.click('.select2-results__option[aria-selected]:has-text("XSS-1")'));
     await Promise.all([g.waitForNavigation(), g.click('#table-historique tbody tr:first-child td:nth-child(3) a')]);
+    await g.waitForLoadState('networkidle');
     await g.goBack();
     await g.waitForSelector('#table-historique tbody tr');
     await g.waitForLoadState('networkidle');
@@ -1144,6 +1211,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     // réseau coupé : UN message en français
     await vide(t);
     await t.context().setOffline(true);
+    await plus(t);
     await t.selectOption('#f-type', 'transfert');
     await t.waitForTimeout(1200);
     const tOff = await textesToasts(t);
@@ -1202,15 +1270,15 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     verifier(x403.status === 403, 'entreprise_id d\'une entreprise non permise : 403');
     const xx = await appel(g, 'app/ajax/sous_minimum_data.php?entreprise_id=abc', null);
     verifier(xx.status === 400, 'entreprise_id invalide : 400');
-    // tableau de bord : même principe
+    // accueil : même principe
     await Promise.all([t2.waitForNavigation(), t2.selectOption('#entreprise-courante', '0')]);
     await L.aller(g, 'dashboard');
-    await g.waitForFunction(() => document.getElementById('ds-pieces').textContent.trim() !== '…');
+    await chargeAccueil(g);
     const pd = await texte(g, '#ds-portee');
     await Promise.all([t2.waitForNavigation(), t2.selectOption('#entreprise-courante', '1')]);
     await g.click('#ds-actualiser');
     await g.waitForTimeout(800);
-    verifier(pd === 'Entreprise : Beauchemin, Boutique Chaleur' && (await texte(g, '#ds-portee')) === pd, 'tableau de bord : « Actualiser » garde l\'entreprise affichée : ' + await texte(g, '#ds-portee'));
+    verifier(pd === 'Entreprise : Beauchemin, Boutique Chaleur' && (await texte(g, '#ds-portee')) === pd, 'accueil : « Actualiser » garde l\'entreprise affichée : ' + await texte(g, '#ds-portee'));
     const dd = await appel(g, 'app/ajax/dashboard_data.php?entreprise_id=0', null);
     const d2 = await appel(g, 'app/ajax/dashboard_data.php?entreprise_id=2', null);
     verifier(dd.json.portee.ids.length === 2 && d2.json.portee.ids.join() === '2', 'dashboard_data : entreprise_id explicite (0 = toutes, 2 = Boutique Chaleur)');
@@ -1279,7 +1347,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     for (const route of ['stock', 'historique', 'sous_minimum', 'dashboard']) {
       await L.aller(tab, route);
       await tab.waitForTimeout(700);
-      const petits = await tab.$$eval('.sk-table tbody a, .ds-carte tbody a, .ds-lien, .ds-carte a', els => els.filter(x => x.offsetParent !== null).map(x => [x.textContent.trim().slice(0, 18), Math.round(x.getBoundingClientRect().height)]).filter(([, hh]) => hh < 44));
+      const petits = await tab.$$eval('.sk-table tbody a, a.ds-carte, #ds-widgets .gr-btn, #ds-widgets .gr-lecture a, #ds-widgets .gr-val', els => els.filter(x => x.offsetParent !== null).map(x => [x.textContent.trim().slice(0, 18), Math.round(x.getBoundingClientRect().height)]).filter(([, hh]) => hh < 44));
       verifier(petits.length === 0, route + ' à 768 px : tous les liens font 44 px ou plus : ' + JSON.stringify(petits.slice(0, 5)));
     }
     await tab.context().close();
@@ -1299,7 +1367,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
         entete: getComputedStyle(document.querySelector('.sk-table thead')).display,
       }));
       verifier(m.filtres, route + ' (impression) : les filtres et les boutons ne s\'impriment pas');
-      verifier(/^(Stock|Historique des mouvements)/.test(m.resume) && /Entreprise : /.test(m.resume), route + ' (impression) : résumé des filtres : ' + m.resume);
+      verifier(/^(Stock|Historique)/.test(m.resume) && /Entreprise : /.test(m.resume), route + ' (impression) : résumé des filtres : ' + m.resume);
       verifier(m.debord.every(d => d <= 1) && m.page <= 1, route + ' (impression) : le tableau tient sur la largeur de la page (débordement ' + m.debord.join() + ' / ' + m.page + ')');
       verifier(m.entete === 'table-header-group', route + ' (impression) : l\'en-tête se répète sur chaque page');
       await imp.emulateMedia({ media: 'screen' });
@@ -1315,7 +1383,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     let n = 0;
     t.on('request', r => { if (/dashboard_data\.php/.test(r.url())) { n++; } });
     await t.goto(L.BASE + '/index.php?page=dashboard');
-    await t.waitForFunction(() => document.getElementById('ds-pieces').textContent.trim() !== '…');
+    await chargeAccueil(t);
     verifier(n === 1, 'chargement initial : 1 appel (' + n + ')');
     await t.clock.runFor(2 * 60 * 1000 + 500);
     await t.waitForTimeout(300);

@@ -1,39 +1,38 @@
 <?php
-// Transfert entre deux emplacements d'une même entreprise (employé+) : entrepôt vers cube de service, etc.
+// Déplacer des pièces entre deux emplacements d'une même entreprise (employé+) : 1) de → vers, 2) pièces au scanner, 3) bouton « Déplacer ».
+// Date et note sont cachées derrière « Plus d'options ».
 if (!acces_page('employe')) { return; }
 require_once __DIR__ . '/../app/action/document_lib.php';
 page_script('assets/js/saisie-lignes.js');
 page_script('assets/js/mouvements.js');
 $pre = Mouvements::prefill(true);
-$gest = $Ouser->aRole('gestionnaire');
 ?>
 <link rel="stylesheet" href="assets/css/mouvements.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/mouvements.css'); ?>">
 <div class="content-wrapper" <?php echo Mouvements::attributsSaisie('transfert', $pre); ?>>
-  <?php page_titre('Transfert entre emplacements', array('Opérations')); ?>
+  <?php page_titre('Déplacer'); ?>
   <section class="content"><div class="container-fluid">
     <?php Mouvements::zonesMessages($pre); ?>
     <div class="card mv-carte"><div class="card-body">
 
-      <div class="row">
-        <div class="col-xl-5 col-md-6 form-group">
-          <label for="emplacement">De (source) <span class="text-danger" aria-hidden="true">*</span></label>
+      <div class="mv-de-vers">
+        <div class="form-group">
+          <label for="emplacement">De <span class="text-danger" aria-hidden="true">*</span></label>
           <select id="emplacement" class="form-control" required aria-required="true" disabled><option value="">Chargement…</option></select>
         </div>
-        <div class="col-xl-4 col-md-6 form-group">
-          <label for="destination">Vers (destination) <span class="text-danger" aria-hidden="true">*</span></label>
-          <select id="destination" class="form-control" required aria-required="true" disabled><option value="">Choisissez d'abord la source</option></select>
-          <small class="form-text text-muted">Même entreprise que la source. <?php echo $gest ? 'Pour passer à l\'autre entreprise, utilisez une facture interne.' : 'Pour passer à l\'autre entreprise, demandez à un gestionnaire de faire une facture interne.'; ?></small>
-        </div>
-        <div class="col-xl-3 col-md-6 form-group">
-          <label for="date">Date <span class="text-danger" aria-hidden="true">*</span></label>
-          <input id="date" type="date" class="form-control" required aria-required="true" value="<?php echo e(Mouvements::aujourdhui()); ?>" max="<?php echo e(Mouvements::aujourdhui()); ?>">
+        <div class="mv-fleche" aria-hidden="true"><i class="fas fa-arrow-right"></i></div>
+        <div class="form-group">
+          <label for="destination">Vers <span class="text-danger" aria-hidden="true">*</span></label>
+          <select id="destination" class="form-control" required aria-required="true" disabled><option value="">— Choisissez —</option></select>
         </div>
       </div>
-      <p class="text-muted small mv-aide-scan"><i class="fas fa-info-circle mr-1" aria-hidden="true"></i> Au scanner : un premier code d'emplacement (EMP-…) choisit la source, le suivant la destination.</p>
 
-      <?php Mouvements::blocLignes('La colonne « Disponible » indique le stock à la source ; une quantité plus grande est refusée à l\'enregistrement.'); ?>
+      <?php Mouvements::blocLignes(); ?>
 
-      <?php Mouvements::blocFin('Enregistrer le transfert'); ?>
+      <?php Mouvements::debutOptions(); ?>
+        <?php Mouvements::champDate('col-md-4'); ?>
+      <?php Mouvements::finOptions(); ?>
+
+      <?php Mouvements::blocFin('Déplacer'); ?>
     </div></div>
   </div></section>
 </div>

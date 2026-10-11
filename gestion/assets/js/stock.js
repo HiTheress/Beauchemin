@@ -1,4 +1,4 @@
-/* Stock, historique des mouvements, pièces sous le minimum (module D2).
+/* Stock, historique, à recommander (module D2).
  * Un seul fichier ; la page est reconnue par l'attribut data-d2 de sa racine : stock | historique | sous_minimum.
  * Règles : toute valeur insérée dans innerHTML passe par esc() (les tableaux serveur arrivent déjà échappés : on les affiche tels quels,
  * sans les réécrire) ; quantités et montants restent des chaînes décimales (parseFloat seulement pour l'affichage, le tri et le signe) ;
@@ -60,7 +60,7 @@
   function tableauServeur(sel, opts, onReponse) {
     var $t = $(sel);
     var t = $t.DataTable($.extend({
-      serverSide: true, processing: true, searching: false, autoWidth: false, pageLength: 25
+      serverSide: true, processing: true, searching: false, lengthChange: false, autoWidth: false, pageLength: 25
     }, opts));
     $t.on('xhr.dt', function (e, settings, json) { if (json && onReponse) { onReponse(json); } });
     $t.on('error.dt', function (e, settings) {
@@ -91,6 +91,18 @@
     var el = q('#sk-resume');
     if (el) { el.textContent = titre + (parts.length ? ' — ' + parts.join(' · ') : ''); }
   }
+
+  /** Une ligne de tableau ouvre son détail (la ligne porte data-href) ; les liens et boutons de la ligne gardent leur propre action. */
+  function ligneCliquable(sel) {
+    $(sel + ' tbody').on('click', 'tr.sk-clic', function (e) {
+      if ($(e.target).closest('a, button, input, select, label').length) { return; }
+      if (w.getSelection && String(w.getSelection()).length > 0) { return; }   // texte en cours de sélection : pas de navigation
+      var h = this.getAttribute('data-href');
+      if (h) { w.location.href = h; }
+    });
+  }
+  /** « Effacer » n'est visible que lorsqu'un filtre est posé. */
+  function montrerEffacer(actif) { var b = q('#f-effacer'); if (b) { b.hidden = !actif; } }
 
   /** Reconstruit la liste des emplacements d'après l'entreprise choisie (les options viennent de la page : texte déjà échappé). */
   function liaisonEmplacements($ent, $emp) {
@@ -146,22 +158,24 @@
       return f;
     }
 
+    // Colonnes : 0 code · 1 pièce · 2 entreprise (vue « pièce », si plusieurs entreprises) · 3 emplacement (vue « emplacement ») ·
+    // 4 quantité (avec son unité) · 5 minimum (vue « pièce ») · 6 valeur (gestionnaire+). Les données gardent les mêmes noms que le serveur.
     var colonnes = [
       { data: 'code' },
       { data: 'nom' },
-      { data: 'categorie', defaultContent: '' },
-      { data: 'entreprise', visible: vue === 'piece' },
+      { data: 'entreprise', visible: vue === 'piece' && multi },
       {
         data: 'emplacement', defaultContent: '', visible: vue === 'emplacement',
         render: function (d, t, l) { return (t === 'display' && multi && l.entreprise) ? d + '<br><small class="text-muted">' + l.entreprise + '</small>' : d; }
       },
-      { data: 'quantite', className: 'nombre', render: function (d) { return w.esc(rQte(d)); } },
-      { data: 'unite' },
+      {
+        data: 'quantite', className: 'nombre',
+        render: function (d, t, l) { return t === 'display' ? w.esc(rQte(d)) + ' <small class="text-muted">' + (l.unite || '') + '</small>' : d; }
+      },
       { data: 'minimum', className: 'nombre', defaultContent: '', visible: vue === 'piece', render: function (d) { return w.esc(rQte(d)); } }
     ];
     if (couts) {
-      colonnes.push({ data: 'cout_moyen', className: 'nombre', defaultContent: '', render: function (d) { return w.esc(rArgent(d, 4)); } });
-      colonnes.push({ data: 'valeur', className: 'nombre', defaultContent: '', render: function (d) { return w.esc(rArgent(d)); } });
+      colonnes.push({ data: 'valeur', className: 'nombre sk-xs-cache', defaultContent: '', render: function (d) { return w.esc(rArgent(d)); } });
     }
 
     var table = tableauServeur('#table-stock', {
@@ -174,8 +188,11 @@
           if (scanSuivant) { scans[d.draw] = scanSuivant; scanSuivant = null; }   // d.draw : numéro de CETTE requête
         }
       },
-      createdRow: function (row, data) { if (data.sous_min) { row.classList.add('sk-bas'); } },
-      language: { zeroRecords: 'Aucune ligne de stock ne correspond à ces filtres. Essayez « Afficher les quantités à zéro » ou cliquez sur « Effacer ».', emptyTable: 'Aucune ligne de stock ne correspond à ces filtres. Essayez « Afficher les quantités à zéro » ou cliquez sur « Effacer ».' }
+      createdRow: function (row, data) {
+        if (data.sous_min) { row.classList.add('sk-bas'); }
+        if (data.piece_id) { row.classList.add('sk-clic'); row.setAttribute('data-href', 'index.php?page=piece_voir&id=' + entier(data.piece_id)); }
+      },
+      language: { zeroRecords: 'Aucune pièce trouvée.', emptyTable: 'Aucune pièce trouvée.' }
     }, function (json) {
       var s = scans[json.draw];
       if (!s) { return; }
@@ -183,11 +200,13 @@
       retourScan(s, entier(json.recordsFiltered) > 0);
     });
 
+    ligneCliquable('#table-stock');
+
     // ---- retour du scan : bip, et explication quand le tableau est vide --------------------------------------
     function retourScan(s, trouve) {
       if (s.emplacement) {   // contenu d'un emplacement demandé par son code
         w.bip(true);
-        if (!trouve) { w.toast('L\'emplacement « ' + s.emplacement + ' » ne contient aucune pièce en ce moment.', 'info'); }
+        if (!trouve) { w.toast('L\'emplacement « ' + s.emplacement + ' » est vide.', 'info'); }
         return;
       }
       if (trouve) { w.bip(true); return; }
@@ -197,11 +216,11 @@
         if (r.trouve && r.type === 'emplacement' && r.emplacement && ouvrirEmplacement(r.emplacement, s)) { return; }
         if (r.trouve && r.type === 'piece' && r.piece) {
           w.bip(true);
-          w.toast('La pièce « ' + r.piece.code + ' » (' + r.piece.nom + ') existe, mais aucune ligne de stock ne correspond aux filtres actuels. Cochez « Afficher les quantités à zéro » ou cliquez sur « Effacer ».', 'info', 9000);
+          w.toast('La pièce « ' + r.piece.code + ' » (' + r.piece.nom + ') n\'est pas en stock.', 'info', 7000);
           return;
         }
         w.bip(false);
-        w.toast('Aucune pièce ne correspond à « ' + s.code + ' ».', 'warning');
+        w.toast('Aucune pièce ne correspond à « ' + s.code + ' ». Vérifiez le code.', 'warning');
       }).catch(function (err) {
         if (s.jeton !== jeton) { return; }
         w.bip(false);
@@ -251,7 +270,8 @@
       if (f.categorie_id !== '') { parts.push('Catégorie : ' + texteChoisi(elCat)); }
       if (f.q !== '') { parts.push('Recherche : « ' + f.q + ' »'); }
       if (f.zero) { parts.push('quantités à zéro incluses'); }
-      ecrireResume('Stock ' + (vue === 'piece' ? 'par pièce (totaux par entreprise)' : 'par emplacement'), parts);
+      ecrireResume('Stock ' + (vue === 'piece' ? 'par pièce' : 'par emplacement'), parts);
+      montrerEffacer(f.q !== '' || (!!elEnt && elEnt.value !== defautEnt) || elEmp.value !== '' || f.categorie_id !== '' || !!f.zero);
     }
     $(q('#table-stock')).on('preXhr.dt', majSorties);
     majSorties();
@@ -263,14 +283,10 @@
         if (actif) { b.classList.add('active'); } else { b.classList.remove('active'); }
       });
       var piece = vue === 'piece';
-      table.column(3).visible(piece);    // entreprise : colonne à part en vue « pièce » ; sinon écrite sous l'emplacement
-      table.column(4).visible(!piece);
-      table.column(7).visible(piece);
-      $(table.column(5).header()).text(piece ? 'Quantité totale' : 'Quantité');
+      table.column(2).visible(piece && multi);   // entreprise : colonne à part en vue « pièce » ; sinon écrite sous l'emplacement
+      table.column(3).visible(!piece);
+      table.column(5).visible(piece);
       elEmp.disabled = piece;
-      q('#sk-aide-vue').textContent = piece
-        ? 'Une ligne par pièce et par entreprise : le total de tous les emplacements de l\'entreprise. Le filtre « Emplacement » ne s\'applique pas à cet affichage.'
-        : 'Une ligne par pièce et par emplacement (entrepôts, boutiques et cubes de service).';
     }
     majVue();
 
@@ -324,7 +340,7 @@
   }
 
   // ===================================================================================
-  //  HISTORIQUE DES MOUVEMENTS
+  //  HISTORIQUE
   // ===================================================================================
   function pageHistorique() {
     var couts = racine.getAttribute('data-couts') === '1';
@@ -375,8 +391,8 @@
       return '<span class="font-weight-bold ' + (n > 0 ? 'sk-pos' : (n < 0 ? 'sk-neg' : '')) + '">' + w.esc((n > 0 ? '+' : '') + w.fmtQte(d)) + '</span>';
     }
 
-    // Colonnes allégées pour tenir dans la carte : la date sur deux lignes, le type et la mention « Annulation » sous le numéro du
-    // document, l'entreprise sous l'emplacement. Les valeurs de texte arrivent déjà échappées du serveur.
+    // Colonnes allégées : la date sur deux lignes, sous le numéro du document le type et l'utilisateur (puis « Annulation » s'il y a lieu),
+    // l'entreprise sous l'emplacement. Les valeurs de texte arrivent déjà échappées du serveur.
     var colonnes = [
       { data: 'ordre', visible: false, searchable: false },
       {
@@ -385,28 +401,34 @@
       },
       {
         data: 'numero',
-        render: function (d, t, l) { return t === 'display' ? d + '<br><small class="text-muted">' + l.type + '</small>' + (l.mention ? '<br>' + l.mention : '') : d; }
+        render: function (d, t, l) {
+          return t === 'display'
+            ? d + '<br><small class="text-muted"><span class="sk-type">' + l.type + '</span>' + (l.utilisateur ? ' · <span class="sk-util">' + l.utilisateur + '</span>' : '') + '</small>' + (l.mention ? '<br>' + l.mention : '')
+            : d;
+        }
       },
       { data: 'code' },   // un seul lien : code et nom de la pièce
       {
-        data: 'emplacement',
+        data: 'emplacement', className: 'sk-xs-cache',
         render: function (d, t, l) { return (t === 'display' && multi && l.entreprise) ? d + '<br><small class="text-muted">' + l.entreprise + '</small>' : d; }
       },
-      { data: 'quantite', className: 'nombre', render: rSigne },
-      { data: 'utilisateur', defaultContent: '' }
+      { data: 'quantite', className: 'nombre', render: rSigne }
     ];
     if (couts) {
-      colonnes.push({ data: 'cout_unitaire', className: 'nombre', defaultContent: '', render: function (d) { return w.esc(rArgent(d, 4)); } });
-      colonnes.push({ data: 'valeur', className: 'nombre', defaultContent: '', render: function (d) { return w.esc(rArgent(d)); } });
+      colonnes.push({ data: 'valeur', className: 'nombre sk-xs-cache', defaultContent: '', render: function (d) { return w.esc(rArgent(d)); } });
     }
 
     var table = tableauServeur('#table-historique', {
       order: [[1, 'desc']],   // date et heure, le plus récent d'abord (trie par identifiant : chronologique)
       columns: colonnes,
       ajax: { url: 'app/ajax/historique_data.php', type: 'POST', data: function (d) { $.extend(d, filtres()); } },
-      createdRow: function (row, data) { if (data.annulation) { row.classList.add('sk-annulation'); } },
-      language: { zeroRecords: 'Aucun mouvement ne correspond à ces filtres.', emptyTable: 'Aucun mouvement ne correspond à ces filtres.' }
+      createdRow: function (row, data) {
+        if (data.annulation) { row.classList.add('sk-annulation'); }
+        if (data.doc_id) { row.classList.add('sk-clic'); row.setAttribute('data-href', 'index.php?page=document_voir&id=' + entier(data.doc_id)); }
+      },
+      language: { zeroRecords: 'Aucun mouvement trouvé.', emptyTable: 'Aucun mouvement trouvé.' }
     });
+    ligneCliquable('#table-historique');
 
     // Adresse de la page, lien d'export et résumé d'impression : toujours d'après les MÊMES filtres que le tableau
     function majSorties() {
@@ -424,10 +446,20 @@
       if (f.du !== '' || f.au !== '') { parts.push('Période : ' + (f.du || '…') + ' au ' + (f.au || '…')); }
       if (f.utilisateur_id !== '') { parts.push('Utilisateur : ' + texteChoisi(elUtil)); }
       if (f.numero !== '') { parts.push('N° de document : ' + f.numero); }
-      ecrireResume('Historique des mouvements', parts);
+      ecrireResume('Historique', parts);
+      montrerEffacer(f.piece_id !== '' || f.du !== '' || f.au !== '' || f.emplacement_id !== '' || f.type !== '' || f.utilisateur_id !== '' || f.numero !== '' || (!!elEnt && elEnt.value !== defautEnt));
     }
     $(q('#table-historique')).on('preXhr.dt', majSorties);
     majSorties();
+
+    // « Plus d'options » : les filtres rares (entreprise, emplacement, type, utilisateur, numéro) restent cachés tant qu'on n'en a pas besoin
+    var elPlus = q('#h-plus'), elOptions = q('#h-options');
+    elPlus.addEventListener('click', function () {
+      var ouvrir = elOptions.hidden;
+      elOptions.hidden = !ouvrir;
+      elPlus.setAttribute('aria-expanded', ouvrir ? 'true' : 'false');
+      elPlus.querySelector('span').textContent = ouvrir ? 'Moins d\'options' : 'Plus d\'options';
+    });
 
     var recharger = debounce(function () { table.ajax.reload(); }, 300);
     reinitialiserAdresseSiBarreChangee('historique');
@@ -458,10 +490,11 @@
   }
 
   // ===================================================================================
-  //  PIÈCES SOUS LE MINIMUM
+  //  À RECOMMANDER
   // ===================================================================================
   function pageSousMinimum() {
     var gest = racine.getAttribute('data-gest') === '1';
+    var multi = racine.getAttribute('data-multi') === '1';   // plusieurs entreprises : on montre la colonne « Entreprise »
     // L'entreprise AFFICHÉE par la page (0 = toutes) est envoyée au serveur : « Actualiser » et « Exporter » restent fidèles à l'écran
     // même si l'entreprise de la barre du haut a été changée dans un autre onglet.
     var ent = String(entier(racine.getAttribute('data-entreprise')));
@@ -470,40 +503,53 @@
     var no = 0;
     q('#sm-export').setAttribute('href', 'app/ajax/sous_minimum_export.php?' + $.param({ entreprise_id: ent }));
 
-    function lien(l) {
+    function lienPiece(l) { return 'index.php?page=piece_voir&id=' + entier(l.piece_id); }
+    function lienReception(l) {
       var h = 'index.php?page=reception&piece_id=' + entier(l.piece_id);
       if (l.emplacement_reception_id) { h += '&emplacement_id=' + entier(l.emplacement_reception_id); }
       return h;
     }
     var colonnes = [
-      { data: 'code', render: function (d, t, l) { return t === 'display' ? '<a class="code font-weight-bold" href="index.php?page=piece_voir&amp;id=' + entier(l.piece_id) + '">' + w.esc(d) + '</a>' : d; } },
-      { data: 'nom', render: function (d, t, l) { return t === 'display' ? '<a href="index.php?page=piece_voir&amp;id=' + entier(l.piece_id) + '">' + w.esc(d) + '</a>' : d; } },
-      { data: 'entreprise', render: function (d, t) { return t === 'display' ? w.esc(d) : d; } },
-      { data: 'quantite', className: 'nombre', render: function (d, t) { return t === 'display' ? w.esc(rQte(d)) : nombre(d); } },
-      { data: 'minimum', className: 'nombre', render: function (d, t) { return t === 'display' ? w.esc(rQte(d)) : nombre(d); } },
-      // le manque porte l'unité (une colonne de moins : le tableau tient dans la carte)
-      { data: 'manque', className: 'nombre', render: function (d, t, l) { return t === 'display' ? '<strong class="sk-neg">' + w.esc(rQte(d)) + '</strong> <small class="text-muted">' + w.esc(l.unite) + '</small>' : nombre(d); } }
+      {   // code et nom dans une seule colonne ; la recherche porte sur les deux
+        data: 'code',
+        render: function (d, t, l) {
+          if (t === 'display') { return '<span class="code font-weight-bold">' + w.esc(d) + '</span><br><span class="sk-nom">' + w.esc(l.nom) + '</span>'; }
+          return t === 'filter' ? d + ' ' + l.nom : d;
+        }
+      }
     ];
-    if (gest) {
-      colonnes.push({
+    if (multi) { colonnes.push({ data: 'entreprise', className: 'sk-xs-cache', render: function (d, t) { return t === 'display' ? w.esc(d) : d; } }); }
+    colonnes.push(
+      { data: 'quantite', className: 'nombre sk-xs-cache', render: function (d, t) { return t === 'display' ? w.esc(rQte(d)) : nombre(d); } },
+      { data: 'minimum', className: 'nombre sk-xs-cache', render: function (d, t) { return t === 'display' ? w.esc(rQte(d)) : nombre(d); } },
+      // le manque porte l'unité (une colonne de moins)
+      { data: 'manque', className: 'nombre', render: function (d, t, l) { return t === 'display' ? '<strong class="sk-neg">' + w.esc(rQte(d)) + '</strong> <small class="text-muted">' + w.esc(l.unite) + '</small>' : nombre(d); } },
+      {
         data: null, orderable: false, searchable: false, className: 'no-print text-right',
-        render: function (d, t, l) { return t === 'display' ? '<a class="btn btn-sm btn-outline-primary sk-btn-recevoir" href="' + w.esc(lien(l)) + '">Réceptionner</a>' : ''; }
-      });
-    }
+        render: function (d, t, l) {
+          if (t !== 'display') { return ''; }
+          return '<a class="btn btn-primary sk-btn-voir" href="' + w.esc(lienPiece(l)) + '">Voir la pièce</a>' +
+            (gest ? ' <a class="btn btn-sm btn-outline-secondary sk-btn-recevoir" href="' + w.esc(lienReception(l)) + '">Recevoir</a>' : '');
+        }
+      }
+    );
+    var colManque = multi ? 4 : 3;
 
     function rendre(r) {
       var lignes = r.lignes || [];
       var ents = r.entreprises || [];
-      elPortee.textContent = (ents.length > 1 ? 'Entreprises : ' : 'Entreprise : ') + (ents.join(', ') || '—') + ' — ' +
-        (lignes.length === 0 ? 'aucune pièce sous le minimum' : (lignes.length === 1 ? '1 pièce sous le minimum' : lignes.length + ' pièces sous le minimum'));
+      elPortee.textContent = (ents.length > 1 ? 'Entreprises : ' : 'Entreprise : ') + (ents.join(', ') || '—') + ' · ' +
+        (lignes.length === 0 ? '0 pièce' : (lignes.length === 1 ? '1 pièce' : lignes.length + ' pièces'));
       montrer(elErreur, false);
       montrer(elVide, lignes.length === 0);
       montrer(elTableau, lignes.length > 0);
       if (!table) {
         table = $('#table-sous-minimum').DataTable({
-          data: lignes, columns: colonnes, autoWidth: false, pageLength: 50, order: [[5, 'desc'], [0, 'asc']],
-          language: { zeroRecords: 'Aucune pièce ne correspond à cette recherche.', emptyTable: 'Aucune pièce sous le minimum.' }
+          data: lignes, columns: colonnes, autoWidth: false, pageLength: 50, lengthChange: false, order: [[colManque, 'desc'], [0, 'asc']],
+          createdRow: function (row, data) { row.classList.add('sk-clic'); row.setAttribute('data-href', lienPiece(data)); },
+          language: { search: '', searchPlaceholder: 'Rechercher', zeroRecords: 'Aucune pièce trouvée.', emptyTable: 'Rien à recommander.' }
         });
+        ligneCliquable('#table-sous-minimum');
       } else {
         table.clear().rows.add(lignes).draw();
       }

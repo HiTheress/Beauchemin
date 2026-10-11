@@ -332,40 +332,69 @@ final class Mouvements
 			. ' data-piece-code="' . e($pre['piece_code']) . '" data-emplacement-id="' . e($pre['emplacement_id']) . '"';
 	}
 
-	/** Début commun d'une page de saisie : zones de message. */
+	/** Début commun d'une page de saisie : avertissement de préremplissage (la confirmation d'un enregistrement est une notification). */
 	public static function zonesMessages(array $pre)
 	{
-		echo '<div id="mv-succes" class="alert alert-success mv-succes" role="status" aria-live="polite" hidden></div>';
 		if ($pre['piece_avert'] !== '') {
 			echo '<div class="alert alert-warning" role="alert">' . e($pre['piece_avert']) . '</div>';
 		}
 	}
 
-	/** Bloc scan + recherche + lignes (identique sur les quatre écrans). */
-	public static function blocLignes($aide = '')
+	/** Étape « pièce » (identique sur les quatre écrans) : un seul champ qui scanne ET cherche, puis la liste des lignes. */
+	public static function blocLignes()
 	{
 		?>
-      <div class="scan-box mv-scan">
-        <label for="scan" class="mv-scan-label"><i class="fas fa-barcode mr-1" aria-hidden="true"></i> Scannez une pièce (ou un emplacement), puis Entrée</label>
-        <input id="scan" class="form-control scan-input" autocomplete="off" inputmode="none" maxlength="64" placeholder="Code-barres de la pièce…">
-      </div>
-      <div class="form-group mt-3 mb-2">
-        <label for="recherche">Ou cherchez une pièce par son nom ou son code</label>
-        <select id="recherche" class="form-control"></select>
+      <div class="form-group mv-piece mb-2">
+        <label for="scan">Pièce</label>
+        <div class="scan-box mv-scan">
+          <i class="fas fa-barcode mv-scan-icone" aria-hidden="true"></i>
+          <input id="scan" class="form-control scan-input" autocomplete="off" inputmode="none" maxlength="64" placeholder="Scannez ou cherchez…">
+        </div>
       </div>
       <div id="lignes" class="mv-lignes table-responsive"></div>
-      <?php if ($aide !== '') { ?><p class="text-muted small mt-2 mb-0"><?php echo e($aide); ?></p><?php } ?>
 		<?php
 	}
 
-	/** Pied commun : note, message d'erreur persistant et bouton Enregistrer. */
+	/** Date du document (dans « Plus d'options » : le plus souvent, c'est aujourd'hui). */
+	public static function champDate($col = 'col-md-4')
+	{
+		?>
+        <div class="<?php echo e($col); ?> form-group">
+          <label for="date">Date <span class="text-danger" aria-hidden="true">*</span></label>
+          <input id="date" type="date" class="form-control" required aria-required="true" value="<?php echo e(self::aujourdhui()); ?>" max="<?php echo e(self::aujourdhui()); ?>">
+        </div>
+		<?php
+	}
+
+	/** Début de « Plus d'options » : le lien, puis le panneau replié (les champs de la page suivent, en colonnes). */
+	public static function debutOptions()
+	{
+		?>
+      <div class="mv-plus">
+        <button type="button" id="mv-plus" class="btn btn-link mv-plus-btn" aria-expanded="false" aria-controls="mv-options"><i class="fas fa-chevron-right mv-plus-icone" aria-hidden="true"></i> Plus d'options</button>
+      </div>
+      <div id="mv-options" class="mv-options" hidden>
+        <div class="row">
+		<?php
+	}
+
+	/** Fin de « Plus d'options » : la note, commune aux quatre écrans. */
+	public static function finOptions()
+	{
+		?>
+        <div class="col-12 form-group">
+          <label for="note">Note</label>
+          <textarea id="note" class="form-control" rows="2" maxlength="2000"></textarea>
+        </div>
+        </div>
+      </div>
+		<?php
+	}
+
+	/** Pied commun : message d'erreur persistant et bouton principal. */
 	public static function blocFin($libelleBouton = 'Enregistrer')
 	{
 		?>
-      <div class="form-group mt-3">
-        <label for="note">Note (facultative)</label>
-        <textarea id="note" class="form-control" rows="2" maxlength="2000" placeholder="Une précision utile pour la suite…"></textarea>
-      </div>
       <div id="mv-erreur" class="alert alert-danger mv-erreur" role="alert" hidden></div>
       <div class="mv-actions">
         <button type="button" id="btn-enregistrer" class="btn btn-primary btn-lg"><i class="fas fa-check mr-1" aria-hidden="true"></i> <span><?php echo e($libelleBouton); ?></span></button>

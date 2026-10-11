@@ -1,6 +1,6 @@
 <?php
-// Stock : ce que nous avons, et où. Tableau serveur (DataTables) par emplacement ou par pièce (totaux par entreprise).
-// Employé+ ; les colonnes « Coût moyen » et « Valeur » n'existent que pour un gestionnaire+ (absentes du HTML et du JSON pour un employé).
+// Stock : ce que nous avons, et où. Recherche d'abord (elle prend aussi un code scanné), puis des filtres discrets. Tableau serveur (DataTables)
+// par emplacement ou par pièce (totaux par entreprise). Employé+ ; la colonne « Valeur » n'existe que pour un gestionnaire+ (absente du HTML et du JSON pour un employé).
 if (!acces_page('employe')) { return; }
 page_script('assets/js/stock.js');
 $couts = $Ouser->peutVoirCouts();
@@ -27,86 +27,81 @@ $pre_zero = $get('zero') === '1';
 ?>
 <link rel="stylesheet" href="assets/css/stock.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/stock.css'); ?>">
 <div class="content-wrapper sk-page" data-d2="stock" data-couts="<?php echo $couts ? '1' : '0'; ?>" data-multi="<?php echo count($mes_ent) > 1 ? '1' : '0'; ?>" data-defaut-entreprise="<?php echo (int) $defaut_ent; ?>" data-vue-initiale="<?php echo e($pre_vue); ?>">
-  <?php page_titre('Stock', array('Opérations')); ?>
+  <?php page_titre('Stock'); ?>
   <section class="content"><div class="container-fluid">
     <div class="card sk-carte"><div class="card-body">
 
       <div class="row sk-filtres no-print">
-        <div class="col-xl-3 col-md-6 form-group">
-          <label for="f-recherche">Rechercher ou scanner</label>
-          <input id="f-recherche" type="search" class="form-control scan-input" autocomplete="off" maxlength="100" placeholder="Code, nom, code-barres" aria-describedby="sk-aide-scan" value="<?php echo e($pre_q); ?>">
+        <div class="col-xl-5 col-12">
+          <label for="f-recherche" class="sr-only">Rechercher ou scanner</label>
+          <div class="sk-recherche form-group">
+            <i class="fas fa-search" aria-hidden="true"></i>
+            <input id="f-recherche" type="search" class="form-control scan-input" autocomplete="off" maxlength="100" placeholder="Rechercher ou scanner" value="<?php echo e($pre_q); ?>">
+          </div>
         </div>
-        <?php if (count($mes_ent) > 0) { ?>
-        <div class="col-xl-3 col-md-6 form-group">
-          <label for="f-entreprise">Entreprise</label>
-          <select id="f-entreprise" class="form-control" autocomplete="off">
-            <?php if (count($mes_ent) > 1) { ?><option value="">Toutes mes entreprises</option><?php } ?>
+        <div class="col-xl-4 col-md-6 form-group">
+          <div class="btn-group sk-vue" role="group" aria-label="Affichage">
+            <button type="button" class="btn btn-outline-primary" data-vue="emplacement" aria-pressed="<?php echo $pre_vue === 'emplacement' ? 'true' : 'false'; ?>">Par emplacement</button>
+            <button type="button" class="btn btn-outline-primary" data-vue="piece" aria-pressed="<?php echo $pre_vue === 'piece' ? 'true' : 'false'; ?>">Par pièce</button>
+          </div>
+        </div>
+        <div class="col-xl-3 col-md-6 form-group d-flex justify-content-md-end sk-actions">
+          <a id="btn-export" class="btn btn-sm btn-outline-secondary" href="app/ajax/stock_export.php"><i class="fas fa-file-export mr-1" aria-hidden="true"></i> Exporter (CSV)</a>
+        </div>
+      </div>
+
+      <div class="row sk-filtres no-print">
+        <?php if (count($mes_ent) > 1) { ?>
+        <div class="col-xl-3 col-md-4 form-group">
+          <select id="f-entreprise" class="form-control" autocomplete="off" aria-label="Entreprise">
+            <option value="">Toutes mes entreprises</option>
             <?php foreach ($mes_ent as $en) { ?><option value="<?php echo (int) $en['id']; ?>"<?php echo $pre_ent === (int) $en['id'] ? ' selected' : ''; ?>><?php echo e($en['nom']); ?></option><?php } ?>
           </select>
         </div>
         <?php } ?>
-        <div class="col-xl-3 col-md-6 form-group">
-          <label for="f-emplacement">Emplacement</label>
-          <select id="f-emplacement" class="form-control" autocomplete="off">
+        <div class="col-xl-3 col-md-4 form-group">
+          <select id="f-emplacement" class="form-control" autocomplete="off" aria-label="Emplacement">
             <option value="">Tous les emplacements</option>
             <?php foreach ($mes_emp as $emp) { ?>
               <option value="<?php echo (int) $emp['id']; ?>" data-ent="<?php echo (int) $emp['entreprise_id']; ?>" data-ent-nom="<?php echo e($emp['entreprise_nom']); ?>" data-nom="<?php echo e($emp['nom'] . ($emp['actif'] ? '' : ' (désactivé)')); ?>"<?php echo $pre_emp === (int) $emp['id'] ? ' selected' : ''; ?>><?php echo e($emp['nom'] . ($emp['actif'] ? '' : ' (désactivé)')); ?></option>
             <?php } ?>
           </select>
         </div>
-        <div class="col-xl-3 col-md-6 form-group">
-          <label for="f-categorie">Catégorie</label>
-          <select id="f-categorie" class="form-control" autocomplete="off">
+        <div class="col-xl-3 col-md-4 form-group">
+          <select id="f-categorie" class="form-control" autocomplete="off" aria-label="Catégorie">
             <option value="">Toutes les catégories</option>
             <option value="aucune"<?php echo $pre_cat === 'aucune' ? ' selected' : ''; ?>>Sans catégorie</option>
             <?php foreach ($cats as $c) { ?><option value="<?php echo (int) $c['id']; ?>"<?php echo $pre_cat === (string) $c['id'] ? ' selected' : ''; ?>><?php echo e($c['nom']); ?></option><?php } ?>
           </select>
         </div>
-      </div>
-      <p class="sk-aide text-muted small no-print" id="sk-aide-scan">Au scanner : un code de pièce ou de code-barres n'affiche que cette pièce ; un code d'emplacement (EMP-…) affiche son contenu. Après Entrée, le champ est sélectionné : le code suivant le remplace.</p>
-
-      <div class="row sk-barre no-print">
-        <div class="col-lg-5 form-group">
-          <span class="sk-etiquette" id="lbl-vue">Affichage</span>
-          <div class="btn-group sk-vue" role="group" aria-labelledby="lbl-vue">
-            <button type="button" class="btn btn-outline-primary" data-vue="emplacement" aria-pressed="<?php echo $pre_vue === 'emplacement' ? 'true' : 'false'; ?>">Par emplacement</button>
-            <button type="button" class="btn btn-outline-primary" data-vue="piece" aria-pressed="<?php echo $pre_vue === 'piece' ? 'true' : 'false'; ?>">Par pièce (totaux par entreprise)</button>
-          </div>
-        </div>
-        <div class="col-lg-7 form-group d-flex flex-wrap align-items-end justify-content-lg-end sk-actions">
-          <div class="custom-control custom-checkbox sk-case mr-3">
+        <div class="col-xl-3 col-12 form-group d-flex align-items-center justify-content-between">
+          <div class="custom-control custom-checkbox sk-case">
             <input type="checkbox" class="custom-control-input" id="f-zero" autocomplete="off"<?php echo $pre_zero ? ' checked' : ''; ?>>
-            <label class="custom-control-label" for="f-zero">Afficher les quantités à zéro</label>
+            <label class="custom-control-label" for="f-zero">Pièces à zéro</label>
           </div>
-          <button type="button" id="f-effacer" class="btn btn-outline-secondary mr-2"><i class="fas fa-eraser mr-1" aria-hidden="true"></i> Effacer</button>
-          <a id="btn-export" class="btn btn-outline-secondary" href="app/ajax/stock_export.php"><i class="fas fa-file-export mr-1" aria-hidden="true"></i> Exporter (CSV)</a>
+          <button type="button" id="f-effacer" class="btn btn-sm btn-outline-secondary" hidden><i class="fas fa-times mr-1" aria-hidden="true"></i> Effacer</button>
         </div>
       </div>
 
-      <p class="sk-aide text-muted small no-print" id="sk-aide-vue"></p>
       <p class="d-none d-print-block sk-resume-impression" id="sk-resume"></p>
 
       <div class="table-responsive">
         <table id="table-stock" class="table table-striped table-hover sk-table w-100">
-          <caption class="sr-only">Stock par pièce</caption>
+          <caption class="sr-only">Stock</caption>
           <thead><tr>
             <th scope="col">Code</th>
             <th scope="col">Pièce</th>
-            <th scope="col">Catégorie</th>
             <th scope="col">Entreprise</th>
             <th scope="col">Emplacement</th>
             <th scope="col" class="nombre" id="th-quantite">Quantité</th>
-            <th scope="col">Unité</th>
             <th scope="col" class="nombre">Minimum</th>
             <?php if ($couts) { ?>
-            <th scope="col" class="nombre">Coût moyen</th>
-            <th scope="col" class="nombre">Valeur</th>
+            <th scope="col" class="nombre sk-xs-cache">Valeur</th>
             <?php } ?>
           </tr></thead>
           <tbody></tbody>
         </table>
       </div>
-      <p class="text-muted small mt-2 mb-0">Les lignes sur fond rouge sont sous le minimum fixé pour l'entreprise (total de tous ses emplacements). Cliquez sur une pièce pour ouvrir sa fiche.<?php if ($couts) { ?> La valeur est la quantité multipliée par le coût moyen de l'entreprise.<?php } ?></p>
     </div></div>
   </div></section>
 </div>

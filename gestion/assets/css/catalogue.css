@@ -84,3 +84,35 @@
 /* Écarts au coût moyen : une ligne par entreprise, le texte peut passer à la ligne entre le nom et le montant */
 .cat-table td.cat-ecarts, .cat-table th.cat-ecarts { text-align: right; white-space: normal; }
 .cat-table td.cat-ecarts { min-width: 11rem; }
+
+/* ---- Barre du haut : recherche d'abord, une seule action principale à droite --------------------------------- */
+.cat-barre { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem 1rem; margin-bottom: .25rem; }
+.cat-barre-recherche { flex: 1 1 20rem; min-width: 0; }
+.cat-barre-filtre { flex: 0 1 16rem; min-width: 0; }
+.cat-barre .cat-actions .btn { margin-bottom: 0; }
+.cat-barre .scan-box { margin: 0; }
+/* Le champ « Rechercher » des tableaux est déplacé dans la barre : on le remet au même style que les autres champs */
+.cat-barre-recherche .dataTables_filter { margin: 0; text-align: left; }
+.cat-barre-recherche .dataTables_filter label { display: block; margin: 0; }
+.cat-barre-recherche .dataTables_filter input { display: block; width: 100%; margin: 0; min-height: 44px; border-radius: var(--radius-sm); }
+.cat-barre-recherche .dataTables_filter input:focus { outline: 2px solid var(--focus); outline-offset: 1px; border-color: var(--focus); box-shadow: 0 0 0 .2rem var(--accent-ring); }
+
+/* ---- « Plus d'options » : bouton discret + zone repliée ------------------------------------------------------ */
+.cat-plus { min-height: 44px; padding-left: 0; padding-right: .75rem; font-weight: 600; }
+.cat-plus .fa-chevron-down { font-size: .75em; transition: transform .15s; }
+.cat-plus[aria-expanded="true"] .fa-chevron-down { transform: rotate(180deg); }
+.cat-plus-ligne { margin: 0 0 .25rem; }
+.cat-plus-zone[hidden] { display: none !important; }
+.cat-plus-zone { margin-bottom: .5rem; }
+.cat-actions.cat-plus-zone .btn { margin-right: .25rem; }
+
+/* Petite icône ⓘ : l'infobulle (title) remplace tout texte d'aide affiché en permanence */
+.cat-info { color: var(--muted); cursor: help; margin-left: .25rem; font-size: .9em; }
+.cat-info:focus { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 50%; }
+
+/* Lien de retour de la fiche : discret, aligné à gauche */
+.cat-actions .cat-retour { padding-left: 0; margin-right: .5rem; }
+
+/* Ligne « vide » : texte court + action */
+.cat-table td.dataTables_empty { padding-top: 1.5rem; padding-bottom: 1.5rem; text-align: center; color: var(--muted); }
+.cat-table td.dataTables_empty .btn { min-height: 44px; vertical-align: middle; }

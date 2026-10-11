@@ -1,5 +1,6 @@
 <?php
-// Historique des mouvements : registre de tout ce qui est entré, sorti ou déplacé (tableau serveur). Employé+ ; aucun coût pour un employé.
+// Historique : registre de tout ce qui est entré, sorti ou déplacé (tableau serveur). Filtres simples (pièce, période) ; les autres sont derrière « Plus d'options ».
+// Employé+ ; aucun coût pour un employé.
 if (!acces_page('employe')) { return; }
 require_once __DIR__ . '/../app/ajax/stock_lib.php';
 page_script('assets/js/stock.js');
@@ -27,6 +28,8 @@ $pre_au = $date_ok($get('au')) ? $get('au') : '';
 $ids_util = array_map(function ($u) { return (int) $u['id']; }, $utilisateurs);
 $pre_util = ($get('utilisateur_id') !== '' && ctype_digit($get('utilisateur_id')) && in_array((int) $get('utilisateur_id'), $ids_util, true)) ? (int) $get('utilisateur_id') : 0;
 $pre_num = mb_substr($get('numero'), 0, 30);
+// « Plus d'options » s'ouvre tout seul quand un de ses filtres est posé (jamais de filtre actif caché)
+$plus_ouvert = ($pre_ent !== (int) $defaut_ent) || $pre_emp || $pre_type !== '' || $pre_util || $pre_num !== '';
 // Pièce préchoisie : lue sans condition d'activité (une pièce désactivée garde son historique)
 $pre_piece = null;
 if ($get('piece_id') !== '' && ctype_digit($get('piece_id')) && strlen($get('piece_id')) < 10) {
@@ -37,23 +40,42 @@ if ($get('piece_id') !== '' && ctype_digit($get('piece_id')) && strlen($get('pie
 ?>
 <link rel="stylesheet" href="assets/css/stock.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/stock.css'); ?>">
 <div class="content-wrapper sk-page" data-d2="historique" data-couts="<?php echo $couts ? '1' : '0'; ?>" data-multi="<?php echo count($mes_ent) > 1 ? '1' : '0'; ?>" data-defaut-entreprise="<?php echo (int) $defaut_ent; ?>" data-aujourdhui="<?php echo e(date('Y-m-d')); ?>">
-  <?php page_titre('Historique des mouvements', array('Rapports')); ?>
+  <?php page_titre('Historique'); ?>
   <section class="content"><div class="container-fluid">
     <div class="card sk-carte"><div class="card-body">
 
       <div class="row sk-filtres no-print">
-        <div class="col-xl-4 col-md-12 form-group">
+        <div class="col-lg-6 form-group">
           <label for="f-piece">Pièce</label>
           <select id="f-piece" class="form-control" data-placeholder="Toutes les pièces" autocomplete="off">
             <option value=""></option>
             <?php if ($pre_piece) { ?><option value="<?php echo (int) $pre_piece['id']; ?>" selected><?php echo e($pre_piece['code'] . ' — ' . $pre_piece['nom']); ?></option><?php } ?>
           </select>
         </div>
-        <?php if (count($mes_ent) > 0) { ?>
+        <div class="col-lg-6 form-group">
+          <span class="sk-etiquette" id="lbl-plage">Période</span>
+          <div class="input-group" role="group" aria-labelledby="lbl-plage">
+            <input id="f-du" type="date" class="form-control" aria-label="Du" autocomplete="off" max="<?php echo e(date('Y-m-d')); ?>" value="<?php echo e($pre_du); ?>">
+            <div class="input-group-prepend input-group-append"><span class="input-group-text">au</span></div>
+            <input id="f-au" type="date" class="form-control" aria-label="Au" autocomplete="off" max="<?php echo e(date('Y-m-d')); ?>" value="<?php echo e($pre_au); ?>">
+          </div>
+        </div>
+      </div>
+
+      <div class="sk-outils no-print">
+        <button type="button" id="h-plus" class="btn btn-link sk-plus" aria-expanded="<?php echo $plus_ouvert ? 'true' : 'false'; ?>" aria-controls="h-options"><span><?php echo $plus_ouvert ? 'Moins d\'options' : 'Plus d\'options'; ?></span> <i class="fas fa-chevron-down ml-1" aria-hidden="true"></i></button>
+        <span class="sk-actions">
+          <button type="button" id="f-effacer" class="btn btn-sm btn-outline-secondary mr-2" hidden><i class="fas fa-times mr-1" aria-hidden="true"></i> Effacer</button>
+          <a id="btn-export" class="btn btn-sm btn-outline-secondary" href="app/ajax/historique_export.php"><i class="fas fa-file-export mr-1" aria-hidden="true"></i> Exporter (CSV)</a>
+        </span>
+      </div>
+
+      <div id="h-options" class="row sk-filtres no-print"<?php echo $plus_ouvert ? '' : ' hidden'; ?>>
+        <?php if (count($mes_ent) > 1) { ?>
         <div class="col-xl-4 col-md-6 form-group">
           <label for="f-entreprise">Entreprise</label>
           <select id="f-entreprise" class="form-control" autocomplete="off">
-            <?php if (count($mes_ent) > 1) { ?><option value="">Toutes mes entreprises</option><?php } ?>
+            <option value="">Toutes mes entreprises</option>
             <?php foreach ($mes_ent as $en) { ?><option value="<?php echo (int) $en['id']; ?>"<?php echo $pre_ent === (int) $en['id'] ? ' selected' : ''; ?>><?php echo e($en['nom']); ?></option><?php } ?>
           </select>
         </div>
@@ -67,64 +89,44 @@ if ($get('piece_id') !== '' && ctype_digit($get('piece_id')) && strlen($get('pie
             <?php } ?>
           </select>
         </div>
-      </div>
-
-      <div class="row sk-filtres no-print">
-        <div class="col-xl-4 col-md-12 form-group">
-          <span class="sk-etiquette" id="lbl-plage">Période</span>
-          <div class="input-group" role="group" aria-labelledby="lbl-plage">
-            <input id="f-du" type="date" class="form-control" aria-label="Du" autocomplete="off" max="<?php echo e(date('Y-m-d')); ?>" value="<?php echo e($pre_du); ?>">
-            <div class="input-group-prepend input-group-append"><span class="input-group-text">au</span></div>
-            <input id="f-au" type="date" class="form-control" aria-label="Au" autocomplete="off" max="<?php echo e(date('Y-m-d')); ?>" value="<?php echo e($pre_au); ?>">
-          </div>
-        </div>
-        <div class="col-xl-3 col-md-4 form-group">
-          <label for="f-type">Type de document</label>
+        <div class="col-xl-4 col-md-6 form-group">
+          <label for="f-type">Type</label>
           <select id="f-type" class="form-control" autocomplete="off">
             <option value="">Tous les types</option>
             <?php foreach (TYPES_DOCUMENT_FR as $cle => $lib) { ?><option value="<?php echo e($cle); ?>"<?php echo $pre_type === $cle ? ' selected' : ''; ?>><?php echo e($lib); ?></option><?php } ?>
           </select>
         </div>
-        <div class="col-xl-3 col-md-4 form-group">
+        <div class="col-xl-4 col-md-6 form-group">
           <label for="f-utilisateur">Utilisateur</label>
           <select id="f-utilisateur" class="form-control" autocomplete="off">
             <option value="">Tous les utilisateurs</option>
             <?php foreach ($utilisateurs as $u) { ?><option value="<?php echo (int) $u['id']; ?>"<?php echo $pre_util === (int) $u['id'] ? ' selected' : ''; ?>><?php echo e($u['nom'] . ($u['actif'] ? '' : ' (inactif)')); ?></option><?php } ?>
           </select>
         </div>
-        <div class="col-xl-2 col-md-4 form-group">
+        <div class="col-xl-4 col-md-6 form-group">
           <label for="f-numero">N° de document</label>
-          <input id="f-numero" type="search" class="form-control" autocomplete="off" maxlength="30" placeholder="ex. TRF-2026" value="<?php echo e($pre_num); ?>">
-        </div>
-      </div>
-      <div class="row sk-barre no-print">
-        <div class="col-12 form-group d-flex justify-content-lg-end sk-actions">
-          <button type="button" id="f-effacer" class="btn btn-outline-secondary mr-2"><i class="fas fa-eraser mr-1" aria-hidden="true"></i> Effacer les filtres</button>
-          <a id="btn-export" class="btn btn-outline-secondary" href="app/ajax/historique_export.php"><i class="fas fa-file-export mr-1" aria-hidden="true"></i> Exporter (CSV)</a>
+          <input id="f-numero" type="search" class="form-control" autocomplete="off" maxlength="30" placeholder="TRF-2026" value="<?php echo e($pre_num); ?>">
         </div>
       </div>
 
       <p class="d-none d-print-block sk-resume-impression" id="sk-resume"></p>
       <div class="table-responsive">
         <table id="table-historique" class="table table-striped table-hover sk-table w-100">
-          <caption class="sr-only">Registre des mouvements de stock</caption>
+          <caption class="sr-only">Mouvements de stock</caption>
           <thead><tr>
             <th scope="col">Ordre</th>
-            <th scope="col">Date et heure</th>
+            <th scope="col">Date</th>
             <th scope="col">Document</th>
             <th scope="col">Pièce</th>
-            <th scope="col">Emplacement</th>
+            <th scope="col" class="sk-xs-cache">Emplacement</th>
             <th scope="col" class="nombre">Quantité</th>
-            <th scope="col">Utilisateur</th>
             <?php if ($couts) { ?>
-            <th scope="col" class="nombre">Coût unitaire</th>
-            <th scope="col" class="nombre">Valeur</th>
+            <th scope="col" class="nombre sk-xs-cache">Valeur</th>
             <?php } ?>
           </tr></thead>
           <tbody></tbody>
         </table>
       </div>
-      <p class="text-muted small mt-2 mb-0">Du plus récent au plus ancien. Seuls les mouvements de vos entreprises sont listés. Une quantité en vert est une entrée, en rouge une sortie ; une annulation de document est marquée « Annulation ». Le type de document est écrit sous son numéro.</p>
     </div></div>
   </div></section>
 </div>

@@ -12,7 +12,7 @@ $acc = array_map('intval', $Ouser->entreprisesConsultables());
 $r = null;
 try { $r = inventaire()->document(utilisateur_id(), $id); } catch (InventaireException $ex) { $r = null; }   // inexistant ou inaccessible : même réponse
 if (!$r) { ?>
-<div class="content-wrapper"><?php page_titre('Document introuvable', array('Rapports', 'Documents')); ?>
+<div class="content-wrapper"><?php page_titre('Document introuvable'); ?>
   <section class="content"><div class="container-fluid">
     <div class="alert alert-warning" role="alert">Ce document n'existe pas, ou vous n'y avez pas accès. <a class="alert-link" href="index.php?page=documents">Retour à la liste des documents</a></div>
   </div></section>
@@ -84,7 +84,7 @@ $flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
 ?>
 <link rel="stylesheet" href="assets/css/mouvements.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/mouvements.css'); ?>">
 <div class="content-wrapper" data-mouvement="document_voir" data-document-id="<?php echo (int) $d['id']; ?>" data-numero="<?php echo e($d['numero']); ?>">
-  <?php page_titre($d['numero'], array('Rapports', 'Documents')); ?>
+  <?php page_titre($d['numero']); ?>
   <section class="content"><div class="container-fluid">
 
     <?php if ($flash) { ?><div class="alert alert-success no-print" role="status">Le document a été annulé et le stock a été corrigé.</div><?php } ?>
@@ -100,12 +100,10 @@ $flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
     <?php } ?>
 
     <div class="mb-3 no-print mv-barre">
-      <a class="btn btn-outline-secondary" href="index.php?page=documents"><i class="fas fa-arrow-left mr-1" aria-hidden="true"></i> Liste des documents</a>
+      <a class="btn btn-outline-secondary" href="index.php?page=documents"><i class="fas fa-arrow-left mr-1" aria-hidden="true"></i> Documents</a>
       <button type="button" class="btn btn-outline-secondary" id="btn-imprimer"><i class="fas fa-print mr-1" aria-hidden="true"></i> Imprimer</button>
       <?php if ($peut_annuler) { ?>
         <button type="button" class="btn mv-btn-danger" id="btn-annuler"><i class="fas fa-ban mr-1" aria-hidden="true"></i> Annuler ce document</button>
-      <?php } elseif ($gest && $type === 'ajustement' && !$annule) { ?>
-        <span class="text-muted small ml-2">Un ajustement ne s'annule pas : corrigez-le avec un nouvel ajustement.</span>
       <?php } ?>
     </div>
 
@@ -165,7 +163,7 @@ $flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
 
     <div class="card mv-carte"><div class="card-header"><h3 class="card-title">Mouvements créés</h3></div><div class="card-body p-0">
       <?php if (!$mouvements) { ?>
-        <p class="text-muted p-3 mb-0">Aucun mouvement visible pour ce document.</p>
+        <p class="text-muted p-3 mb-0">Aucun mouvement.</p>
       <?php } else { ?>
       <div class="table-responsive">
         <table class="table table-sm mb-0 mv-table" id="table-mouvements">
@@ -189,7 +187,6 @@ $flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
         </table>
       </div>
       <?php } ?>
-      <?php if ($nb_masques > 0) { ?><p class="text-muted small p-3 mb-0">Certains mouvements concernent une autre entreprise et ne sont pas affichés.</p><?php } ?>
     </div></div>
 
   </div></section>
@@ -203,13 +200,13 @@ $flash = (isset($_GET['ok']) && $_GET['ok'] === 'annule' && $annule);
       <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
     </div>
     <div class="modal-body">
-      <p><?php echo e(isset($consequence[$type]) ? $consequence[$type] : ''); ?> Le document reste dans la liste, marqué « ANNULÉ ». Si les pièces ne sont plus là, l'annulation est refusée.</p>
+      <p><?php echo e(isset($consequence[$type]) ? $consequence[$type] : ''); ?></p>
       <?php if ($prix_modifies > 0) { ?>
-      <p class="alert alert-warning" id="annuler-prix"><i class="fas fa-exclamation-triangle mr-1" aria-hidden="true"></i> Cette réception a mis à jour <?php echo $prix_modifies; ?> prix de <?php echo e($d['fournisseur']); ?>. L'annulation ne rétablit pas ces prix&nbsp;: vérifiez-les ensuite dans le catalogue.</p>
+      <p class="alert alert-warning" id="annuler-prix"><i class="fas fa-exclamation-triangle mr-1" aria-hidden="true"></i> Cette réception a mis à jour <?php echo $prix_modifies; ?> prix de <?php echo e($d['fournisseur']); ?>. L'annulation ne rétablit pas ces prix.</p>
       <?php } ?>
       <div class="form-group mb-2">
         <label for="annuler-motif">Motif de l'annulation <span class="text-danger" aria-hidden="true">*</span></label>
-        <textarea id="annuler-motif" class="form-control" rows="3" maxlength="255" placeholder="Par exemple : erreur de saisie, mauvaise quantité…"></textarea>
+        <textarea id="annuler-motif" class="form-control" rows="3" maxlength="255" placeholder="Erreur de saisie…"></textarea>
       </div>
       <div id="annuler-erreur" class="alert alert-danger mb-0" role="alert" hidden></div>
     </div>

@@ -211,7 +211,7 @@ $pid = (int) $p['id'];
     <div class="card"><div class="card-header"><h3 class="card-title">Derniers mouvements</h3></div>
       <div class="card-body p-0">
         <?php if (!$mouvements) { ?>
-          <p class="p-3 mb-0 text-muted">Aucun mouvement pour cette pièce.</p>
+          <p class="p-3 mb-0 text-muted">Aucun mouvement.</p>
         <?php } else { ?>
         <div class="table-responsive"><table class="table table-sm mb-0 cat-table" id="table-mouvements">
           <thead><tr><th scope="col">Date</th><th scope="col">Document</th><th scope="col">Type</th><th scope="col">Emplacement</th><th scope="col" class="nombre">Quantité</th><th scope="col">Utilisateur</th></tr></thead>

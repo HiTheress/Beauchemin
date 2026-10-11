@@ -5,8 +5,8 @@ if (!acces_page('employe')) { return; }
 require_once __DIR__ . '/../app/action/document_lib.php';
 page_script('assets/js/mouvements.js');
 $couts = $Ouser->peutVoirCouts();
-$gest = $Ouser->aRole('gestionnaire');
 $mes_ent = inventaire()->listeEntreprises(utilisateur_id());
+$plusieurs = count($mes_ent) > 1;      // « Entreprise » (filtre et colonne) seulement pour qui en a plusieurs
 
 $get = function ($cle) { return (isset($_GET[$cle]) && is_string($_GET[$cle])) ? trim($_GET[$cle]) : ''; };
 $date_ok = function ($s) { return preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $s, $m) && checkdate((int) $m[2], (int) $m[3], (int) $m[1]); };
@@ -19,14 +19,14 @@ $pre_q = mb_substr($get('q'), 0, 100);
 ?>
 <link rel="stylesheet" href="assets/css/mouvements.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/mouvements.css'); ?>">
 <div class="content-wrapper" data-mouvement="documents">
-  <?php page_titre('Documents', array('Rapports')); ?>
+  <?php page_titre('Documents'); ?>
   <section class="content"><div class="container-fluid">
     <div class="card mv-carte"><div class="card-body">
 
       <div class="row mv-filtres">
         <div class="col-xl-4 col-md-6 form-group">
           <label for="f-recherche">Rechercher</label>
-          <input id="f-recherche" type="search" class="form-control" autocomplete="off" maxlength="100" placeholder="Numéro, facture, fournisseur, note…" value="<?php echo e($pre_q); ?>">
+          <input id="f-recherche" type="search" class="form-control" autocomplete="off" maxlength="100" placeholder="Numéro, fournisseur, note…" value="<?php echo e($pre_q); ?>">
         </div>
         <div class="col-xl-3 col-md-6 form-group">
           <label for="f-type">Type</label>
@@ -35,7 +35,7 @@ $pre_q = mb_substr($get('q'), 0, 100);
             <?php foreach (TYPES_DOCUMENT_FR as $cle => $lib) { ?><option value="<?php echo e($cle); ?>"<?php echo $pre_type === $cle ? ' selected' : ''; ?>><?php echo e($lib); ?></option><?php } ?>
           </select>
         </div>
-        <?php if (count($mes_ent) > 0) { ?>
+        <?php if ($plusieurs) { ?>
         <div class="col-xl-3 col-md-6 form-group">
           <label for="f-entreprise">Entreprise</label>
           <select id="f-entreprise" class="form-control">
@@ -73,18 +73,15 @@ $pre_q = mb_substr($get('q'), 0, 100);
         <table id="table-documents" class="table table-striped mv-table w-100">
           <thead><tr>
             <th scope="col" data-col="numero">Numéro</th>
-            <th scope="col" data-col="statut">Statut</th>
             <th scope="col" data-col="type">Type</th>
             <th scope="col" data-col="date">Date</th>
-            <th scope="col" data-col="entreprise" class="d-none d-xl-table-cell">Entreprise</th>
-            <th scope="col" data-col="emplacements">Emplacement(s)</th>
-            <th scope="col" data-col="utilisateur" class="d-none d-xl-table-cell">Utilisateur</th>
+            <?php if ($plusieurs) { ?><th scope="col" data-col="entreprise">Entreprise</th><?php } ?>
+            <th scope="col" data-col="emplacements">Emplacement</th>
             <?php if ($couts) { ?><th scope="col" data-col="total" class="nombre">Total</th><?php } ?>
           </tr></thead>
           <tbody></tbody>
         </table>
       </div>
-      <p class="text-muted small mt-2 mb-0">Seuls les documents de vos entreprises sont listés. Cliquez sur un numéro pour voir le détail, l'imprimer<?php echo $gest ? ' ou, au besoin, l\'annuler' : ''; ?>.</p>
     </div></div>
   </div></section>
 </div>

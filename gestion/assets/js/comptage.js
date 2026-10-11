@@ -1,10 +1,11 @@
 /* Comptage d'inventaire (module D1) : liste des comptages + écran de comptage au scanner.
  * Charger APRÈS assets/js/scan.js (file de scans sans perte, caméra, POST qui garde les données d'erreur).
  *
- *  - page « comptage »       (#page-comptage)       : nouveau comptage (scan EMP-… ou liste) + liste filtrable
- *  - page « comptage_voir »  (#page-comptage-voir)  : chaque scan fait +1 (« ajouter ») ; quantité exacte tapée = « fixer » ;
+ *  - page « comptage »       (#page-comptage)       : commencer un comptage (scan EMP-… ou liste) + liste filtrable
+ *  - page « comptage_voir »  (#page-comptage-voir)  : chaque scan fait +1 (« ajouter ») ; « + » = +1 ; « − » et quantité tapée = « fixer » ;
  *    stock attendu masquable (à l'aveugle par défaut pour un employé : alors il n'est même pas envoyé par le serveur) ;
- *    gestionnaire : aperçu des écarts puis application ; employé : « À faire approuver par un gestionnaire » ; annulation avec confirmation.
+ *    « Terminer le comptage » : gestionnaire = corrections à vérifier puis à appliquer ; employé = à faire appliquer par un gestionnaire ;
+ *    annulation avec confirmation.
  * Les quantités circulent en CHAÎNES décimales ("3.000") ; l'affichage passe par fmtQte.
  */
 (function (w, $) {
@@ -35,9 +36,16 @@
       var elScan = qs('#scan'), sel = qs('#nouveau-emp'), msg = qs('#cp-nouveau-msg'), bNouveau = qs('#btn-nouveau');
       var entCourante = parseInt(racineListe.getAttribute('data-entreprise'), 10) || 0;
       var enCreation = false;
-      var TYPES = { entrepot: 'Entrepôt', boutique: 'Boutique', cube: 'Cube de service' };
 
       function afficher(type, html) { msg.innerHTML = html ? '<div class="alert alert-' + type + ' mt-2" role="alert">' + html + '</div>' : ''; }
+
+      // « Plus d'options » : la note (facultative) reste cachée tant qu'on n'en a pas besoin
+      var bPlus = qs('#cp-plus'), zonePlus = qs('#cp-plus-zone');
+      bPlus.addEventListener('click', function () {
+        var ouvert = zonePlus.classList.toggle('d-none') === false;
+        bPlus.setAttribute('aria-expanded', ouvert ? 'true' : 'false');
+        if (ouvert) { qs('#nouveau-note').focus(); } else { elScan.focus(); }
+      });
 
       // Un seul comptage ouvert par emplacement : on affiche le message du service avec le lien vers l'existant.
       function creer(empId) {
@@ -48,7 +56,7 @@
           if (j.ok) { w.location.href = 'index.php?page=comptage_voir&id=' + encodeURIComponent(j.id); return true; }
           enCreation = false; bNouveau.disabled = false;
           afficher('warning', esc(j.erreur || 'Impossible de créer le comptage.') +
-            (j.existant ? ' <a class="alert-link" id="lien-existant" href="' + lien('comptage_voir', j.existant.id) + '">Ouvrir le comptage ' + esc(j.existant.numero) + '</a>' : ''));
+            (j.existant ? ' <a class="alert-link" id="lien-existant" href="' + lien('comptage_voir', j.existant.id) + '">Reprendre le comptage</a>' : ''));
           return false;
         }).catch(function (e) { enCreation = false; bNouveau.disabled = false; afficher('danger', esc(e.message)); return false; });
       }
@@ -56,8 +64,8 @@
       // Scan d'un code d'emplacement : le comptage démarre tout de suite
       w.Scan.lier(elScan, function (code) {
         return w.api.get('app/ajax/scan_code.php', { code: code }).then(function (r) {
-          if (!r.trouve) { afficher('danger', 'Code inconnu : « ' + esc(code) + ' ». Scannez le code-barres d\'un emplacement (EMP-…) de vos entreprises.'); return false; }
-          if (r.type !== 'emplacement') { afficher('danger', '« ' + esc(r.piece.code) + ' » est une pièce. Scannez plutôt le code-barres de l\'emplacement (EMP-…) à compter.'); return false; }
+          if (!r.trouve) { afficher('danger', 'Code inconnu : « ' + esc(code) + ' ». Scannez un emplacement.'); return false; }
+          if (r.type !== 'emplacement') { afficher('danger', '« ' + esc(r.piece.code) + ' » est une pièce. Scannez un emplacement.'); return false; }
           sel.value = String(r.emplacement.id);
           return creer(r.emplacement.id).then(function (ok) { return ok; });
         });
@@ -72,10 +80,10 @@
           if (!groupes[e.entreprise_id]) { groupes[e.entreprise_id] = { nom: e.entreprise_nom, items: [] }; ordre.push(e.entreprise_id); }
           groupes[e.entreprise_id].items.push(e);
         });
-        var h = '<option value="">— Choisir un emplacement —</option>';
+        var h = '<option value="">Choisir un emplacement</option>';
         ordre.forEach(function (id) {
           h += '<optgroup label="' + esc(groupes[id].nom) + '">' + groupes[id].items.map(function (e) {
-            return '<option value="' + esc(e.id) + '">' + esc(e.nom) + ' (' + esc(TYPES[e.type] || e.type) + ')</option>';
+            return '<option value="' + esc(e.id) + '">' + esc(e.nom) + '</option>';
           }).join('') + '</optgroup>';
         });
         $(sel).html(h).prop('disabled', false);
@@ -83,17 +91,17 @@
 
       bNouveau.addEventListener('click', function () {
         var v = parseInt(sel.value, 10);
-        if (!v) { afficher('warning', 'Choisissez d\'abord un emplacement dans la liste, ou scannez son code-barres.'); sel.focus(); return; }
+        if (!v) { afficher('warning', 'Choisissez un emplacement.'); sel.focus(); return; }
         creer(v);
       });
 
       // Liste (tableau serveur). Six colonnes (l'entreprise est sous l'emplacement, « par … » sous la date) : le tableau tient sans défilement.
       // Alias renvoyés par comptage_data.php = columns[].data.
-      var MSG_VIDE = 'Aucun comptage pour le moment. Scannez un emplacement ci-dessus pour en commencer un.';
+      var MSG_VIDE = 'Aucun comptage.';
       var MSG_FILTRES = 'Aucun comptage ne correspond à ces filtres.';
       function filtresActifs() { return !!($('#f-statut').val() || $('#f-entreprise').val() || $('#f-mes').is(':checked')); }
       var table = $('#table-comptages').DataTable({
-        serverSide: true, processing: true, searchDelay: 300, order: [[3, 'desc']],
+        serverSide: true, processing: true, searchDelay: 300, order: [[3, 'desc']], lengthChange: false, info: false,
         ajax: {
           url: 'app/ajax/comptage_data.php', type: 'POST',
           data: function (p) {
@@ -103,15 +111,30 @@
           }
         },
         columns: [
-          { data: 'numero' }, { data: 'emplacement' }, { data: 'statut' }, { data: 'cree_le' },
-          { data: 'nb_lignes', className: 'nombre' }, { data: 'document', orderable: false, defaultContent: '' }
+          { data: 'numero' }, { data: 'emplacement' }, { data: 'statut' }, { data: 'cree_le', className: 'd-none d-sm-table-cell' },
+          { data: 'nb_lignes', className: 'nombre d-none d-md-table-cell' }, { data: 'document', orderable: false, defaultContent: '', className: 'd-none d-md-table-cell' }
         ],
         // « Aucun comptage pour le moment » serait faux quand un filtre vide la liste (le serveur compte le total AVEC les filtres)
         preDrawCallback: function (settings) { settings.oLanguage.sEmptyTable = filtresActifs() ? MSG_FILTRES : MSG_VIDE; },
         language: $.extend(true, {}, w.DT_LANG, {
-          emptyTable: MSG_VIDE, zeroRecords: MSG_FILTRES, search: 'Rechercher :',
+          emptyTable: MSG_VIDE, zeroRecords: MSG_FILTRES, search: '', searchPlaceholder: 'Rechercher',
           aria: { sortAscending: ' : activer pour trier par ordre croissant', sortDescending: ' : activer pour trier par ordre décroissant' }
-        })
+        }),
+        // La recherche passe en premier, dans la barre de filtres ; cliquer sur une ligne ouvre le comptage
+        // Une seule page : pas de boutons « Précédent / Suivant »
+        drawCallback: function (settings) {
+          var api = new $.fn.dataTable.Api(settings);
+          $(api.table().container()).find('.dataTables_paginate').toggle(api.page.info().pages > 1);
+        },
+        initComplete: function () {
+          var f = $('#table-comptages_filter');
+          f.addClass('cp-filtre cp-recherche').prependTo('#cp-filtres').find('input').attr('aria-label', 'Rechercher');
+        }
+      });
+      $('#table-comptages tbody').on('click', 'tr', function (ev) {
+        if ($(ev.target).closest('a, button, input, select').length) { return; }
+        var a = this.querySelector('a.cp-numero-lien');
+        if (a) { w.location.href = a.getAttribute('href'); }
       });
       $('#f-statut, #f-entreprise, #f-mes').on('change', function () { table.ajax.reload(); });
     })();
@@ -128,7 +151,7 @@
   var gestionnaire = (role === 'gestionnaire' || role === 'admin');
   var elScan = qs('#scan'), elAlerte = qs('#cv-alerte'), elEntete = qs('#cv-entete'), elSaisie = qs('#cv-saisie');
   var table = qs('#cv-table'), thead = qs('thead', table), tbody = qs('tbody', table);
-  var elVide = qs('#cv-vide'), elNb = qs('#cv-nb'), elActions = qs('#cv-actions'), elJournal = qs('#cv-journal');
+  var elVide = qs('#cv-vide'), elNb = qs('#cv-nb'), elActions = qs('#cv-actions');
   var chkAveugle = qs('#cv-aveugle');
 
   var MAX_LIGNES_DEFAUT = 300;         // pièces par document d'ajustement (le serveur renvoie la valeur exacte avec l'aperçu)
@@ -163,53 +186,46 @@
     z.className = 'cp-dernier ' + (ok ? 'cp-dernier-ok' : 'cp-dernier-ko');
     z.innerHTML = html;
   }
-  function journal(ok, texte) {
-    var li = d.createElement('li'); li.className = ok ? 'cp-j-ok' : 'cp-j-ko';
-    li.innerHTML = '<span class="cp-j-h">' + esc(heure()) + '</span> <i class="fas ' + (ok ? 'fa-check text-success' : 'fa-times') + '" aria-hidden="true"></i> ';
-    var s = d.createElement('span'); s.textContent = texte; li.appendChild(s);
-    elJournal.insertBefore(li, elJournal.firstChild);
-    while (elJournal.children.length > 8) { elJournal.removeChild(elJournal.lastChild); }
-  }
-
   // ---- en-tête
   function dessinerEntete() {
     var c = etat.det.comptage;
     var cls = c.statut === 'en_cours' ? 'warning' : c.statut === 'applique' ? 'success' : 'secondary';
-    var h = '<div class="row"><div class="col-lg-8"><div class="cp-numero">' + esc(c.numero) + ' <span class="badge badge-' + cls + ' cp-statut" id="cv-statut">' + esc(c.statut_libelle) + '</span></div>';
-    h += '<dl class="row cp-entete mt-2 mb-0"><dt class="col-sm-3">Emplacement</dt><dd class="col-sm-9">' + esc(c.emplacement_nom) + ' <small class="text-muted">(' + esc(c.entreprise_nom) + ')</small></dd>';
-    h += '<dt class="col-sm-3">Commencé</dt><dd class="col-sm-9">' + esc(c.cree_le) + (c.cree_par_nom ? ' par ' + esc(c.cree_par_nom) : '') + '</dd>';
-    if (c.note) { h += '<dt class="col-sm-3">Note</dt><dd class="col-sm-9">' + esc(c.note) + '</dd>'; }
+    var h = '<div class="cp-lieu-ligne"><h2 class="cp-lieu">' + esc(c.emplacement_nom) + '</h2> <span class="badge badge-' + cls + ' cp-statut" id="cv-statut">' + esc(c.statut_libelle) + '</span></div>';
+    h += '<div class="cp-meta">' + esc(c.numero) + ' · ' + esc(c.entreprise_nom) + ' · ' + esc(c.cree_le) + (c.cree_par_nom ? ' · ' + esc(c.cree_par_nom) : '') + '</div>';
+    if (c.note) { h += '<div class="cp-note"><i class="far fa-sticky-note mr-1" aria-hidden="true"></i>' + esc(c.note) + '</div>'; }
     if (c.statut === 'applique') {
-      h += '<dt class="col-sm-3">Appliqué</dt><dd class="col-sm-9">' + esc(c.applique_le || '') + (c.applique_par_nom ? ' par ' + esc(c.applique_par_nom) : '') + '</dd>';
       var docs = (c.documents && c.documents.length) ? c.documents : (c.document_id ? [{ id: c.document_id, numero: c.document_numero || 'Voir le document' }] : []);
-      h += '<dt class="col-sm-3">' + (docs.length > 1 ? 'Ajustements' : 'Ajustement') + '</dt><dd class="col-sm-9">' + (docs.length
-        ? docs.map(function (x, i) { return '<a' + (i === 0 ? ' id="lien-ajustement"' : '') + ' href="' + lien('document_voir', x.id) + '">' + esc(x.numero) + '</a>'; }).join(', ') + (docs.length > 1 ? ' <small class="text-muted">(' + docs.length + ' documents : un par tranche de ' + MAX_LIGNES_DEFAUT + ' pièces)</small>' : '')
-        : '<span class="text-muted">Aucun écart : aucun ajustement n\'a été nécessaire.</span>') + '</dd>';
+      h += '<div class="cp-meta">Appliqué ' + esc(c.applique_le || '') + (c.applique_par_nom ? ' · ' + esc(c.applique_par_nom) : '') + '</div>';
+      h += '<div class="cp-corrections">' + (docs.length
+        ? (docs.length > 1 ? 'Corrections' : 'Correction') + ' : ' + docs.map(function (x, i) { return '<a' + (i === 0 ? ' id="lien-ajustement"' : '') + ' href="' + lien('document_voir', x.id) + '">' + esc(x.numero) + '</a>'; }).join(', ') + (docs.length > 1 ? ' <small class="text-muted">(' + docs.length + ' documents)</small>' : '')
+        : '<span class="text-muted">Aucun écart.</span>') + '</div>';
     }
-    h += '</dl></div></div>';
     elEntete.innerHTML = h;
   }
 
   // ---- tableau
   function entetesTableau() {
     var c = etat.det.comptage, edition = c.statut === 'en_cours', attendu = edition && !etat.aveugle, applique = c.statut === 'applique';
-    var h = '<tr><th scope="col">Code</th><th scope="col">Pièce</th><th scope="col" class="nombre">Compté</th>';
-    if (attendu) { h += '<th scope="col" class="nombre">Stock attendu</th><th scope="col" class="nombre">Écart</th>'; }
-    if (applique) { h += '<th scope="col" class="nombre">Écart appliqué</th>'; }
+    var h = '<tr><th scope="col" class="d-none d-sm-table-cell">Code</th><th scope="col">Pièce</th><th scope="col" class="nombre">Compté</th>';
+    if (attendu) { h += '<th scope="col" class="nombre d-none d-md-table-cell">Stock attendu</th><th scope="col" class="nombre">Écart</th>'; }
+    if (applique) { h += '<th scope="col" class="nombre">Correction</th>'; }
     if (edition) { h += '<th scope="col" class="text-right"><span class="sr-only">Retirer</span></th>'; }
     thead.innerHTML = h + '</tr>';
   }
   function htmlLigne(l) {
     var c = etat.det.comptage, edition = c.statut === 'en_cours', attendu = edition && !etat.aveugle;
-    var h = '<td class="code">' + esc(l.code) + '</td><td>' + esc(l.nom) + unite(l.unite) + '</td>';
+    var h = '<td class="code d-none d-sm-table-cell">' + esc(l.code) + '</td><td>' + esc(l.nom) + unite(l.unite) + ' <small class="cp-code-mobile code d-sm-none">' + esc(l.code) + '</small></td>';
     if (edition) {
-      h += '<td class="nombre"><input type="text" inputmode="decimal" class="form-control cp-qte" value="' + esc(brute(l.quantite_comptee)) + '" data-serveur="' + esc(l.quantite_comptee) + '" aria-label="Quantité comptée de ' + esc(l.code) + '" autocomplete="off">' +
+      h += '<td class="nombre"><div class="cp-qte-groupe">' +
+        '<button type="button" class="btn btn-outline-secondary cp-moins" data-code="' + esc(l.code) + '" aria-label="Moins un : ' + esc(l.code) + '"' + (zero(l.quantite_comptee) ? ' disabled' : '') + '><i class="fas fa-minus" aria-hidden="true"></i></button>' +
+        '<input type="text" inputmode="decimal" class="form-control cp-qte" value="' + esc(brute(l.quantite_comptee)) + '" data-serveur="' + esc(l.quantite_comptee) + '" aria-label="Quantité comptée de ' + esc(l.code) + '" autocomplete="off">' +
+        '<button type="button" class="btn btn-outline-secondary cp-plus" data-code="' + esc(l.code) + '" aria-label="Plus un : ' + esc(l.code) + '"><i class="fas fa-plus" aria-hidden="true"></i></button></div>' +
         '<div class="cp-erreur-champ" role="alert"></div></td>';
     } else {
       h += '<td class="nombre cp-comptee">' + esc(w.fmtQte(l.quantite_comptee)) + '</td>';
     }
     if (attendu) {
-      h += '<td class="nombre cp-attendu">' + esc(w.fmtQte(l.quantite_actuelle)) + '</td><td class="nombre cp-ecart ' + classeEcart(l.ecart) + '">' + esc(signe(l.ecart)) + '</td>';
+      h += '<td class="nombre cp-attendu d-none d-md-table-cell">' + esc(w.fmtQte(l.quantite_actuelle)) + '</td><td class="nombre cp-ecart ' + classeEcart(l.ecart) + '">' + esc(signe(l.ecart)) + '</td>';
     }
     if (c.statut === 'applique') {
       h += '<td class="nombre cp-ecart ' + classeEcart(l.ecart_applique) + '">' + esc(signe(l.ecart_applique || '0')) + '</td>';
@@ -228,14 +244,14 @@
     elNb.textContent = n;
     elVide.style.display = n ? 'none' : '';
     table.style.display = n ? '' : 'none';
-    elVide.textContent = etat.det.comptage.statut === 'en_cours' ? 'Aucune pièce comptée pour le moment. Scannez une pièce pour commencer.' : 'Aucune pièce n\'avait été comptée.';
+    elVide.textContent = etat.det.comptage.statut === 'en_cours' ? 'Aucune pièce comptée. Scannez une pièce.' : 'Aucune pièce comptée.';
   }
   /** Carte « En stock selon le système, pas encore comptées » : tient à jour ce qu'il reste à compter (scan, retrait, actualisation). */
   function dessinerNonComptees() {
     var carte = qs('#cv-non-comptees'), non = etat.non;
     if (etat.det && etat.det.comptage.statut === 'en_cours' && !etat.aveugle && non.length) {
       qs('#cv-nb-non').textContent = non.length;
-      qs('#cv-non-corps').innerHTML = non.map(function (l) { return '<tr data-piece="' + esc(l.piece_id) + '"><td class="code">' + esc(l.code) + '</td><td>' + esc(l.nom) + unite(l.unite) + '</td><td class="nombre">' + esc(w.fmtQte(l.quantite_actuelle)) + '</td></tr>'; }).join('');
+      qs('#cv-non-corps').innerHTML = non.map(function (l) { return '<tr data-piece="' + esc(l.piece_id) + '"><td class="code d-none d-sm-table-cell">' + esc(l.code) + '</td><td>' + esc(l.nom) + unite(l.unite) + ' <small class="cp-code-mobile code d-sm-none">' + esc(l.code) + '</small></td><td class="nombre">' + esc(w.fmtQte(l.quantite_actuelle)) + '</td></tr>'; }).join('');
       carte.classList.remove('d-none');
     } else { carte.classList.add('d-none'); }
   }
@@ -259,7 +275,7 @@
     if (det.comptage.statut === 'applique' && rem.length) {
       rem.forEach(function (l) {
         var tr = d.createElement('tr'); tr.className = 'table-warning';
-        tr.innerHTML = '<td class="code">' + esc(l.code) + '</td><td>' + esc(l.nom) + unite(l.unite) + ' <span class="badge badge-warning">non scannée : remise à 0</span></td><td class="nombre">0</td><td class="nombre cp-ecart ' + classeEcart(l.ecart_applique) + '">' + esc(signe(l.ecart_applique)) + '</td>';
+        tr.innerHTML = '<td class="code d-none d-sm-table-cell">' + esc(l.code) + '</td><td>' + esc(l.nom) + unite(l.unite) + ' <small class="cp-code-mobile code d-sm-none">' + esc(l.code) + '</small>' + ' <span class="badge badge-warning">non comptée : remise à 0</span></td><td class="nombre">0</td><td class="nombre cp-ecart ' + classeEcart(l.ecart_applique) + '">' + esc(signe(l.ecart_applique)) + '</td>';
         tbody.appendChild(tr);
       });
       elVide.style.display = 'none'; table.style.display = '';
@@ -292,11 +308,11 @@
   function dessinerActions() {
     var c = etat.det.comptage, h = '';
     if (c.statut === 'en_cours') {
-      if (etat.det.peut_appliquer) { h += '<button type="button" id="btn-appliquer" class="btn btn-success"><i class="fas fa-check-double mr-1" aria-hidden="true"></i> Appliquer le comptage</button>'; }
-      else { h += '<button type="button" id="btn-approbation" class="btn btn-primary"><i class="fas fa-user-check mr-1" aria-hidden="true"></i> À faire approuver par un gestionnaire</button>'; }
-      h += '<button type="button" id="btn-annuler" class="btn btn-outline-danger"><i class="fas fa-ban mr-1" aria-hidden="true"></i> Annuler le comptage</button>';
+      h += '<button type="button" id="' + (etat.det.peut_appliquer ? 'btn-appliquer' : 'btn-approbation') + '" class="btn btn-primary"><i class="fas fa-check-double mr-1" aria-hidden="true"></i> Terminer le comptage</button>';
+      h += '<button type="button" id="btn-annuler" class="btn btn-link text-danger">Annuler le comptage</button>';
+    } else {
+      h += '<a class="btn btn-outline-secondary" href="index.php?page=comptage">Tous les comptages</a>';
     }
-    h += '<span class="cp-espace"></span><a class="btn btn-outline-secondary" href="index.php?page=comptage"><i class="fas fa-list mr-1" aria-hidden="true"></i> Liste des comptages</a>';
     elActions.innerHTML = h;
   }
 
@@ -322,7 +338,7 @@
       if (etat.termine) { stopperRafraichissement(); } else if (!silencieux && fileScan) { fileScan.focus(); }
     }).catch(function (e) {
       if (silencieux && etat.det) { return; }   // un rafraîchissement raté ne casse pas l'écran
-      elEntete.innerHTML = '<div class="alert alert-danger mb-0" role="alert">' + esc(e.message) + ' <a class="alert-link" href="index.php?page=comptage">Retour à la liste des comptages</a></div>';
+      elEntete.innerHTML = '<div class="alert alert-danger mb-0" role="alert">' + esc(e.message) + ' <a class="alert-link" href="index.php?page=comptage">Retour aux comptages</a></div>';
       elSaisie.classList.add('d-none'); elActions.innerHTML = '';
     });
   }
@@ -343,14 +359,12 @@
     return enSerie(function () {
       return w.api.post('app/action/comptage_scan.php', corps).then(function (r) {
         majLigne(r.ligne, true);
-        journal(true, r.ligne.code + ' — ' + r.ligne.nom + ' : ' + w.fmtQte(r.ligne.quantite_comptee));
         dernier(true, '<span class="cp-dernier-code code">' + esc(r.ligne.code) + '</span> <span class="cp-dernier-nom">' + esc(r.ligne.nom) + '</span> <span class="cp-dernier-total">Compté : <strong>' + esc(w.fmtQte(r.ligne.quantite_comptee)) + '</strong></span>');
         return true;
       });
     }).catch(function (e) { gererErreurEcriture(e, libelle); throw e; });
   }
   function gererErreurEcriture(e, libelle) {
-    journal(false, (libelle ? libelle + ' : ' : '') + e.message);
     dernier(false, '<i class="fas fa-times-circle mr-1" aria-hidden="true"></i> ' + esc(e.message));
     if (/termin/i.test(e.message)) { alerte('warning', 'Ce comptage est terminé : il ne peut plus être modifié.'); charger(true); }
     else { alerte('danger', esc(e.message)); }
@@ -367,7 +381,7 @@
     // Recherche texte de secours : +1 pour la pièce choisie
     var $rech = $('#recherche');
     $rech.select2({
-      placeholder: 'Taper une partie du nom ou du code…', allowClear: true, minimumInputLength: 1,
+      placeholder: 'Nom ou code', allowClear: true, minimumInputLength: 1,
       ajax: {
         url: 'app/ajax/pieces_recherche.php', dataType: 'json', delay: 200,
         data: function (p) { return { q: p.term || '' }; },
@@ -416,7 +430,6 @@
     else if (/[.,]\d{4,}$/.test(v)) { probleme = 'La quantité « ' + brut + ' » a trop de décimales : trois au maximum (ex. : 2,5 ou 0,125).'; }
     if (probleme) {
       erreurChamp(inp, probleme);
-      journal(false, (l ? l.code + ' : ' : '') + probleme);
       if (depuisEntree) { inp.select(); } else { inp.value = ancienne; }
       return Promise.resolve(false);
     }
@@ -426,7 +439,6 @@
     return enSerie(function () {
       return w.api.post('app/action/comptage_scan.php', { id: ID, piece_id: id, mode: 'fixer', quantite: v, aveugle: etat.aveugle ? 1 : 0 }).then(function (r) {
         majLigne(r.ligne, false, true);
-        journal(true, r.ligne.code + ' — ' + r.ligne.nom + ' : ' + w.fmtQte(r.ligne.quantite_comptee) + ' (quantité tapée)');
         dernier(true, '<span class="cp-dernier-code code">' + esc(r.ligne.code) + '</span> <span class="cp-dernier-nom">' + esc(r.ligne.nom) + '</span> <span class="cp-dernier-total">Compté : <strong>' + esc(w.fmtQte(r.ligne.quantite_comptee)) + '</strong></span>');
         return true;
       });
@@ -435,7 +447,7 @@
       var termine = /termin/i.test(e.message);
       if (!termine) { erreurChamp(inp, e.message); }
       inp.value = ancienne; tr.classList.add('cp-erreur-ligne'); setTimeout(function () { tr.classList.remove('cp-erreur-ligne'); }, 1500);
-      if (termine) { gererErreurEcriture(e, l ? l.code : ''); } else { journal(false, (l ? l.code + ' : ' : '') + e.message); dernier(false, '<i class="fas fa-times-circle mr-1" aria-hidden="true"></i> ' + esc(e.message)); }
+      if (termine) { gererErreurEcriture(e, l ? l.code : ''); } else { dernier(false, '<i class="fas fa-times-circle mr-1" aria-hidden="true"></i> ' + esc(e.message)); }
       return false;
     });
   }
@@ -448,6 +460,22 @@
   tbody.addEventListener('change', function (e) {
     var inp = e.target.closest ? e.target.closest('.cp-qte') : null;
     if (inp) { validerChamp(inp, false); }
+  });
+  // Gros boutons − / + : « + » ajoute 1 (atomique, comme un scan), « − » fixe la quantité à 1 de moins
+  tbody.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('.cp-plus, .cp-moins') : null;
+    if (!b || b.disabled) { return; }
+    var tr = b.closest('tr'), id = parseInt(tr.getAttribute('data-piece'), 10), l = etat.lignes[id];
+    if (!l) { return; }
+    alerte('', '');
+    if (b.classList.contains('cp-plus')) {
+      envoyerScan({ piece_id: id, mode: 'ajouter', quantite: '1' }, l.code).then(function () { w.bip(true); }, function () { w.bip(false); }).then(function () { elScan.focus(); });
+      return;
+    }
+    var moins = Math.max(0, Math.round((parseFloat(l.quantite_comptee) - 1) * 1000) / 1000);
+    var champ = qs('.cp-qte', tr);
+    champ.value = String(moins).replace('.', ',');
+    validerChamp(champ, false).then(function () { elScan.focus(); });
   });
   tbody.addEventListener('focusin', function (e) { if (e.target.classList && e.target.classList.contains('cp-qte')) { e.target.select(); } });
 
@@ -500,7 +528,6 @@
         etat.non.sort(function (x, y) { return x.code < y.code ? -1 : x.code > y.code ? 1 : 0; });
       }
       dessinerNonComptees();
-      journal(true, (l ? l.code : 'Ligne') + ' retiré du comptage');
       elScan.focus();
     }).catch(function (err) { b.disabled = false; gererErreurEcriture(err, l ? l.code : ''); });
   });
@@ -519,7 +546,7 @@
     if (b.id === 'btn-appliquer') { ouvrirApercu(); }
     else if (b.id === 'btn-annuler') { qs('#an-erreur').textContent = ''; $('#modal-annuler').modal('show'); }
     else if (b.id === 'btn-approbation') {
-      alerte('info', '<strong>Votre comptage est enregistré.</strong> Seul un gestionnaire peut l\'appliquer au stock : demandez-lui d\'ouvrir le comptage <strong>' + esc(etat.det.comptage.numero) + '</strong> (menu « Comptage ») et de cliquer sur « Appliquer le comptage ». Rien n\'est modifié tant qu\'il ne l\'a pas fait.');
+      alerte('info', 'Comptage enregistré. Seul un gestionnaire peut l\'appliquer.');
       if (fileScan) { fileScan.focus(); }   // le prochain scan doit être compté, pas tapé dans le bouton
     }
   });
@@ -531,13 +558,13 @@
     bAnnuler.disabled = true;
     fileInactive().then(function () { return enSerie(function () { return w.api.post('app/action/comptage_annuler.php', { id: ID }); }); }).then(function () {
       $('#modal-annuler').modal('hide');
-      alerte('success', 'Le comptage <strong>' + esc(etat.det.comptage.numero) + '</strong> a été annulé. Le stock n\'a pas été modifié.');
+      alerte('success', 'Comptage annulé. Le stock n\'a pas été modifié.');
       return charger(true, true);
     }).catch(function (err) { qs('#an-erreur').textContent = err.message; }).then(function () { bAnnuler.disabled = false; });
   });
   $('#modal-annuler').on('hidden.bs.modal', function () { if (fileScan && !etat.termine) { fileScan.focus(); } });
 
-  // ---- application (gestionnaire+) : aperçu des écarts contre le stock ACTUEL, case « non scannées à 0 », confirmation explicite.
+  // ---- application (gestionnaire+) : corrections contre le stock ACTUEL, case « non comptées à 0 », confirmation explicite.
   // L'aperçu porte une EMPREINTE (comptage + stock actuel + pièces à remettre à 0) : l'application la renvoie et le serveur refuse si
   // quelque chose a changé depuis (autre écran, mouvement) ; l'aperçu est alors relu et le gestionnaire doit confirmer de nouveau.
   var ap = { donnees: null };
@@ -549,7 +576,7 @@
   /** reprise : { zero:bool, message:texte } pour rouvrir l'aperçu à jour après un changement détecté (la case « à 0 » reste cochée). */
   function chargerApercu(reprise) {
     var corps = qs('#ap-corps');
-    corps.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin mr-1" aria-hidden="true"></i> Calcul des écarts…</p>';
+    corps.innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin mr-1" aria-hidden="true"></i> Calcul…</p>';
     bConfirmer.disabled = true; ap.donnees = null;
     return fileInactive().then(function () { return enSerie(function () { return w.api.get('app/ajax/comptage_apercu.php', { id: ID }); }); }).then(function (r) {
       ap.donnees = r; dessinerApercu(reprise);
@@ -557,31 +584,24 @@
   }
   function dessinerApercu(reprise) {
     var r = ap.donnees, corps = qs('#ap-corps');
-    var avecEcart = r.lignes.filter(function (l) { return !zero(l.ecart); });
-    var plus = 0, moins = 0;
-    avecEcart.forEach(function (l) { var n = parseFloat(l.ecart); if (n > 0) { plus++; } else { moins++; } });
     var h = '';
     if (reprise && reprise.message) { h += '<div class="alert alert-warning" role="alert" id="ap-changement">' + esc(reprise.message) + '</div>'; }
-    h += '<p class="cp-apercu-resume">Comptage <strong>' + esc(r.comptage.numero) + '</strong> — ' + esc(r.comptage.emplacement_nom) + ' <small class="text-muted">(' + esc(r.comptage.entreprise_nom) + ')</small>.<br>' +
-      'Les écarts ci-dessous sont calculés contre le <strong>stock actuel</strong> (au moment de cet aperçu), pas celui du début du comptage.</p>';
-    h += '<h3 class="sc-h3">Pièces comptées <span class="badge badge-info" id="ap-nb-comptees">' + r.lignes.length + '</span></h3>';
-    if (!r.lignes.length) { h += '<p class="text-muted">Aucune pièce n\'a été comptée.</p>'; }
-    else {
-      h += '<div class="table-responsive"><table class="table table-sm cp-apercu" id="ap-table"><thead><tr><th scope="col">Pièce</th><th scope="col" class="nombre">Compté</th><th scope="col" class="nombre">Stock actuel</th><th scope="col" class="nombre">Écart</th></tr></thead><tbody>';
-      r.lignes.forEach(function (l) {
-        h += '<tr data-piece="' + esc(l.piece_id) + '" class="' + (zero(l.ecart) ? 'text-muted' : '') + '"><td><span class="code">' + esc(l.code) + '</span> ' + esc(l.nom) + (l.actif ? '' : ' <span class="badge badge-danger">désactivée</span>') + '</td><td class="nombre">' + esc(w.fmtQte(l.quantite_comptee)) + '</td><td class="nombre">' + esc(w.fmtQte(l.quantite_actuelle)) + '</td><td class="nombre ' + classeEcart(l.ecart) + '">' + (zero(l.ecart) ? 'aucun' : esc(signe(l.ecart))) + '</td></tr>';
-      });
-      h += '</tbody></table></div>';
-    }
-    h += '<div class="custom-control custom-checkbox my-3"><input type="checkbox" class="custom-control-input" id="ap-zero"><label class="custom-control-label" for="ap-zero">Mettre à 0 les pièces non scannées <span class="text-muted">(' + r.non_scannees.length + ' en stock dans cet emplacement)</span></label></div>';
-    h += '<div id="ap-zero-zone" class="d-none"><p class="mb-1">Ces pièces seront remises à 0 :</p><div class="table-responsive"><table class="table table-sm cp-apercu" id="ap-table-zero"><thead><tr><th scope="col">Pièce</th><th scope="col" class="nombre">Stock actuel</th><th scope="col" class="nombre">Après</th></tr></thead><tbody>';
+    h += '<div class="cp-apercu-resume"><strong>' + esc(r.comptage.emplacement_nom) + '</strong> <small class="text-muted">' + esc(r.comptage.numero) + ' · ' + esc(r.comptage.entreprise_nom) + '</small></div>';
+    if (!r.lignes.length) { h += '<p class="text-muted" id="ap-aucune">Aucune pièce comptée.</p>'; }
+    else { h += '<div class="table-responsive"><table class="table table-sm cp-apercu" id="ap-table"><thead><tr><th scope="col">Pièce</th><th scope="col" class="nombre">Compté</th><th scope="col" class="nombre">Stock actuel</th><th scope="col" class="nombre">Écart</th></tr></thead><tbody>';
+    r.lignes.forEach(function (l) {
+      h += '<tr data-piece="' + esc(l.piece_id) + '" class="' + (zero(l.ecart) ? 'text-muted' : '') + '"><td><span class="code">' + esc(l.code) + '</span> ' + esc(l.nom) + (l.actif ? '' : ' <span class="badge badge-danger">désactivée</span>') + '</td><td class="nombre">' + esc(w.fmtQte(l.quantite_comptee)) + '</td><td class="nombre">' + esc(w.fmtQte(l.quantite_actuelle)) + '</td><td class="nombre ' + classeEcart(l.ecart) + '">' + (zero(l.ecart) ? '—' : esc(signe(l.ecart))) + '</td></tr>';
+    });
+    h += '</tbody></table></div>'; }
+    h += '<div class="custom-control custom-checkbox my-3"><input type="checkbox" class="custom-control-input" id="ap-zero"><label class="custom-control-label" for="ap-zero">Mettre à 0 les pièces non comptées <span class="text-muted">(' + r.non_scannees.length + ')</span></label></div>';
+    h += '<div id="ap-zero-zone" class="d-none"><div class="table-responsive"><table class="table table-sm cp-apercu" id="ap-table-zero"><thead><tr><th scope="col">Pièce</th><th scope="col" class="nombre">Stock actuel</th><th scope="col" class="nombre">Après</th></tr></thead><tbody>';
     r.non_scannees.forEach(function (l) {
       h += '<tr data-piece="' + esc(l.piece_id) + '"><td><span class="code">' + esc(l.code) + '</span> ' + esc(l.nom) + (l.actif ? '' : ' <span class="badge badge-danger">désactivée</span>') + '</td><td class="nombre">' + esc(w.fmtQte(l.quantite_actuelle)) + '</td><td class="nombre cp-ecart-neg">0</td></tr>';
     });
     h += '</tbody></table></div></div>';
     if (!r.non_scannees.length) { h = h.replace('id="ap-zero"', 'id="ap-zero" disabled'); }
     h += '<div id="ap-bilan" class="alert alert-info" role="status"></div><div id="ap-bloque" class="alert alert-danger d-none" role="alert"></div>';
-    h += '<div class="custom-control custom-checkbox mb-2"><input type="checkbox" class="custom-control-input" id="ap-ok"><label class="custom-control-label" for="ap-ok">Je confirme que le stock de « ' + esc(r.comptage.emplacement_nom) + ' » sera modifié avec ces écarts.</label></div>';
+    h += '<div class="custom-control custom-checkbox mb-2"><input type="checkbox" class="custom-control-input" id="ap-ok"><label class="custom-control-label" for="ap-ok">Je confirme la modification du stock de « ' + esc(r.comptage.emplacement_nom) + ' ».</label></div>';
     h += '<div id="ap-erreur" class="text-danger" role="alert"></div>';
     corps.innerHTML = h;
     if (reprise && reprise.zero && r.non_scannees.length) { qs('#ap-zero').checked = true; }
@@ -593,18 +613,17 @@
     var max = r.max_lignes || MAX_LIGNES_DEFAUT, nbDocs = Math.max(1, Math.ceil(ecarts / max));
     qs('#ap-zero-zone').classList.toggle('d-none', !zeroOn);
     var txt;
-    if (!ecarts) { txt = 'Aucun écart : le stock correspond déjà au comptage. Aucun ajustement ne sera créé.'; }
-    else if (nbDocs === 1) { txt = '<strong>' + ecarts + '</strong> ' + (ecarts > 1 ? 'pièces seront ajustées' : 'pièce sera ajustée') + ' : un seul document d\'ajustement sera créé.'; }
-    else { txt = '<strong>' + ecarts + '</strong> pièces seront ajustées : <strong>' + nbDocs + ' documents d\'ajustement</strong> seront créés (' + max + ' pièces au plus chacun), tous ensemble ou aucun.'; }
+    if (!ecarts) { txt = 'Aucun écart : rien à corriger.'; }
+    else { txt = '<strong>' + ecarts + '</strong> ' + (ecarts > 1 ? 'pièces seront corrigées' : 'pièce sera corrigée') + (nbDocs > 1 ? ' (<strong>' + nbDocs + ' documents</strong>)' : '') + '.'; }
     if (zeroOn && !r.lignes.length && r.non_scannees.length) { txt += '<br><strong>Attention : aucune pièce n\'a été comptée. TOUT le stock de cet emplacement sera remis à 0.</strong>'; }
     qs('#ap-bilan').innerHTML = txt;
-    // Une pièce désactivée ne peut plus être ajustée à la hausse : on le dit avant, au lieu de laisser le serveur refuser
+    // Une pièce désactivée ne peut plus être corrigée à la hausse : on le dit avant, au lieu de laisser le serveur refuser
     var bloquees = r.lignes.filter(function (l) { return !l.actif && parseFloat(l.ecart) > 0; }).map(function (l) { return l.code; });
     var bl = qs('#ap-bloque');
     if (bloquees.length) { bl.classList.remove('d-none'); bl.textContent = 'La pièce « ' + bloquees.join(' », « ') + ' » est désactivée : son stock ne peut pas augmenter. Retirez-la du comptage, ou réactivez-la d\'abord.'; }
     else { bl.classList.add('d-none'); bl.textContent = ''; }
     bConfirmer.disabled = !ok || bloquees.length > 0;
-    bConfirmer.textContent = ecarts ? 'Appliquer le comptage (' + ecarts + (ecarts > 1 ? ' ajustements)' : ' ajustement)') : 'Terminer le comptage (aucun écart)';
+    bConfirmer.textContent = ecarts ? 'Appliquer les corrections (' + ecarts + ')' : 'Terminer le comptage (aucun écart)';
   }
   qs('#ap-corps').addEventListener('change', function (e) {
     // Changer la case « non scannées à 0 » change ce qui sera appliqué : la confirmation déjà donnée ne vaut plus, il faut confirmer de nouveau.
@@ -620,16 +639,16 @@
       $('#modal-appliquer').modal('hide');
       var docs = (r.documents && r.documents.length) ? r.documents : (r.document_id ? [{ id: r.document_id, numero: r.numero }] : []);
       var msg = docs.length
-        ? 'Comptage appliqué : le stock a été ajusté (' + esc(r.ecarts) + (r.ecarts > 1 ? ' pièces' : ' pièce') + '). ' + (docs.length > 1 ? 'Ajustements ' : 'Ajustement ') +
+        ? 'Comptage terminé : ' + esc(r.ecarts) + (r.ecarts > 1 ? ' pièces corrigées' : ' pièce corrigée') + '. ' +
           docs.map(function (x, i) { return '<a class="alert-link"' + (i === 0 ? ' id="lien-ajustement-resultat"' : '') + ' href="' + lien('document_voir', x.id) + '">' + esc(x.numero) + '</a>'; }).join(', ') + '.'
-        : 'Comptage terminé : aucun écart, donc aucun ajustement n\'a été nécessaire.';
+        : 'Comptage terminé : aucun écart.';
       alerte('success', msg);
       return charger(true, true);
     }).catch(function (err) {
       if (/termin/i.test(err.message)) { $('#modal-appliquer').modal('hide'); alerte('warning', 'Ce comptage est déjà terminé.'); charger(true); return; }
       if (err.champ === 'apercu') {
         // Le comptage ou le stock a changé depuis l'aperçu : on relit l'aperçu, la confirmation est à refaire
-        chargerApercu({ zero: zeroOn, message: 'Le comptage ou le stock a changé depuis l\'aperçu (un autre écran ou un mouvement). Les écarts ci-dessous ont été recalculés : vérifiez-les, puis confirmez de nouveau.' });
+        chargerApercu({ zero: zeroOn, message: 'Le comptage ou le stock a changé. Vérifiez les corrections, puis confirmez de nouveau.' });
         return;
       }
       qs('#ap-erreur').textContent = err.message;

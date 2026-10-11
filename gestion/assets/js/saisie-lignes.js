@@ -143,7 +143,8 @@
       var ex = lignes.filter(function (l) { return l.piece.id === piece.id; })[0];
       if (ex) {
         var n = num(ex.quantite), a = num(q);
-        ex.quantite = String(Math.round(((n === null ? 0 : n) + a) * 1000) / 1000);
+        var somme = String(Math.round(((n === null ? 0 : n) + a) * 1000) / 1000);
+        ex.quantite = String(ex.quantite).indexOf(',') !== -1 ? somme.replace('.', ',') : somme;      // la virgule saisie reste une virgule
         ex.inQte.value = ex.quantite;
         ex.tr.classList.add('table-success'); setTimeout(function () { ex.tr.classList.remove('table-success'); }, 600);
         maj(); return ex;
@@ -279,7 +280,7 @@
           fermer();       // le texte part vers le scan (code exact) ; s'il est inconnu, la recherche prend le relais (voir scannerCode)
         }
       });
-      champ.addEventListener('blur', function () { setTimeout(fermer, 200); });
+      champ.addEventListener('blur', function () { setTimeout(function () { if (document.activeElement !== champ) { fermer(); } }, 200); });
       // Un champ de scan n'ouvre pas le clavier à l'écran (lecteur de codes-barres) ; un toucher l'ouvre pour chercher par nom.
       champ.addEventListener('click', function () {
         if (champ.getAttribute('inputmode') === 'none') {

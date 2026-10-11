@@ -10,10 +10,40 @@
 .mv-carte .select2-container--default .select2-selection--single .select2-selection__arrow { height: 42px; }
 .mv-carte .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 42px; }
 
-/* Champ de scan */
-.mv-scan { margin-top: .25rem; }
-.mv-scan-label { display: block; font-weight: 600; color: var(--accent); margin-bottom: .3rem; }
-.mv-aide-scan { margin: -.25rem 0 .75rem; }
+/* Étape « pièce » : un seul champ qui scanne ET cherche (liste de suggestions dessous) */
+.mv-scan { position: relative; }
+.mv-carte .scan-box.mv-scan { padding: .3rem; border-radius: 22px; }
+.mv-carte .mv-scan input.scan-input { min-height: 58px; font-size: 1.3rem; letter-spacing: 0; padding-left: 3.2rem; }
+.mv-scan-icone { position: absolute; left: 1.5rem; top: 50%; transform: translateY(-50%); font-size: 1.4rem; color: var(--accent-ink); pointer-events: none; z-index: 3; }
+.mv-suggestions { position: absolute; left: 0; right: 0; top: calc(100% + .4rem); z-index: 50; list-style: none; margin: 0; padding: .3rem;
+  background: var(--surface); border: 1px solid var(--line-strong, #ced4da); border-radius: 18px; box-shadow: 0 14px 30px rgba(31, 30, 29, .2); max-height: 19rem; overflow-y: auto; }
+.mv-suggestions[hidden] { display: none; }
+.mv-suggestions li { display: flex; align-items: center; gap: .8rem; min-height: 48px; padding: .5rem .85rem; border-radius: 12px; cursor: pointer; }
+.mv-suggestions li:hover, .mv-suggestions li[aria-selected="true"] { background: var(--accent-soft); }
+.mv-sug-code { flex: 0 0 auto; white-space: nowrap; font-weight: 600; color: var(--accent-ink); }
+.mv-sug-nom { min-width: 0; }
+
+/* Étape « où » du déplacement : de → vers */
+.mv-de-vers { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); column-gap: .75rem; align-items: end; }
+.mv-fleche { height: 44px; margin-bottom: 1rem; display: flex; align-items: center; justify-content: center; color: var(--accent-ink); font-size: 1.2rem; }
+@media (max-width: 767.98px) {
+  .mv-de-vers { grid-template-columns: minmax(0, 1fr); }
+  .mv-fleche { height: auto; margin: -.5rem 0 .25rem; }
+  .mv-fleche i { transform: rotate(90deg); }
+}
+
+/* Plus d'options : champs rares repliés */
+.mv-plus { margin: .25rem 0; }
+.mv-carte .mv-plus-btn { padding-left: 0; font-weight: 600; color: var(--accent-ink); text-decoration: none; }
+.mv-carte .mv-plus-btn:hover { text-decoration: underline; }
+.mv-plus-icone { display: inline-block; width: 1rem; font-size: .8rem; }
+.mv-options { margin: .25rem 0 .75rem; padding: 1rem 1rem .25rem; background: rgba(0, 0, 0, .03); border-radius: 16px; }
+
+/* Quantité : gros boutons − / + de part et d'autre du champ */
+.mv-pas { display: inline-flex; align-items: center; justify-content: flex-end; gap: .35rem; }
+.mv-lignes .mv-pas .mv-pas-btn { width: 48px; min-width: 48px; height: 48px; min-height: 48px; padding: 0; font-size: 1.5rem; font-weight: 600; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+.mv-lignes .mv-pas input.form-control { width: 4.6rem; min-width: 4.6rem; max-width: 5.5rem; min-height: 48px; text-align: center !important; font-size: 1.15rem; font-weight: 600; padding-left: .25rem; padding-right: .25rem; }
+.mv-lignes td.mv-c-qte { white-space: nowrap; }
 
 /* Lignes de saisie (composant) */
 .mv-lignes table { background: var(--surface); }
@@ -29,8 +59,7 @@
 .mv-total-estime:empty { display: none; }
 .mv-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
 .mv-actions .btn-lg { min-height: 52px; padding-left: 1.75rem; padding-right: 1.75rem; }
-.mv-erreur, .mv-succes { font-size: 1.05rem; }
-.mv-succes a { font-weight: 700; text-decoration: underline; }
+.mv-erreur { font-size: 1.05rem; }
 
 /* Bouton d'action destructrice (le thème redéfinit .btn-danger : on le force explicitement) */
 .mv-btn-danger { background: #dc3545; border-color: #dc3545; color: #fff; font-size: 1rem; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
@@ -63,6 +92,30 @@
 @media (max-width: 767.98px) {
   .mv-actions .btn-lg { width: 100%; }
 }
+.mv-actions .btn-lg { min-width: 220px; font-size: 1.2rem; }
+
+/* Téléphone : chaque ligne devient une carte (nom, disponible, quantité − / +, coût) au lieu d'un tableau qui déborde */
+@media (max-width: 575.98px) {
+  .mv-lignes table, .mv-lignes tbody { display: block; width: 100%; }
+  .mv-lignes thead { display: none; }
+  .mv-lignes tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "code code x" "nom nom x" "dispo dispo dispo" "qte qte qte" "cout total total";
+    column-gap: .6rem; align-items: center; padding: .75rem .25rem; border-bottom: 1px solid var(--line, #dee2e6); }
+  .mv-lignes tbody td { display: block; border: 0; padding: .15rem 0; width: auto !important; text-align: left; white-space: normal; }
+  .mv-lignes td.mv-c-code { grid-area: code; font-size: .82rem; color: #495057; }
+  .mv-lignes td.mv-c-nom { grid-area: nom; font-weight: 600; font-size: 1.05rem; }
+  .mv-lignes td.mv-c-dispo { grid-area: dispo; }
+  .mv-lignes td.mv-c-qte { grid-area: qte; padding-top: .35rem; }
+  .mv-lignes td.mv-c-cout { grid-area: cout; }
+  .mv-lignes td.mv-c-total { grid-area: total; text-align: right; align-self: end; font-weight: 600; }
+  .mv-lignes td.mv-c-retirer { grid-area: x; align-self: start; }
+  .mv-lignes td[data-label]::before { content: attr(data-label); display: inline; font-size: .8rem; font-weight: 400; color: #495057; margin-right: .35rem; }
+  .mv-lignes td.mv-c-cout::before { display: block; margin: 0 0 .1rem; }
+  .mv-lignes td[data-label]:empty::before { display: none; }
+  .mv-lignes .mv-pas { display: flex; justify-content: flex-start; }
+  .mv-lignes .mv-pas input.form-control { flex: 1 1 auto; max-width: none; }
+  .mv-lignes td.mv-c-cout input.form-control { width: 100%; }
+  .mv-options { padding-left: .75rem; padding-right: .75rem; }
+}
 
 @media print {
   .mv-barre, .modal, .mv-filtres { display: none !important; }
@@ -76,14 +129,12 @@
 /* Barre d'enregistrement toujours visible (longues listes, tablette) */
 .mv-actions { position: sticky; bottom: 0; z-index: 5; background: var(--surface); margin: .75rem -1.25rem -1.25rem; padding: .75rem 1.25rem; border-top: 1px solid #dee2e6; border-radius: 0 0 .25rem .25rem; }
 .mv-erreur { scroll-margin-bottom: 110px; }
-.mv-succes { scroll-margin-top: 80px; }
-#table-documents td:nth-child(-n+2), #table-documents td:nth-child(4) { white-space: nowrap; }      /* numéro, statut, date */
+#table-documents td:nth-child(-n+3) { white-space: nowrap; }      /* numéro (et « annulé »), type, date */
 
 /* Case à cocher : la case elle-même est cliquable (et grande), le libellé aussi */
 .mv-check { display: flex; align-items: center; gap: .6rem; min-height: 44px; margin: 0; cursor: pointer; font-weight: 600; }
 .mv-check input[type=checkbox] { width: 1.4rem; height: 1.4rem; margin: 0; flex: 0 0 auto; }
 .mv-check input[disabled] + span { color: #6c757d; cursor: not-allowed; }
-.mv-maj-prix small { margin-top: -.25rem; }
 
 /* Le champ qui reçoit le focus ne reste pas caché sous la barre d'enregistrement */
 html { scroll-padding-bottom: 6rem; }
@@ -107,10 +158,8 @@ html { scroll-padding-bottom: 6rem; }
 #table-documents { font-size: .94rem; }
 #table-documents th, #table-documents td { padding-left: .55rem; padding-right: .55rem; }
 
-/* +/− de l'ajustement : un bouton à côté de la quantité */
-.mv-qte-signee { display: flex; align-items: center; justify-content: flex-end; gap: .35rem; }
-.mv-qte-signee .mv-signe { min-width: 54px; padding-left: .4rem; padding-right: .4rem; white-space: nowrap; }
-.mv-qte-signee input.form-control { min-width: 84px; max-width: 120px; }
+/* +/− de la correction de stock : le bouton de signe passe devant − / + */
+.mv-qte-signee .mv-signe { min-width: 54px; height: 48px; padding-left: .4rem; padding-right: .4rem; margin-right: .35rem; white-space: nowrap; font-size: .95rem; }
 
 /* Focus bien visible (la bordure de 1 px d'origine ne suffit pas sur une tablette) */
 .mv-carte .form-control:focus, .mv-filtres .form-control:focus, .modal .form-control:focus {

@@ -242,7 +242,9 @@
       searching: true,
       search: { search: champRech.value.trim() },        // recherche reçue par l'adresse (?q=) : incluse dans la première requête
       order: [[1, 'asc']],
-      dom: '<"row"<"col-sm-12"tr>><"row mt-2"<"col-sm-12 col-md-4"l><"col-sm-12 col-md-3"i><"col-sm-12 col-md-5"p>>',
+      lengthChange: false,
+      dom: '<"row"<"col-sm-12"tr>><"row mt-2"<"col-sm-12 col-md-6"i><"col-sm-12 col-md-6"p>>',
+      drawCallback: function () { masquerPagination(this.api()); },
       ajax: {
         url: 'app/ajax/pieces_data.php',
         type: 'POST',
@@ -252,25 +254,26 @@
           d.avec_stock = q('#f-stock').checked ? 1 : 0;
         }
       },
+      // les valeurs texte arrivent déjà échappées du serveur ; « statut » et « unité » servent à l'affichage de la ligne
       columns: [
         { data: 'code' },
-        { data: 'nom' },
-        { data: 'categorie', defaultContent: '' },
-        { data: 'unite' },
-        { data: 'quantite', className: 'nombre', render: function (v, type) { return type === 'display' ? w.fmtQte(v) : v; } },
-        { data: 'statut', render: function (v, type) {
+        { data: 'nom', render: function (v, type, row) {
             if (type !== 'display') { return v; }
-            return parseInt(v, 10) === 1 ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-secondary">Désactivée</span>';
+            return v + (parseInt(row.statut, 10) === 1 ? '' : ' <span class="badge badge-secondary">Désactivée</span>');
+          } },
+        { data: 'categorie', defaultContent: '', className: 'd-none d-sm-table-cell' },
+        { data: 'quantite', className: 'nombre', render: function (v, type, row) {
+            return type === 'display' ? w.fmtQte(v) + ' <span class="text-muted">' + row.unite + '</span>' : v;
           } }
       ],
       // le serveur applique les filtres au total : « vide » veut donc toujours dire « rien ne correspond à ces critères »
       language: $.extend({}, LANG, {
-        zeroRecords: 'Aucune pièce ne correspond à ces critères.',
-        emptyTable: 'Aucune pièce ne correspond à ces critères.'
+        zeroRecords: 'Aucune pièce trouvée.',
+        emptyTable: 'Aucune pièce trouvée.'
       }),
       createdRow: function (tr) { tr.classList.add('cliquable'); }
     });
-    surveillerChargement('#table-pieces', 6);
+    surveillerChargement('#table-pieces', 4);
 
     // Un clic sur la ligne ouvre la fiche (zone de clic large pour la tablette)
     $('#table-pieces tbody').on('click', 'tr.cliquable', function (e) {
@@ -290,15 +293,34 @@
     // Rappel des filtres pour l'impression (les filtres eux-mêmes ne s'impriment pas)
     function texteFiltres() {
       var cat = q('#f-categorie'), st = q('#f-statut');
-      var parts = ['Statut : ' + st.options[st.selectedIndex].text.toLowerCase()];
+      var parts = ['Statut : ' + ({ actives: 'actives', inactives: 'désactivées', toutes: 'toutes' }[st.value] || st.value)];
       if (cat.value !== '') { parts.push('Catégorie : ' + cat.options[cat.selectedIndex].text); }
       if (q('#f-stock').checked) { parts.push('Avec stock seulement'); }
       if (champRech.value.trim() !== '') { parts.push('Recherche : « ' + champRech.value.trim() + ' »'); }
-      var portee = q('.cat-portee strong');
-      if (portee) { parts.push('Entreprises : ' + portee.textContent); }
+      var zone = q('#filtres-impression');
+      if (zone && zone.getAttribute('data-portee')) { parts.push('Entreprises : ' + zone.getAttribute('data-portee')); }
       return parts.join(' · ');
     }
     table.on('draw', function () { var z = q('#filtres-impression'); if (z) { z.textContent = texteFiltres(); } });
+
+    // Liste vide : une ligne et l'action utile (tout afficher, ou ajouter une pièce)
+    var gestionnaire = racine.getAttribute('data-gest') === '1';
+    function filtresActifs() {
+      return champRech.value.trim() !== '' || q('#f-categorie').value !== '' || q('#f-statut').value !== 'actives' || q('#f-stock').checked;
+    }
+    table.on('draw', function () {
+      if (!q('#table-pieces td.dataTables_empty')) { return; }
+      if (filtresActifs()) {
+        etatVide('#table-pieces', 'Aucune pièce trouvée.', { libelle: 'Tout afficher', clic: function () {
+          champRech.value = ''; q('#f-categorie').value = ''; q('#f-statut').value = 'actives'; q('#f-stock').checked = false;
+          table.search('').draw();
+        } });
+      } else if (gestionnaire) {
+        etatVide('#table-pieces', 'Aucune pièce.', { libelle: 'Ajouter une pièce', href: 'index.php?page=piece_edit' });
+      } else {
+        etatVide('#table-pieces', 'Aucune pièce.', null);
+      }
+    });
 
     // Recherche en tapant (code, nom ou alias, côté serveur)
     function filtrer() { table.search(champRech.value.trim()).draw(); }
@@ -412,18 +434,17 @@
 
       var zone = q('#prix-contenu');
       if (!etat.prix.length) {
-        zone.innerHTML = '<p class="text-muted mb-0">Aucun prix de fournisseur enregistré pour cette pièce. Cliquez sur « Ajouter un prix ».</p>';
+        zone.innerHTML = '<p class="text-muted mb-0">Aucun prix.</p>';
       } else {
         // une seule colonne d'écart (une ligne par entreprise) : le tableau tient sur une tablette
-        var h = '<table class="table table-sm cat-table mb-0" id="table-prix"><thead><tr><th scope="col">Fournisseur</th><th scope="col" class="cat-th-souple">N° de pièce chez le fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date du prix</th>';
-        if (etat.couts.length) { h += '<th scope="col" class="cat-th-souple cat-ecarts">Écart vs coût moyen</th>'; }
+        var h = '<table class="table table-sm cat-table mb-0" id="table-prix"><thead><tr><th scope="col">Fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date</th>';
+        if (etat.couts.length) { h += '<th scope="col" class="cat-th-souple cat-ecarts">Écart au coût moyen</th>'; }
         h += '<th scope="col" class="no-print"><span class="sr-only">Actions</span></th></tr></thead><tbody>';
         etat.prix.forEach(function (l) {
           h += '<tr data-fournisseur="' + esc(l.fournisseur_id) + '"><td class="cat-souple">' + esc(l.fournisseur) +
             (l.actif ? '' : ' <span class="badge badge-secondary">Désactivé</span>') +
             (l.meilleur ? ' <span class="badge badge-success">Meilleur prix</span>' : '') +
-            (l.note ? '<div class="small text-muted">' + esc(l.note) + '</div>' : '') + '</td>' +
-            '<td class="code">' + esc(l.no_fournisseur || '') + '</td>' +
+            ((l.no_fournisseur || l.note) ? '<div class="small text-muted">' + (l.no_fournisseur ? '<span class="code">' + esc(l.no_fournisseur) + '</span>' : '') + (l.no_fournisseur && l.note ? ' · ' : '') + esc(l.note || '') + '</div>' : '') + '</td>' +
             '<td class="nombre">' + esc(w.fmtArgent(l.prix, 4)) + '</td>' +
             '<td class="text-nowrap">' + esc(l.date_prix) + '</td>';
           if (etat.couts.length) {
@@ -442,9 +463,9 @@
 
       var hz = q('#hist-contenu');
       if (!etat.historique.length) {
-        hz.innerHTML = '<p class="text-muted mb-0">Aucun changement de prix enregistré.</p>';
+        hz.innerHTML = '<p class="text-muted mb-0">Aucun changement.</p>';
       } else {
-        var t = '<div class="table-responsive"><table class="table table-sm cat-table mb-0" id="table-hist-prix"><thead><tr><th scope="col">Date du prix</th><th scope="col">Fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Utilisateur</th></tr></thead><tbody>';
+        var t = '<div class="table-responsive"><table class="table table-sm cat-table mb-0" id="table-hist-prix"><thead><tr><th scope="col">Date</th><th scope="col">Fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Utilisateur</th></tr></thead><tbody>';
         etat.historique.forEach(function (l) {
           t += '<tr><td class="text-nowrap">' + esc(l.date_prix) + '</td><td class="cat-souple">' + esc(l.fournisseur || '') + '</td><td class="nombre">' + esc(w.fmtArgent(l.prix, 4)) + '</td><td>' + esc(l.utilisateur || '') + '</td></tr>';
         });
@@ -481,12 +502,13 @@
         q('#prix-no').value = ligne.no_fournisseur || '';
         q('#prix-note').value = ligne.note || '';
         q('#modal-prix-titre').textContent = 'Modifier le prix — ' + ligne.fournisseur;
+        plusDe('options-prix', !!(ligne.no_fournisseur || ligne.note));
       } else {
         var deja = {};
         etat.prix.forEach(function (l) { deja[String(l.fournisseur_id)] = true; });
         var libres = etat.fournisseurs.filter(function (f) { return !deja[String(f.id)]; });
         if (!libres.length) {
-          w.toast(etat.fournisseurs.length ? 'Tous les fournisseurs actifs ont déjà un prix pour cette pièce : modifiez un prix existant, ou créez d\'abord un fournisseur.' : 'Aucun fournisseur actif : créez d\'abord un fournisseur (menu Catalogue > Fournisseurs).', 'warning');
+          w.toast(etat.fournisseurs.length ? 'Tous les fournisseurs ont déjà un prix pour cette pièce.' : 'Aucun fournisseur actif. Ajoutez d\'abord un fournisseur.', 'warning');
           return;
         }
         option('', '— Choisissez un fournisseur —');
@@ -496,6 +518,7 @@
         q('#prix-no').value = '';
         q('#prix-note').value = '';
         q('#modal-prix-titre').textContent = 'Ajouter un prix';
+        plusDe('options-prix', false);
       }
       var d = q('#prix-date'), auj = etat.aujourdhui || aujourdhui();      // date du serveur (le fuseau du poste peut différer)
       d.max = auj;
@@ -537,7 +560,7 @@
           if (err.champ === 'fournisseur_id') { cible = selFour; }
           else if (err.champ === 'prix') { cible = q('#prix-montant'); }
           else if (err.champ === 'date') { cible = q('#prix-date'); }
-          if (cible) { marquerInvalide(cible, zoneErr); cible.focus(); }
+          if (cible) { montrerChamp(cible); marquerInvalide(cible, zoneErr); cible.focus(); }
         });
     });
 
@@ -580,6 +603,7 @@
     function erreurChamp(champ, texte) {
       var zone = zoneDe(champ);
       if (zone) { zone.textContent = texte; zone.hidden = false; }
+      montrerChamp(champDe(champ));
       marquerInvalide(champDe(champ), zone);
     }
     function effacer(champ) {
@@ -602,13 +626,11 @@
         .then(function (r) { if (!r.disponible) { erreurChamp('code', r.message); } })
         .catch(function () { /* la vérification finale se fait à l'enregistrement */ });
     });
-    var btnProp = q('#btn-proposer');
-    if (btnProp) {
-      btnProp.addEventListener('click', function () {
-        envoyer([btnProp], function () { return api.get('app/ajax/piece_code_proposer.php'); }, true)
-          .then(function (r) { champCode.value = r.code; effacer('code'); q('#f-nom').focus(); })
-          .catch(function (err) { w.toast(msg(err), 'danger'); });
-      });
+    // Nouvelle pièce : le prochain code libre est déjà inscrit (la personne n'a rien à chercher) ; elle peut le changer.
+    if (!pieceId && champCode.value.trim() === '') {
+      api.get('app/ajax/piece_code_proposer.php').then(function (r) {
+        if (r && r.code && champCode.value.trim() === '') { champCode.value = r.code; effacer('code'); }
+      }).catch(function () { /* le code se saisit à la main ; l'enregistrement le vérifie */ });
     }
     ['nom', 'description', 'categorie_id', 'unite'].forEach(function (n) {
       var el = form.querySelector('[name="' + n + '"]');
@@ -650,9 +672,7 @@
     function rendreAlias() {
       var ul = q('#liste-alias');
       ul.innerHTML = '';
-      if (!alias.length) {
-        var vide = document.createElement('li'); vide.className = 'text-muted'; vide.textContent = 'Aucun code-barres alias.'; ul.appendChild(vide); return;
-      }
+      if (!alias.length) { return; }
       alias.forEach(function (a, i) {
         var li = document.createElement('li');
         var badge = document.createElement('span'); badge.className = 'badge badge-info'; badge.textContent = NOMS_TYPE[a.type] || a.type;
@@ -678,7 +698,7 @@
         erreurChamp('codes', 'Le code « ' + code + ' » est déjà dans la liste.'); return Promise.resolve(false);
       }
       if (code.toUpperCase() === nettoyer(champCode.value).toUpperCase()) {
-        erreurChamp('codes', 'Le code « ' + code + ' » est déjà le code interne de cette pièce : il n\'a pas besoin d\'alias.'); return Promise.resolve(false);
+        erreurChamp('codes', 'Le code « ' + code + ' » est déjà le code interne de cette pièce.'); return Promise.resolve(false);
       }
       return api.get('app/ajax/piece_code_verifier.php', { code: code, role: 'alias', piece_id: pieceId })
         .then(function (r) {
@@ -793,7 +813,7 @@
       q('#f-actif').addEventListener('change', function () { confirmeDesactivation = false; });
     }
 
-    if (!pieceId) { q('#f-code').focus(); } else { q('#f-nom').focus(); }
+    q('#f-nom').focus();
   }
 
   // ===================================================================================
@@ -806,6 +826,9 @@
     function texteSur(v, t) { return t === 'display' ? esc(v) : (v || ''); }
 
     var table = $('#table-fournisseurs').DataTable({
+      lengthChange: false,
+      dom: 'f<"row"<"col-sm-12"tr>><"row mt-2"<"col-sm-12 col-md-6"i><"col-sm-12 col-md-6"p>>',
+      drawCallback: function () { masquerPagination(this.api()); },
       ajax: {
         url: 'app/ajax/fournisseur_liste.php',
         data: function (d) { d.statut = q('#f-statut').value; },
@@ -813,37 +836,40 @@
       },
       order: [[0, 'asc']],
       columns: [
-        { data: 'nom', type: 'fr', render: function (v, type) {
+        { data: 'nom', type: 'fr', render: function (v, type, row) {
             if (type !== 'display') { return v; }
-            return '<a href="#" class="font-weight-bold" data-action="prix" title="Voir les prix de ce fournisseur">' + esc(v) + '</a>';
+            return '<a href="#" class="font-weight-bold" data-action="prix" title="Voir les prix de ce fournisseur">' + esc(v) + '</a>' +
+              (row.actif ? '' : ' <span class="badge badge-secondary">Désactivé</span>');
           } },
         // Contact et courriel : masqués sous 1200 px (tablette, menu ouvert) pour que les boutons d'action restent à l'écran ; ils se voient dans « Modifier »
         { data: 'contact', type: 'fr', defaultContent: '', className: 'd-none d-xl-table-cell', render: texteSur },
         { data: 'telephone', defaultContent: '', className: 'text-nowrap', render: texteSur },
         { data: 'courriel', type: 'fr', defaultContent: '', className: 'd-none d-xl-table-cell', render: texteSur },
         { data: 'nb_prix', className: 'nombre' },
-        { data: 'actif', render: function (v, t) {
-            if (t !== 'display') { return v ? 1 : 0; }
-            return v ? '<span class="badge badge-success">Actif</span>' : '<span class="badge badge-secondary">Désactivé</span>';
-          } },
         { data: null, orderable: false, searchable: false, className: 'text-nowrap text-right no-print col-actions', render: function (v, t, row) {
             return '<button type="button" class="btn btn-outline-primary btn-sm" data-action="modifier" title="Modifier"><i class="fas fa-pen" aria-hidden="true"></i><span class="sr-only">Modifier ' + esc(row.nom) + '</span></button>' +
               '<button type="button" class="btn ' + (row.actif ? 'btn-outline-danger' : 'btn-outline-success') + ' btn-sm" data-action="activer" title="' + (row.actif ? 'Désactiver' : 'Réactiver') + '"><i class="fas ' + (row.actif ? 'fa-ban' : 'fa-undo') + '" aria-hidden="true"></i><span class="sr-only">' + (row.actif ? 'Désactiver ' : 'Réactiver ') + esc(row.nom) + '</span></button>';
           } }
       ],
-      language: $.extend({}, LANG, { zeroRecords: 'Aucun fournisseur ne correspond.', emptyTable: 'Aucun fournisseur. Cliquez sur « Nouveau fournisseur » pour commencer.', search: 'Rechercher :' }),
+      language: $.extend({}, LANG, { zeroRecords: 'Aucun fournisseur trouvé.', emptyTable: 'Aucun fournisseur.', search: '' }),
       createdRow: function (tr) { tr.classList.add('cliquable'); }
     });
-    rechercheSansAccents(table);
-    surveillerChargement('#table-fournisseurs', 7);
+    preparerRecherche(table, 'Rechercher un fournisseur…');
+    surveillerChargement('#table-fournisseurs', 6);
     q('#f-statut').addEventListener('change', function () { table.ajax.reload(); });
+    table.on('draw', function () {
+      if (q('#table-fournisseurs td.dataTables_empty') && table.search() === '' && q('#f-statut').value !== 'inactifs') {
+        etatVide('#table-fournisseurs', 'Aucun fournisseur.', { libelle: 'Ajouter un fournisseur', attr: ['data-action', 'ajouter'] });
+      }
+    });
 
     // ---- création / modification ------------------------------------------------------------------------
     function ouvrir(f, declencheur) {
       effacerErreurs(formF);
       montrer(zoneErr, false);
       idEdition = f ? f.id : 0;
-      q('#modal-fournisseur-titre').textContent = f ? 'Modifier le fournisseur' : 'Nouveau fournisseur';
+      q('#modal-fournisseur-titre').textContent = f ? 'Modifier le fournisseur' : 'Ajouter un fournisseur';
+      plusDe('options-fournisseur', !!(f && (f.adresse || f.notes)));
       q('#fo-nom').value = f ? f.nom : '';
       q('#fo-contact').value = f ? (f.contact || '') : '';
       q('#fo-telephone').value = f ? (f.telephone || '') : '';
@@ -853,6 +879,7 @@
       ouvrirModal('#modal-fournisseur', '#fo-nom', repli, declencheur);
     }
     q('#btn-nouveau').addEventListener('click', function () { ouvrir(null); });
+    $('#table-fournisseurs tbody').on('click', 'button[data-action="ajouter"]', function () { ouvrir(null, this); });
 
     formF.addEventListener('submit', function (e) {
       e.preventDefault();
@@ -871,22 +898,23 @@
         .catch(function (err) {
           alerte(zoneErr, msg(err));
           var map = { nom: '#fo-nom', courriel: '#fo-courriel', contact: '#fo-contact', telephone: '#fo-telephone', adresse: '#fo-adresse', notes: '#fo-notes' };
-          if (err.champ && map[err.champ]) { marquerInvalide(q(map[err.champ]), zoneErr); q(map[err.champ]).focus(); }
+          if (err.champ && map[err.champ]) { montrerChamp(q(map[err.champ])); marquerInvalide(q(map[err.champ]), zoneErr); q(map[err.champ]).focus(); }
         });
     });
 
     // ---- prix de ce fournisseur ----------------------------------------------------------------------------
     function voirPrix(f, declencheur) {
       var zone = q('#prix-fournisseur-contenu');
-      q('#modal-prix-fournisseur-titre').textContent = 'Prix de ce fournisseur — ' + f.nom;
+      q('#modal-prix-fournisseur-titre').textContent = 'Prix — ' + f.nom;
       zone.innerHTML = '<span class="text-muted">Chargement…</span>';
       ouvrirModal('#modal-prix-fournisseur', null, repli, declencheur);
       api.get('app/ajax/fournisseur_prix.php', { id: f.id }).then(function (r) {
-        if (!r.prix.length) { zone.innerHTML = '<p class="mb-0 text-muted">Aucun prix enregistré pour ce fournisseur. Les prix s\'ajoutent depuis la fiche d\'une pièce.</p>'; return; }
-        var h = '<div class="table-responsive"><table class="table table-sm cat-table mb-0" id="table-prix-fournisseur"><thead><tr><th scope="col">Pièce</th><th scope="col" class="cat-th-souple">N° de pièce chez le fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date du prix</th></tr></thead><tbody>';
+        if (!r.prix.length) { zone.innerHTML = '<p class="mb-0 text-muted">Aucun prix. <a href="index.php?page=pieces">Choisir une pièce</a></p>'; return; }
+        var h = '<div class="table-responsive"><table class="table table-sm cat-table mb-0" id="table-prix-fournisseur"><thead><tr><th scope="col">Pièce</th><th scope="col" class="nombre">Prix</th><th scope="col">Date</th></tr></thead><tbody>';
         r.prix.forEach(function (l) {
           h += '<tr><td class="cat-souple"><a class="code" href="index.php?page=piece_voir&amp;id=' + esc(l.piece_id) + '">' + esc(l.code) + '</a> ' + esc(l.nom) +
-            (l.actif ? '' : ' <span class="badge badge-secondary">Désactivée</span>') + '</td><td class="code">' + esc(l.no_fournisseur || '') + '</td>' +
+            (l.actif ? '' : ' <span class="badge badge-secondary">Désactivée</span>') +
+            (l.no_fournisseur ? '<div class="small text-muted"><span class="code">' + esc(l.no_fournisseur) + '</span></div>' : '') + '</td>' +
             '<td class="nombre">' + esc(w.fmtArgent(l.prix, 4)) + ' <small class="text-muted">/ ' + esc(l.unite) + '</small></td><td class="text-nowrap">' + esc(l.date_prix) + '</td></tr>';
         });
         zone.innerHTML = h + '</tbody></table></div>';
@@ -930,11 +958,14 @@
     function repli() { return q('#btn-nouvelle'); }
 
     var table = $('#table-categories').DataTable({
+      lengthChange: false,
+      dom: 'f<"row"<"col-sm-12"tr>><"row mt-2"<"col-sm-12 col-md-6"i><"col-sm-12 col-md-6"p>>',
+      drawCallback: function () { masquerPagination(this.api()); },
       ajax: { url: 'app/ajax/categorie_liste.php', dataSrc: 'categories' },
       order: [[0, 'asc']],
       columns: [
         { data: 'nom', type: 'fr', render: function (v, t) { return t === 'display' ? esc(v) : v; } },
-        { data: 'description', type: 'fr', defaultContent: '', render: function (v, t) { return t === 'display' ? esc(v) : (v || ''); } },
+        { data: 'description', type: 'fr', defaultContent: '', className: 'd-none d-md-table-cell', render: function (v, t) { return t === 'display' ? esc(v) : (v || ''); } },
         { data: 'nb_pieces', className: 'nombre', render: function (v, t, row) {
             if (t !== 'display') { return v; }
             return v > 0 ? '<a class="cat-lien-cible" href="index.php?page=pieces&amp;statut=toutes&amp;categorie_id=' + esc(row.id) + '" title="Voir ces pièces">' + esc(v) + '</a>' : '0';
@@ -944,21 +975,27 @@
               '<button type="button" class="btn btn-outline-danger btn-sm" data-action="supprimer" title="Supprimer"><i class="fas fa-trash" aria-hidden="true"></i><span class="sr-only">Supprimer ' + esc(row.nom) + '</span></button>';
           } }
       ],
-      language: $.extend({}, LANG, { zeroRecords: 'Aucune catégorie ne correspond.', emptyTable: 'Aucune catégorie. Cliquez sur « Nouvelle catégorie » pour commencer.' })
+      language: $.extend({}, LANG, { zeroRecords: 'Aucune catégorie trouvée.', emptyTable: 'Aucune catégorie.', search: '' })
     });
-    rechercheSansAccents(table);
+    preparerRecherche(table, 'Rechercher une catégorie…');
     surveillerChargement('#table-categories', 4);
+    table.on('draw', function () {
+      if (q('#table-categories td.dataTables_empty') && table.search() === '') {
+        etatVide('#table-categories', 'Aucune catégorie.', { libelle: 'Ajouter une catégorie', attr: ['data-action', 'ajouter'] });
+      }
+    });
 
     function ouvrir(c, declencheur) {
       effacerErreurs(formC);
       montrer(zoneErr, false);
       idEdition = c ? c.id : 0;
-      q('#modal-categorie-titre').textContent = c ? 'Modifier la catégorie' : 'Nouvelle catégorie';
+      q('#modal-categorie-titre').textContent = c ? 'Modifier la catégorie' : 'Ajouter une catégorie';
       q('#ca-nom').value = c ? c.nom : '';
       q('#ca-description').value = c ? (c.description || '') : '';
       ouvrirModal('#modal-categorie', '#ca-nom', repli, declencheur);
     }
     q('#btn-nouvelle').addEventListener('click', function () { ouvrir(null); });
+    $('#table-categories tbody').on('click', 'button[data-action="ajouter"]', function () { ouvrir(null, this); });
 
     formC.addEventListener('submit', function (e) {
       e.preventDefault();
@@ -979,7 +1016,7 @@
 
     $('#table-categories tbody').on('click', 'button[data-action]', function () {
       var b = this, ligne = table.row($(b).closest('tr')).data();
-      if (!ligne) { return; }
+      if (!ligne) { return; }          // ligne « vide » : son bouton « Ajouter » a son propre gestionnaire
       if (b.getAttribute('data-action') === 'modifier') { ouvrir(ligne, b); return; }
       if (ligne.nb_pieces > 0) {
         // message long avec une action à faire : il reste affiché 12 secondes
@@ -997,5 +1034,5 @@
 
   // ===================================================================================
   var INIT = { pieces: initPieces, piece_voir: initFiche, piece_edit: initEdit, fournisseurs: initFournisseurs, categories: initCategories };
-  if (INIT[page]) { $(function () { INIT[page](); }); }
+  if (INIT[page]) { $(function () { brancherPlus(); INIT[page](); }); }
 })(window, jQuery);

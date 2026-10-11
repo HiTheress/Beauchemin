@@ -24,11 +24,12 @@ const L = require('./lib.js');
   // recherche select2
   await p.click('.select2-selection'); await p.waitForSelector('.select2-search__field'); await p.fill('.select2-search__field', 'gicl'); await p.waitForSelector('.select2-results__option:has-text("P-0003")'); await p.click('.select2-results__option:has-text("P-0003")'); await p.waitForTimeout(500);
   L.verifier((await p.$$('#lignes tbody tr')).length === 2, 'recherche ajoute/incrémente (P-0003 déjà là)');
-  await p.click('#lignes tbody tr:nth-child(1) button'); 
+  await p.click('#lignes tbody tr:nth-child(1) button[aria-label^="Retirer"]');
   L.verifier((await p.$$('#lignes tbody tr')).length === 1, 'retrait d\'une ligne');
+  L.verifier((await p.$$('#lignes tbody tr:nth-child(1) .mv-pas')).length === 0, 'sans l\'option stepper : pas de boutons − / + (comportement d\'origine conservé pour la facture interne)');
   // rafale : 40 scans envoyés dans le même instant (sans attendre) — aucun ne doit être perdu
   await p.evaluate(() => { document.querySelector('#lignes').dispatchEvent(new Event('x')); });
-  await p.click('#lignes tbody tr:nth-child(1) button').catch(() => {});
+  await p.click('#lignes tbody tr:nth-child(1) button[aria-label^="Retirer"]').catch(() => {});
   await p.evaluate(() => {
     const el = document.querySelector('#scan');
     for (let i = 0; i < 40; i++) { el.value = (i % 2 ? 'P-0001' : '012345678905'); el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
@@ -59,5 +60,60 @@ const L = require('./lib.js');
   const vraies = p.erreurs.filter(e => !/404/.test(e));   // le 404 vient de notre faux tableau d'essai
   L.verifier(vraies.length === 0, 'aucune erreur console : ' + JSON.stringify(vraies));
   await p.screenshot({ path: '/tmp/composant-lignes.png' });
+
+  // ====== Mode « fusion » : un seul champ qui scanne ET cherche, boutons − / + ======
+  await L.aller(p, '_essai_lignes&mode=fusion');
+  L.verifier(await p.$eval('#scan', e => e.getAttribute('inputmode')) === 'none' && (await p.$$('.select2-container')).length === 0, 'fusion : champ de scan sans clavier à l\'écran, aucun select2');
+  await L.scanner(p, '#scan', 'P-0001'); await p.waitForFunction(() => document.querySelectorAll('#lignes tbody tr').length === 1);
+  const qte = () => p.$eval('#lignes tbody tr:nth-child(1) input', e => e.value);
+  L.verifier(await qte() === '1' && await p.$eval('#lignes tbody tr:nth-child(1) button[aria-label^="Diminuer"]', b => b.disabled), 'fusion : quantité 1, le bouton − est désactivé (pas de quantité sous 1)');
+  await p.click('#lignes tbody tr:nth-child(1) button[aria-label^="Augmenter"]');
+  await p.click('#lignes tbody tr:nth-child(1) button[aria-label^="Augmenter"]');
+  L.verifier(await qte() === '3' && !(await p.$eval('#lignes tbody tr:nth-child(1) button[aria-label^="Diminuer"]', b => b.disabled)), 'fusion : + + = 3, le bouton − est actif');
+  await p.click('#lignes tbody tr:nth-child(1) button[aria-label^="Diminuer"]');
+  L.verifier(await qte() === '2' && /"quantite":"2"/.test(await p.textContent('#sortie')), 'fusion : − = 2, le composant relit la valeur : ' + await p.textContent('#sortie'));
+  await p.fill('#lignes tbody tr:nth-child(1) input', '1,5');
+  await p.click('#lignes tbody tr:nth-child(1) button[aria-label^="Augmenter"]');
+  L.verifier(await qte() === '2,5', 'fusion : 1,5 + 1 = 2,5 (virgule conservée) : ' + await qte());
+  const hBtn = await p.$$eval('#lignes tbody tr:nth-child(1) .mv-pas button', b => b.map(x => Math.round(x.getBoundingClientRect().height)));
+  L.verifier(hBtn.length === 2 && hBtn.every(h => h >= 44), 'fusion : boutons − / + ≥ 44 px (' + hBtn.join(',') + ')');
+  // recherche dans le champ de scan : liste de suggestions, clic pour choisir
+  await p.fill('#scan', 'gicl');
+  await p.waitForSelector('#scan-suggestions:not([hidden]) li:has-text("P-0003")');
+  L.verifier(await p.$eval('#scan', e => e.getAttribute('aria-expanded')) === 'true' && await p.$eval('#scan', e => e.getAttribute('role')) === 'combobox', 'fusion : « gicl » ouvre la liste des pièces (combobox accessible)');
+  await p.click('#scan-suggestions li:has-text("P-0003")');
+  await p.waitForFunction(() => document.querySelectorAll('#lignes tbody tr').length === 2);
+  L.verifier(await p.$eval('#scan', e => e.value) === '' && await p.evaluate(() => document.activeElement.id) === 'scan' && await p.$eval('#scan-suggestions', e => e.hidden), 'fusion : choisir une suggestion ajoute la ligne, vide le champ, le garde actif et ferme la liste');
+  // flèches + Entrée
+  await p.fill('#scan', 'gicl');
+  await p.waitForSelector('#scan-suggestions:not([hidden]) li');
+  await p.press('#scan', 'ArrowDown');
+  L.verifier(await p.$eval('#scan', e => e.getAttribute('aria-activedescendant')) !== null && await p.$eval('#scan-suggestions li[aria-selected="true"]', e => /P-0003/.test(e.textContent)), 'fusion : flèche bas = première suggestion active');
+  await p.press('#scan', 'Enter');
+  await p.waitForFunction(() => document.querySelector('#lignes tbody tr:nth-child(2) input').value === '2');
+  L.verifier(true, 'fusion : flèche + Entrée choisit la suggestion (P-0003 passe à 2)');
+  // Entrée sur un nom (pas un code) : la liste s'affiche, rien n'est ajouté, aucune erreur
+  await p.evaluate(() => { document.getElementById('toasts') && document.getElementById('toasts').remove(); });
+  await p.fill('#scan', 'gicl'); await p.press('#scan', 'Enter');
+  await p.waitForSelector('#scan-suggestions:not([hidden]) li:has-text("P-0003")');
+  L.verifier((await p.$$('#lignes tbody tr')).length === 2 && !((await p.textContent('#toasts').catch(() => '')) || '').includes('Code inconnu'), 'fusion : Entrée sur un nom affiche la liste (aucune pièce ajoutée au hasard, pas de « Code inconnu »)');
+  await p.fill('#scan', 'gicl'); await p.waitForSelector('#scan-suggestions:not([hidden])'); await p.press('#scan', 'Escape');
+  L.verifier(await p.$eval('#scan-suggestions', e => e.hidden), 'fusion : Échap ferme la liste');
+  // texte inconnu : message d'erreur
+  await L.scanner(p, '#scan', 'zzzzqq'); await p.waitForSelector('#toasts .alert-danger:has-text("Code inconnu")');
+  L.verifier(await p.$eval('#scan-suggestions', e => e.hidden), 'fusion : texte qui ne correspond à rien : « Code inconnu », liste fermée');
+  // un code exact reste prioritaire (scanner) : pas de liste, ligne incrémentée
+  await L.scanner(p, '#scan', 'P-0001'); await p.waitForFunction(() => document.querySelector('#lignes tbody tr:nth-child(1) input').value === '3,5');
+  L.verifier(await p.$eval('#scan-suggestions', e => e.hidden), 'fusion : un code exact est ajouté directement (scanner), sans liste');
+  // clavier à l'écran : un toucher dans le champ l'autorise, le retour au scanner le coupe de nouveau
+  await p.click('#scan');
+  L.verifier(await p.$eval('#scan', e => e.getAttribute('inputmode')) === 'search', 'fusion : un toucher dans le champ ouvre le clavier (inputmode=search)');
+  await p.fill('#scan', 'gicl'); await p.waitForSelector('#scan-suggestions:not([hidden]) li'); await p.click('#scan-suggestions li >> nth=0');
+  await p.waitForFunction(() => document.querySelector('#scan').getAttribute('inputmode') === 'none', null, { timeout: 5000 }).catch(() => {});
+  L.verifier(await p.$eval('#scan', e => e.getAttribute('inputmode')) === 'none', 'fusion : après le choix, retour au mode scanner (inputmode=none)');
+  const vraies2 = p.erreurs.filter(e => !/404/.test(e));
+  L.verifier(vraies2.length === 0, 'fusion : aucune erreur console : ' + JSON.stringify(vraies2));
+  await p.screenshot({ path: '/tmp/composant-lignes-fusion.png' });
+
   await b.close(); process.exit(L.bilan());
 })().catch(e => { console.error(e); process.exit(1); });

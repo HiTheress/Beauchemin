@@ -1,4 +1,4 @@
-/* Scanner / Chercher (module D1) + outils de scan partagés avec l'écran de comptage (comptage.js).
+/* Scanner (module D1) + outils de scan partagés avec l'écran de comptage (comptage.js).
  *
  *   Scan.lier(input, traiter, opts)   champ de scan à FILE D'ATTENTE : aucun scan n'est perdu, même en rafale
  *       traiter(code, n)  -> Promise (ou valeur) ; renvoyer false ou lancer une erreur = échec (bip grave)
@@ -13,7 +13,7 @@
  *   Scan.clavier(bouton, input)       bascule le clavier tactile du champ de scan (inputmode none <-> text)
  *   Scan.typeEmplacement(type)        « Cube de service », …
  *
- * La page « Scanner / Chercher » (#page-scanner) est initialisée ici ; la page de comptage charge ce fichier pour la file et la caméra.
+ * La page « Scanner » (#page-scanner) est initialisée ici ; la page de comptage charge ce fichier pour la file et la caméra.
  */
 (function (w, $) {
   'use strict';
@@ -112,7 +112,7 @@
     // Champ inactif (le focus est ailleurs) : le texte d'invite le dit ; sans cela, le lecteur de codes écrirait dans le vide
     var invite = el.getAttribute('placeholder') || '';
     el.addEventListener('focus', function () { el.setAttribute('placeholder', invite); });
-    el.addEventListener('blur', function () { el.setAttribute('placeholder', 'Champ inactif : cliquez ici pour scanner'); });
+    el.addEventListener('blur', function () { el.setAttribute('placeholder', 'Champ inactif : touchez ici'); });
     el.setAttribute('data-attente', '0');
     if (opts.focusInitial !== false) { el.focus(); }
     return { ajouter: ajouter, focus: function () { el.focus(); }, attente: attente };
@@ -145,9 +145,9 @@
   var FORMATS = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'qr_code', 'data_matrix'];
 
   function cameraIndisponible() {
-    if (!w.isSecureContext) { return 'La caméra exige une connexion sécurisée (HTTPS) ou l\'adresse locale du serveur. Utilisez un lecteur de codes-barres ou tapez le code.'; }
-    if (!w.navigator.mediaDevices || !w.navigator.mediaDevices.getUserMedia) { return 'Ce navigateur ne permet pas d\'utiliser la caméra. Utilisez un lecteur de codes-barres ou tapez le code.'; }
-    if (!('BarcodeDetector' in w)) { return 'Ce navigateur ne sait pas lire les codes-barres avec la caméra (essayez Chrome ou Edge récent sur une tablette). Utilisez un lecteur de codes-barres ou tapez le code.'; }
+    if (!w.isSecureContext) { return 'La caméra exige une connexion sécurisée (HTTPS). Utilisez un lecteur ou tapez le code.'; }
+    if (!w.navigator.mediaDevices || !w.navigator.mediaDevices.getUserMedia) { return 'Caméra indisponible sur ce navigateur. Utilisez un lecteur ou tapez le code.'; }
+    if (!('BarcodeDetector' in w)) { return 'Ce navigateur ne sait pas lire les codes-barres. Utilisez un lecteur ou tapez le code.'; }
     return null;
   }
 
@@ -162,9 +162,8 @@
     function dessiner(messageHtml) {
       zone.innerHTML =
         '<div class="sc-camera">' +
-        '<div class="sc-camera-barre"><strong><i class="fas fa-camera mr-1" aria-hidden="true"></i> Lecture par la caméra</strong>' +
-        '<button type="button" class="btn btn-outline-secondary sc-camera-fermer">Fermer la caméra</button></div>' +
-        '<div class="sc-camera-msg" role="status" aria-live="polite">' + messageHtml + '</div>' +
+        '<div class="sc-camera-barre"><div class="sc-camera-msg" role="status" aria-live="polite">' + messageHtml + '</div>' +
+        '<button type="button" class="btn btn-outline-secondary sc-camera-fermer">Fermer</button></div>' +
         '<video class="sc-camera-video" playsinline muted autoplay aria-label="Image de la caméra"></video></div>';
       video = qs('video', zone);
       qs('.sc-camera-fermer', zone).addEventListener('click', function () { fermer(); });
@@ -199,7 +198,7 @@
         if (avant !== undefined && t - avant <= DELAI_REARMEMENT) { return; }   // même étiquette, toujours devant l'objectif
         message('Lu : ' + c, 'success');
         clearTimeout(msgTimer);
-        msgTimer = setTimeout(function () { message('Présentez le code-barres devant la caméra.', 'muted'); }, 1500);
+        msgTimer = setTimeout(function () { message('Visez le code-barres.', 'muted'); }, 1500);
         onCode(c);
       }).catch(function () { /* image illisible : on réessaie */ }).then(function () { occupe = false; });
     }
@@ -221,15 +220,15 @@
           var ok = (liste || []).filter(function (x) { return FORMATS.indexOf(x) >= 0; });
           detecteur = ok.length ? new w.BarcodeDetector({ formats: ok }) : new w.BarcodeDetector();
           if (mon !== jeton) { return; }
-          message('Présentez le code-barres devant la caméra.', 'muted');
+          message('Visez le code-barres.', 'muted');
           minuterie = setInterval(lire, 250);
         });
       }).catch(function (err) {
         if (mon !== jeton) { return; }
         arreterFlux();
         var nom = err && err.name;
-        message(nom === 'NotAllowedError' || nom === 'SecurityError' ? 'L\'accès à la caméra a été refusé. Autorisez-le dans les réglages du navigateur, puis réessayez.'
-          : nom === 'NotFoundError' || nom === 'OverconstrainedError' ? 'Aucune caméra n\'a été trouvée sur cet appareil.'
+        message(nom === 'NotAllowedError' || nom === 'SecurityError' ? 'Accès à la caméra refusé. Autorisez-le dans le navigateur, puis réessayez.'
+          : nom === 'NotFoundError' || nom === 'OverconstrainedError' ? 'Aucune caméra trouvée.'
           : 'Impossible de démarrer la caméra.', 'danger');
       });
     }
@@ -288,7 +287,7 @@
   w.Scan = { lier: lier, select2Propre: select2Propre, select2Etiquette: select2Etiquette, camera: camera, clavier: clavier, focusAuto: focusAuto, postBrut: postBrut, typeEmplacement: function (t) { return TYPES_EMP[t] || t; }, bip: bip };
 
   /* ================================================================================================
-   *  Page « Scanner / Chercher »
+   *  Page « Scanner »
    * ============================================================================================== */
   var racine = qs('#page-scanner');
   if (!racine) { return; }
@@ -328,7 +327,7 @@
     ecrireHist(); dessinerHist();
   }
   function dessinerHist() {
-    if (!historique.length) { elHist.innerHTML = '<li class="text-muted p-3">Aucun scan pour le moment.</li>'; return; }
+    if (!historique.length) { elHist.innerHTML = '<li class="text-muted p-3">Aucun scan.</li>'; return; }
     elHist.innerHTML = historique.map(function (e, i) {
       var icone = e.type === 'piece' ? 'fa-cog' : e.type === 'emplacement' ? 'fa-warehouse' : 'fa-times-circle text-danger';
       var cible = (e.type === 'piece' || e.type === 'emplacement') ? ' data-i="' + i + '"' : '';
@@ -385,10 +384,9 @@
     h.push('<h2 class="sc-nom">' + esc(p.nom) + '</h2><div class="sc-meta">');
     if (p.categorie) { h.push('<span class="badge badge-info">' + esc(p.categorie) + '</span> '); }
     if (p.unite && p.unite !== 'unité') { h.push('<span class="badge badge-light border">Unité : ' + esc(p.unite) + '</span>'); }
-    if (!actif) { h.push(' <span class="badge badge-secondary">Pièce désactivée</span>'); }
     h.push('</div></div>');
     if (p.description) { h.push('<p class="text-muted sc-description">' + esc(p.description) + '</p>'); }
-    if (!actif) { h.push('<div class="alert alert-secondary mt-2" role="status">Cette pièce est désactivée : elle n\'apparaît plus dans les listes de saisie. Son historique est conservé. Pour la remettre en service, demandez à un gestionnaire de la réactiver (bouton « Fiche complète »).</div>'); }
+    if (!actif) { h.push('<div class="alert alert-secondary mt-2" role="status"><i class="fas fa-ban mr-1" aria-hidden="true"></i> Pièce désactivée. Demandez à un gestionnaire de la réactiver.</div>'); }
 
     (p.minimums || []).forEach(function (m) {
       if (m.sous_minimum) {
@@ -404,60 +402,66 @@
     (p.totaux || []).forEach(function (t) { var e = ent(t.entreprise_id, t.entreprise); e.total = t.quantite; if (t.cout_moyen !== undefined) { e.cout = t.cout_moyen; } });
     (p.minimums || []).forEach(function (m) { var e = ent(m.entreprise_id, m.entreprise); e.min = m.minimum; if (e.total === null) { e.total = m.quantite; } });
     ordre.sort(function (a, b) { return a - b; });
-    h.push('<h3 class="sc-h3">Quantité en stock</h3>');
     if (!ordre.length) {
-      h.push('<p class="text-muted">Aucun stock de cette pièce dans vos entreprises.</p>');
+      h.push('<p class="text-muted sc-aucun-stock">Aucun stock.</p>');
     } else {
-      h.push('<div class="table-responsive"><table class="table table-sm sc-table" aria-label="Quantités par entreprise et par emplacement"><thead><tr><th scope="col">Entreprise / emplacement</th><th scope="col" class="nombre">Quantité</th>');
+      h.push('<div class="table-responsive"><table class="table table-sm sc-table sc-stock" aria-label="Quantités par entreprise et par emplacement"><thead><tr><th scope="col">Emplacement</th><th scope="col" class="nombre">Quantité</th>');
       if (gestionnaire) { h.push('<th scope="col" class="nombre">Coût moyen</th>'); }
       h.push('<th scope="col"><span class="sr-only">Action</span></th></tr></thead><tbody>');
       ordre.forEach(function (id) {
         var e = ents[id];
         h.push('<tr class="sc-ent"><th scope="row">' + esc(e.nom) + (e.min !== null ? ' <small class="text-muted font-weight-normal">(minimum ' + esc(w.fmtQte(e.min)) + ')</small>' : '') + '</th>');
-        h.push('<th class="nombre" data-total-ent="' + esc(id) + '">Total : ' + qte(e.total === null ? '0' : e.total, p.unite) + '</th>');
+        h.push('<th class="nombre sc-total" data-total-ent="' + esc(id) + '">Total : ' + qte(e.total === null ? '0' : e.total, p.unite) + '</th>');
         if (gestionnaire) { h.push('<th class="nombre">' + (e.cout !== null ? esc(w.fmtArgent(e.cout, 4)) : '') + '</th>'); }
         h.push('<th></th></tr>');
-        if (!e.lignes.length) { h.push('<tr><td colspan="' + (gestionnaire ? 4 : 3) + '" class="text-muted pl-4">Aucun stock à cette entreprise.</td></tr>'); }
+        if (!e.lignes.length) { h.push('<tr><td colspan="' + (gestionnaire ? 4 : 3) + '" class="text-muted pl-4">Aucun stock.</td></tr>'); }
         e.lignes.forEach(function (s) {
-          h.push('<tr data-emplacement="' + esc(s.emplacement_id) + '"><td class="pl-4">' + esc(s.emplacement) + ' <small class="text-muted">' + esc(TYPES_EMP[s.type] || s.type) + '</small></td>');
-          h.push('<td class="nombre">' + qte(s.quantite, p.unite) + '</td>');
+          h.push('<tr class="sc-ligne" data-emplacement="' + esc(s.emplacement_id) + '"><td class="pl-4">' + esc(s.emplacement) + '</td>');
+          h.push('<td class="nombre sc-qte">' + qte(s.quantite, p.unite) + '</td>');
           if (gestionnaire) { h.push('<td></td>'); }
-          h.push('<td class="text-right"><button type="button" class="btn btn-sm btn-outline-secondary sc-voir-emp" data-emp="' + esc(s.emplacement_id) + '" aria-label="Voir le contenu — ' + esc(s.emplacement) + '">Voir le contenu</button></td></tr>');
+          h.push('<td class="text-right"><button type="button" class="btn btn-sm btn-outline-secondary sc-voir-emp" data-emp="' + esc(s.emplacement_id) + '" aria-label="Voir le contenu — ' + esc(s.emplacement) + '" title="Voir le contenu">Voir</button></td></tr>');
         });
       });
       h.push('</tbody></table></div>');
     }
 
-    // Prix fournisseurs : gestionnaire+ seulement (le serveur ne les envoie pas aux employés)
-    if (gestionnaire && Array.isArray(p.prix_fournisseurs)) {
-      h.push('<h3 class="sc-h3">Prix chez les fournisseurs</h3>');
-      if (!p.prix_fournisseurs.length) { h.push('<p class="text-muted">Aucun prix fournisseur enregistré.</p>'); }
-      else {
-        h.push('<div class="table-responsive"><table class="table table-sm sc-table" aria-label="Prix chez les fournisseurs"><thead><tr><th scope="col">Fournisseur</th><th scope="col">N° fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date</th></tr></thead><tbody>');
-        p.prix_fournisseurs.forEach(function (f, i) {
-          h.push('<tr><td>' + esc(f.fournisseur) + (i === 0 && p.prix_fournisseurs.length > 1 ? ' <span class="badge badge-success">Meilleur prix</span>' : '') + '</td><td class="code">' + esc(f.no_fournisseur || '') + '</td><td class="nombre">' + esc(w.fmtArgent(f.prix, 4)) + '</td><td>' + esc(f.date_prix) + '</td></tr>');
-        });
-        h.push('</tbody></table></div>');
-      }
-    }
-
-    // Codes-barres
-    h.push('<h3 class="sc-h3">Codes-barres</h3><ul class="list-inline sc-codes"><li class="list-inline-item"><span class="code sc-code-chip">' + esc(p.code) + '</span> <small class="text-muted">code interne</small></li>');
-    (p.codes || []).forEach(function (c) {
-      h.push('<li class="list-inline-item"><span class="code sc-code-chip">' + esc(c.code) + '</span> <small class="text-muted">' + esc(TYPES_CODE[c.type] || c.type) + '</small></li>');
-    });
-    h.push('</ul>');
-
-    // Actions
+    // Actions : une seule principale (Utiliser)
     var unique = (p.stock || []).length === 1 ? { emplacement_id: p.stock[0].emplacement_id } : {};
     h.push('<div class="sc-actions no-print">');
     if (actif) {
-      h.push('<a class="btn btn-primary" href="' + lienPage('transfert', $.extend({ piece_id: p.id }, unique)) + '"><i class="fas fa-exchange-alt mr-1" aria-hidden="true"></i> Transférer</a>');
-      h.push('<a class="btn btn-primary" href="' + lienPage('sortie', $.extend({ piece_id: p.id }, unique)) + '"><i class="fas fa-sign-out-alt mr-1" aria-hidden="true"></i> Sortir</a>');
-      if (gestionnaire) { h.push('<a class="btn btn-primary" href="' + lienPage('reception', { piece_id: p.id }) + '"><i class="fas fa-truck-loading mr-1" aria-hidden="true"></i> Réceptionner</a>'); }
+      h.push('<a class="btn btn-primary" href="' + lienPage('sortie', $.extend({ piece_id: p.id }, unique)) + '"><i class="fas fa-sign-out-alt mr-1" aria-hidden="true"></i> Utiliser</a>');
+      h.push('<a class="btn btn-outline-secondary" href="' + lienPage('transfert', $.extend({ piece_id: p.id }, unique)) + '"><i class="fas fa-exchange-alt mr-1" aria-hidden="true"></i> Déplacer</a>');
+      if (gestionnaire) { h.push('<a class="btn btn-outline-secondary" href="' + lienPage('reception', { piece_id: p.id }) + '"><i class="fas fa-truck-loading mr-1" aria-hidden="true"></i> Recevoir</a>'); }
     }
-    h.push('<a class="btn btn-outline-secondary" href="' + lienPage('piece_voir', { id: p.id }) + '"><i class="fas fa-file-alt mr-1" aria-hidden="true"></i> Fiche complète</a>');
-    h.push('</div></div></div>');
+    h.push('<a class="btn btn-outline-secondary" href="' + lienPage('piece_voir', { id: p.id }) + '"><i class="fas fa-file-alt mr-1" aria-hidden="true"></i> Voir la fiche</a>');
+    h.push('</div>');
+
+    // Détails rares : prix chez les fournisseurs (gestionnaire+ seulement : le serveur ne les envoie pas aux employés), autres codes
+    var prix = (gestionnaire && Array.isArray(p.prix_fournisseurs)) ? p.prix_fournisseurs : null;
+    var codes = p.codes || [];
+    if (prix || codes.length) {
+      h.push('<details class="sc-plus no-print"><summary>Plus de détails</summary>');
+      if (prix) {
+        h.push('<h3 class="sc-h3">Prix des fournisseurs</h3>');
+        if (!prix.length) { h.push('<p class="text-muted">Aucun prix.</p>'); }
+        else {
+          h.push('<div class="table-responsive"><table class="table table-sm sc-table" aria-label="Prix chez les fournisseurs"><thead><tr><th scope="col">Fournisseur</th><th scope="col">N° fournisseur</th><th scope="col" class="nombre">Prix</th><th scope="col">Date</th></tr></thead><tbody>');
+          prix.forEach(function (f, i) {
+            h.push('<tr><td>' + esc(f.fournisseur) + (i === 0 && prix.length > 1 ? ' <span class="badge badge-success">Meilleur prix</span>' : '') + '</td><td class="code">' + esc(f.no_fournisseur || '') + '</td><td class="nombre">' + esc(w.fmtArgent(f.prix, 4)) + '</td><td>' + esc(f.date_prix) + '</td></tr>');
+          });
+          h.push('</tbody></table></div>');
+        }
+      }
+      if (codes.length) {
+        h.push('<h3 class="sc-h3">Autres codes</h3><ul class="list-inline sc-codes">');
+        codes.forEach(function (c) {
+          h.push('<li class="list-inline-item"><span class="code sc-code-chip">' + esc(c.code) + '</span> <small class="text-muted">' + esc(TYPES_CODE[c.type] || c.type) + '</small></li>');
+        });
+        h.push('</ul>');
+      }
+      h.push('</details>');
+    }
+    h.push('</div></div>');
     return h.join('');
   }
 
@@ -469,20 +473,20 @@
     h.push('<span class="badge badge-info">' + esc(e.type_libelle) + '</span> <span class="badge badge-light border">' + esc(e.entreprise_nom) + '</span>');
     if (!e.actif) { h.push(' <span class="badge badge-secondary">Emplacement désactivé</span>'); }
     h.push('</div></div>');
-    h.push('<p class="sc-resume" id="sc-resume-emp"><strong>' + esc(r.nb_pieces) + '</strong> ' + (r.nb_pieces > 1 ? 'pièces différentes' : 'pièce différente') + ' dans cet emplacement');
-    if (gestionnaire && r.valeur_totale !== undefined) { h.push(' — valeur totale : <strong id="sc-valeur-emp">' + esc(w.fmtArgent(r.valeur_totale)) + '</strong> <small class="text-muted">(au coût moyen, arrondie sur l\'ensemble : elle peut différer de quelques sous de la somme des lignes)</small>'); }
-    h.push('</p>');
-    if (r.comptage_en_cours) {
-      h.push('<div class="alert alert-warning" role="status">Un comptage est déjà en cours à cet emplacement : <a class="alert-link" href="' + lienPage('comptage_voir', { id: r.comptage_en_cours.id }) + '">' + esc(r.comptage_en_cours.numero) + '</a>.</div>');
+    h.push('<p class="sc-resume" id="sc-resume-emp"><strong>' + esc(r.nb_pieces) + '</strong> ' + (r.nb_pieces > 1 ? 'pièces' : 'pièce'));
+    if (gestionnaire && r.valeur_totale !== undefined) {
+      h.push(' — valeur totale : <strong id="sc-valeur-emp">' + esc(w.fmtArgent(r.valeur_totale)) + '</strong> ' +
+        '<span class="sc-info text-muted" tabindex="0" role="img" title="Au coût moyen, arrondie sur l\'ensemble : elle peut différer de quelques sous de la somme des lignes." aria-label="Au coût moyen, arrondie sur l\'ensemble : elle peut différer de quelques sous de la somme des lignes."><i class="fas fa-info-circle" aria-hidden="true"></i></span>');
     }
+    h.push('</p>');
     if (!r.lignes.length) {
-      h.push('<p class="text-muted sc-vide">Cet emplacement est vide : aucune pièce n\'y est enregistrée.</p>');
+      h.push('<p class="text-muted sc-vide">Emplacement vide.</p>');
     } else {
       h.push('<div class="table-responsive"><table class="table table-sm table-striped sc-table" aria-label="Contenu de l\'emplacement"><thead><tr><th scope="col">Code</th><th scope="col">Pièce</th><th scope="col" class="nombre">Quantité</th>');
       if (gestionnaire) { h.push('<th scope="col" class="nombre">Coût moyen</th><th scope="col" class="nombre">Valeur</th>'); }
       h.push('</tr></thead><tbody>');
       r.lignes.forEach(function (l) {
-        h.push('<tr data-piece="' + esc(l.piece_id) + '"><td class="code"><button type="button" class="btn btn-link p-0 sc-voir-piece" data-piece="' + esc(l.piece_id) + '" data-code="' + esc(l.code) + '">' + esc(l.code) + '</button></td><td>' + esc(l.nom) + (l.actif ? '' : ' <span class="badge badge-secondary">désactivée</span>') + '</td><td class="nombre">' + qte(l.quantite, l.unite) + '</td>');
+        h.push('<tr class="sc-ligne" data-piece="' + esc(l.piece_id) + '"><td class="code"><button type="button" class="btn btn-link p-0 sc-voir-piece" data-piece="' + esc(l.piece_id) + '" data-code="' + esc(l.code) + '">' + esc(l.code) + '</button></td><td>' + esc(l.nom) + (l.actif ? '' : ' <span class="badge badge-secondary">désactivée</span>') + '</td><td class="nombre sc-qte">' + qte(l.quantite, l.unite) + '</td>');
         if (gestionnaire) { h.push('<td class="nombre">' + esc(w.fmtArgent(l.cout_moyen, 4)) + '</td><td class="nombre">' + esc(w.fmtArgent(l.valeur)) + '</td>'); }
         h.push('</tr>');
       });
@@ -490,13 +494,13 @@
     }
     h.push('<div class="sc-actions no-print">');
     if (r.comptage_en_cours) {
-      h.push('<a class="btn btn-primary" id="sc-reprendre" href="' + lienPage('comptage_voir', { id: r.comptage_en_cours.id }) + '"><i class="fas fa-clipboard-check mr-1" aria-hidden="true"></i> Reprendre le comptage ' + esc(r.comptage_en_cours.numero) + '</a>');
+      h.push('<a class="btn btn-primary" id="sc-reprendre" href="' + lienPage('comptage_voir', { id: r.comptage_en_cours.id }) + '"><i class="fas fa-clipboard-check mr-1" aria-hidden="true"></i> Reprendre le comptage</a>');
     } else if (e.actif) {
-      h.push('<button type="button" class="btn btn-primary" id="sc-compter" data-emp="' + esc(e.id) + '"><i class="fas fa-clipboard-check mr-1" aria-hidden="true"></i> Compter cet emplacement</button>');
+      h.push('<button type="button" class="btn btn-primary" id="sc-compter" data-emp="' + esc(e.id) + '"><i class="fas fa-clipboard-check mr-1" aria-hidden="true"></i> Compter</button>');
     }
     if (e.actif) {
-      h.push('<a class="btn btn-outline-primary" href="' + lienPage('transfert', { emplacement_id: e.id }) + '"><i class="fas fa-exchange-alt mr-1" aria-hidden="true"></i> Transférer d\'ici</a>');
-      h.push('<a class="btn btn-outline-primary" href="' + lienPage('sortie', { emplacement_id: e.id }) + '"><i class="fas fa-sign-out-alt mr-1" aria-hidden="true"></i> Sortir d\'ici</a>');
+      h.push('<a class="btn btn-outline-secondary" href="' + lienPage('sortie', { emplacement_id: e.id }) + '"><i class="fas fa-sign-out-alt mr-1" aria-hidden="true"></i> Utiliser</a>');
+      h.push('<a class="btn btn-outline-secondary" href="' + lienPage('transfert', { emplacement_id: e.id }) + '"><i class="fas fa-exchange-alt mr-1" aria-hidden="true"></i> Déplacer</a>');
     }
     h.push('</div></div></div>');
     return h.join('');
@@ -524,7 +528,7 @@
       if (mon !== seq) { return true; }
       elResultat.innerHTML = htmlEmplacement(r);
       amener();
-      annoncer('Contenu de ' + r.emplacement.nom + ' : ' + r.nb_pieces + (r.nb_pieces > 1 ? ' pièces différentes.' : ' pièce différente.'));
+      annoncer('Contenu de ' + r.emplacement.nom + ' : ' + r.nb_pieces + (r.nb_pieces > 1 ? ' pièces.' : ' pièce.'));
       ajouterHist({ type: 'emplacement', id: r.emplacement.id, code: codeSaisi || r.emplacement.code_barres || '', libelle: r.emplacement.nom + ' — ' + r.nb_pieces + (r.nb_pieces > 1 ? ' pièces' : ' pièce') });
       return true;
     }).catch(function (e) { if (mon === seq) { erreur(e.message); } return false; });
@@ -536,8 +540,7 @@
       if (mon !== seq) { return r.trouve ? true : false; }
       if (!r.trouve) {
         annoncer('Code inconnu : ' + code + '.');
-        elResultat.innerHTML = '<div class="alert alert-danger sc-inconnu" role="alert"><i class="fas fa-times-circle mr-1" aria-hidden="true"></i> <strong>Code inconnu : « ' + esc(code) + ' ».</strong><br>' +
-          'Aucune pièce ni aucun emplacement de vos entreprises ne porte ce code. Vérifiez l\'étiquette ou cherchez la pièce par son nom.</div>';
+        elResultat.innerHTML = '<div class="alert alert-danger sc-inconnu" role="alert"><i class="fas fa-times-circle mr-1" aria-hidden="true"></i> <strong>Code inconnu : « ' + esc(code) + ' ».</strong> Vérifiez l\'étiquette ou cherchez la pièce par son nom.</div>';
         ajouterHist({ type: 'inconnu', code: code, libelle: 'Code inconnu' });
         return false;
       }
@@ -555,6 +558,10 @@
     if (b) { montrerEmplacement(parseInt(b.getAttribute('data-emp'), 10)).then(function () { focusScan(); }); return; }
     b = ev.target.closest('.sc-voir-piece');
     if (b) { montrerPiece(parseInt(b.getAttribute('data-piece'), 10), b.getAttribute('data-code')).then(function () { focusScan(); }); return; }
+    // Cliquer sur une ligne ouvre son détail (le bouton « Voir » ou le code restent la voie au clavier)
+    if (ev.target.closest('a, button, summary')) { /* un vrai bouton ou lien a déjà son action */ }
+    else if ((b = ev.target.closest('tr.sc-ligne[data-emplacement]'))) { montrerEmplacement(parseInt(b.getAttribute('data-emplacement'), 10)).then(function () { focusScan(); }); return; }
+    else if ((b = ev.target.closest('tr.sc-ligne[data-piece]'))) { var c = qs('.sc-voir-piece', b); montrerPiece(parseInt(b.getAttribute('data-piece'), 10), c ? c.getAttribute('data-code') : '').then(function () { focusScan(); }); return; }
     b = ev.target.closest('#sc-compter');
     if (b) {
       if (b.disabled) { return; }
@@ -580,7 +587,7 @@
   // ---- recherche texte de secours
   var $rech = $('#recherche');
   $rech.select2({
-    placeholder: 'Taper une partie du nom ou du code…', allowClear: true, minimumInputLength: 1, dropdownParent: $(d.body),
+    placeholder: 'Nom ou code', allowClear: true, minimumInputLength: 1, dropdownParent: $(d.body),
     ajax: {
       url: 'app/ajax/pieces_recherche.php', dataType: 'json', delay: 200,
       data: function (p) { return { q: p.term || '' }; },
@@ -603,9 +610,9 @@
       if (!groupes[e.entreprise_id]) { groupes[e.entreprise_id] = { nom: e.entreprise_nom, items: [] }; ordre.push(e.entreprise_id); }
       groupes[e.entreprise_id].items.push(e);
     });
-    var h = '<option value="">— Choisir un emplacement —</option>';
+    var h = '<option value="">Choisir un emplacement</option>';
     ordre.forEach(function (id) {
-      h += '<optgroup label="' + esc(groupes[id].nom) + '">' + groupes[id].items.map(function (e) { return '<option value="' + esc(e.id) + '">' + esc(e.nom) + ' (' + esc(TYPES_EMP[e.type] || e.type) + ')</option>'; }).join('') + '</optgroup>';
+      h += '<optgroup label="' + esc(groupes[id].nom) + '">' + groupes[id].items.map(function (e) { return '<option value="' + esc(e.id) + '">' + esc(e.nom) + '</option>'; }).join('') + '</optgroup>';
     });
     $emp.html(h).prop('disabled', false);
   }).catch(function () { $emp.html('<option value="">Liste indisponible</option>'); });

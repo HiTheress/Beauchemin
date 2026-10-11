@@ -1,6 +1,6 @@
 <?php
-// Comptages d'inventaire (employé+) : liste (en cours / appliqués / annulés) des entreprises de l'utilisateur et création d'un comptage
-// (emplacement choisi dans la liste ou scanné : EMP-…). Le comptage lui-même se fait dans « comptage_voir ».
+// Compter (employé+) : commencer un comptage (emplacement scanné ou choisi dans la liste) et liste des comptages
+// (en cours / appliqués / annulés) des entreprises de l'utilisateur. Le comptage lui-même se fait dans « comptage_voir ».
 if (!acces_page('employe')) { return; }
 page_script('assets/js/scan.js');
 page_script('assets/js/comptage.js');
@@ -11,52 +11,49 @@ $pre_statut = (isset($_GET['statut']) && is_string($_GET['statut']) && isset($st
 ?>
 <link rel="stylesheet" href="assets/css/scan.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/scan.css'); ?>">
 <div class="content-wrapper" id="page-comptage" data-entreprise="<?php echo (int) $pre_ent; ?>">
-  <?php page_titre('Comptage d\'inventaire', array('Opérations')); ?>
+  <?php page_titre('Compter', array('Opérations')); ?>
   <section class="content"><div class="container-fluid">
 
-    <div class="card cp-carte"><div class="card-header"><h2 class="card-title m-0">Nouveau comptage</h2></div><div class="card-body">
-      <label for="scan" class="sc-label">Scannez le code-barres de l'emplacement à compter (EMP-…)</label>
+    <div class="card cp-carte"><div class="card-body">
+      <label for="scan" class="sr-only">Emplacement</label>
       <div class="scan-box">
-        <input id="scan" type="text" class="form-control scan-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="none" maxlength="64" placeholder="Scannez l'emplacement, puis Entrée…">
+        <input id="scan" type="text" class="form-control scan-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="none" maxlength="64" placeholder="Scannez un emplacement…">
       </div>
-      <div class="row mt-3">
-        <div class="col-lg-5 col-md-6 form-group">
-          <label for="nouveau-emp">… ou choisissez-le dans la liste</label>
+      <div class="cp-nouveau">
+        <div class="cp-nouveau-choix">
+          <label for="nouveau-emp" class="sr-only">Emplacement</label>
           <select id="nouveau-emp" class="form-control" disabled><option value="">Chargement…</option></select>
         </div>
-        <div class="col-lg-4 col-md-6 form-group">
-          <label for="nouveau-note">Note (facultatif)</label>
-          <input id="nouveau-note" type="text" class="form-control" maxlength="255" autocomplete="off" placeholder="Ex. : inventaire de fin de mois">
-        </div>
-        <div class="col-lg-3 col-md-12 form-group d-flex align-items-end">
-          <button type="button" id="btn-nouveau" class="btn btn-primary btn-block"><i class="fas fa-plus mr-1" aria-hidden="true"></i> Nouveau comptage</button>
-        </div>
+        <button type="button" id="btn-nouveau" class="btn btn-primary"><i class="fas fa-play mr-1" aria-hidden="true"></i> Commencer</button>
+      </div>
+      <button type="button" id="cp-plus" class="btn btn-link px-0 cp-plus-lien" aria-expanded="false" aria-controls="cp-plus-zone">Plus d'options</button>
+      <div id="cp-plus-zone" class="d-none">
+        <label for="nouveau-note">Note</label>
+        <input id="nouveau-note" type="text" class="form-control" maxlength="255" autocomplete="off">
       </div>
       <div id="cp-nouveau-msg" aria-live="polite"></div>
     </div></div>
 
     <div class="card cp-carte"><div class="card-header"><h2 class="card-title m-0">Comptages</h2></div><div class="card-body">
-      <div class="row cp-liste-filtres">
-        <div class="col-lg-4 col-md-6 form-group">
-          <label for="f-statut">Statut</label>
+      <div class="cp-liste-filtres" id="cp-filtres">
+        <div class="cp-filtre">
+          <label for="f-statut" class="sr-only">Statut</label>
           <select id="f-statut" class="form-control">
             <?php foreach ($statuts as $cle => $lib) { ?><option value="<?php echo e($cle); ?>"<?php echo $pre_statut === $cle ? ' selected' : ''; ?>><?php echo e($lib); ?></option><?php } ?>
           </select>
         </div>
-        <?php if (count($mes_ent) > 0) { ?>
-        <div class="col-lg-5 col-md-6 form-group">
-          <label for="f-entreprise">Entreprise</label>
+        <?php if (count($mes_ent) > 1) { ?>
+        <div class="cp-filtre">
+          <label for="f-entreprise" class="sr-only">Entreprise</label>
           <select id="f-entreprise" class="form-control">
-            <option value="">Toutes mes entreprises</option>
+            <option value="">Toutes les entreprises</option>
             <?php foreach ($mes_ent as $en) { ?><option value="<?php echo (int) $en['id']; ?>"<?php echo $pre_ent === (int) $en['id'] ? ' selected' : ''; ?>><?php echo e($en['nom']); ?></option><?php } ?>
           </select>
         </div>
         <?php } ?>
-        <div class="col-lg-3 col-md-12 form-group d-flex align-items-end">
-          <div class="custom-control custom-checkbox">
-            <input type="checkbox" class="custom-control-input" id="f-mes">
-            <label class="custom-control-label" for="f-mes">Seulement mes comptages</label>
-          </div>
+        <div class="custom-control custom-checkbox cp-filtre-mes">
+          <input type="checkbox" class="custom-control-input" id="f-mes">
+          <label class="custom-control-label" for="f-mes">Mes comptages</label>
         </div>
       </div>
       <div class="table-responsive">
@@ -67,7 +64,7 @@ $pre_statut = (isset($_GET['statut']) && is_string($_GET['statut']) && isset($st
             <th scope="col">Statut</th>
             <th scope="col">Commencé le</th>
             <th scope="col" class="nombre">Pièces</th>
-            <th scope="col">Ajustement</th>
+            <th scope="col">Correction</th>
           </tr></thead>
           <tbody></tbody>
         </table>

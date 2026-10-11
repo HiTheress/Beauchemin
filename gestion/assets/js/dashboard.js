@@ -1,6 +1,6 @@
-/* Tableau de bord (module D2) : cartes, 10 derniers documents, pièces les plus sous le minimum.
+/* Accueil (module D2) : deux chiffres (à recommander, aujourd'hui), graphiques, derniers documents.
  * Données : app/ajax/dashboard_data.php (entreprise choisie dans la barre du haut). Un employé ne reçoit aucun montant :
- * les clés `valeur` et `factures` sont absentes de sa réponse (et leurs cartes absentes de sa page).
+ * les clés `valeur` et `factures` sont absentes de sa réponse (et leurs blocs absents de sa page).
  * Règles : toute valeur insérée dans innerHTML passe par esc() ; quantités et montants restent des chaînes décimales
  * (parseFloat seulement pour l'affichage et pour décider du signe d'un solde, jamais pour calculer).
  */
@@ -23,9 +23,6 @@
     return m || 'Erreur inattendue. Réessayez.';
   }
   function entier(v) { var n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
-  function lienPiece(id, code, nom) {
-    return '<a href="index.php?page=piece_voir&amp;id=' + entier(id) + '"><span class="code font-weight-bold">' + w.esc(code) + '</span> ' + w.esc(nom) + '</a>';
-  }
   /** Montant avec son signe explicite pour un solde. */
   function signe(s) { var n = parseFloat(s); return (n > 0 ? '+' : '') + w.fmtArgent(s); }
 
@@ -44,8 +41,8 @@
   function nombre(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }   // affichage seulement : jamais pour calculer un montant
   function court(nom, max) { nom = String(nom || ''); return nom.length > max ? nom.slice(0, max - 1) + '…' : nom; }
 
-  /** Graphiques du tableau de bord (kit de widgets). Aucun montant pour un employé : la clé `factures` / `valeur` est absente. */
-  function dessinerActivite(a, docs, c, r) {
+  /** Graphiques de l'accueil (kit de widgets). Aucun montant pour un employé : la clé `factures` / `valeur` est absente. */
+  function dessinerActivite(a, docs, c) {
     if (!a || !w.UI) { return; }
     w.UI.sprite();
     var jours = a.jours || [];
@@ -57,11 +54,10 @@
     });
     q('gr-graph').setAttribute('aria-label', 'Mouvements par jour : ' + jours.map(function (j) { return j.lettre + ' ' + entier(j.n); }).join(', '));
     q('gr-total').textContent = w.fmtQte(a.total);
-    q('gr-dates').textContent = 'Du ' + dateCourte(a.du) + ' au ' + dateCourte(a.au) + ' · moyenne ' + String(a.moyenne).replace('.', ',') + ' par jour';
 
     var lect = q('gr-lectures');
     lect.textContent = '';
-    (docs || []).slice(0, 3).forEach(function (d) {
+    (docs || []).slice(0, 5).forEach(function (d) {
       var l = el('div', 'gr-lecture');
       l.appendChild(el('span', 'gr-temps', dateCourte(d.date)));
       var v = el('a', 'gr-val', d.numero + ' · ' + d.type_libelle + (d.statut === 'annule' ? ' (annulé)' : ''));
@@ -74,7 +70,7 @@
     var actives = entier(c.pieces_actives), enStock = entier(c.pieces_en_stock);
     var pct = actives > 0 ? Math.round(100 * enStock / actives) : 0;
     graphe('ring', function (o) { return w.UI.ring('#gr-ring', o); }, { value: pct, color: 'indigo', track: 'indigo-soft', stroke: 12, text: pct + ' %', label: pct + ' % des pièces actives ont du stock' });
-    q('gr-ring-txt').textContent = enStock + ' pièce' + (enStock > 1 ? 's' : '') + ' en stock sur ' + actives + ' actives';
+    q('gr-ring-txt').textContent = enStock + ' sur ' + actives;
 
     // Mouvements par type
     var types = a.par_type || [];
@@ -89,22 +85,31 @@
       // le nombre à droite de chaque barre
       Array.prototype.forEach.call(zoneT.querySelectorAll('.hbars__row'), function (ligne, i) { var b = el('b', '', String(entier(types[i].n))); ligne.appendChild(b); });
     }
-
-    if (gest && r) { dessinerFinances(r); }
   }
 
-  /** Factures du mois (émis / reçu) et valeur par entreprise : gestionnaire+ seulement. */
+  /** Factures du mois (graphique et montants dans le même bloc) et valeur par entreprise : gestionnaire+ seulement. */
   function dessinerFinances(r) {
     var f = r.factures || { lignes: [] };
     var lignes = f.lignes || [];
-    if (q('gr-fact') && lignes.length) {
+    q('ds-mois').textContent = f.libelle_mois || '';
+    if (w.UI && q('gr-fact') && lignes.length) {
       graphe('fact', function (o) { return w.UI.bars('#gr-fact', o); }, {
-        height: 170, mode: 'grouped', style: 'solid', yTicks: 4, yAxisWidth: 46, barWidth: 16, label: 'Factures internes émises et reçues',
+        height: 150, mode: 'grouped', style: 'solid', yTicks: 4, yAxisWidth: 46, barWidth: 16, label: 'Factures émises et reçues',
         yFormat: function (v) { return v >= 1000 ? (v / 1000) + ' k' : String(v); },
         xLabels: lignes.map(function (x) { return court(x.nom, 12); }),
         series: [{ name: 'Émis', data: lignes.map(function (x) { return nombre(x.emis); }), color: 'indigo' }, { name: 'Reçu', data: lignes.map(function (x) { return nombre(x.recu); }), color: 'sky' }]
       });
     }
+    q('ds-factures').innerHTML = lignes.length ? lignes.map(function (x) {
+      var s = parseFloat(x.solde);
+      var etat = s > 0 ? 'à recevoir' : (s < 0 ? 'à payer' : '');
+      var cls = s > 0 ? 'sk-pos' : (s < 0 ? 'sk-neg' : 'text-muted');
+      return '<div class="ds-fact"><div class="ds-fact-nom">' + w.esc(x.nom) + '</div><div class="ds-fact-chiffres">' +
+        '<span>Émis <strong class="nombre">' + w.esc(w.fmtArgent(x.emis)) + '</strong></span> ' +
+        '<span>Reçu <strong class="nombre">' + w.esc(w.fmtArgent(x.recu)) + '</strong></span> ' +
+        '<span>Solde <strong class="nombre ' + cls + '">' + w.esc(signe(x.solde)) + '</strong>' + (etat ? ' <small class="' + cls + '">' + etat + '</small>' : '') + '</span></div></div>';
+    }).join('') : '<span class="text-muted">Aucune entreprise.</span>';
+
     var v = r.valeur || [];
     var maxV = 0;
     v.forEach(function (x) { if (nombre(x.valeur) > maxV) { maxV = nombre(x.valeur); } });
@@ -121,69 +126,19 @@
     var c = r.cartes || {};
     q('ds-portee').textContent = 'Entreprise : ' + (r.portee && r.portee.libelle ? r.portee.libelle : '—');
 
-    q('ds-pieces').textContent = w.fmtQte(c.pieces_actives);
-    q('ds-pieces-detail').textContent = 'dont ' + w.fmtQte(c.pieces_en_stock) + ' en stock';
-
     var sous = entier(c.sous_minimum);
     q('ds-sous').textContent = w.fmtQte(sous);
-    q('ds-sous-detail').textContent = sous === 0 ? 'Rien à recommander' : (sous === 1 ? '1 pièce à recommander' : sous + ' pièces à recommander');
+    q('ds-sous-unite').textContent = sous > 1 ? 'pièces' : 'pièce';
     // forcer l'état (pas de bascule) : !!sous
     q('ds-carte-sous').classList.remove('ds-alerte');
     if (!!sous) { q('ds-carte-sous').classList.add('ds-alerte'); }
 
-    q('ds-jour').textContent = w.fmtQte(c.mouvements_jour);
-    var nd = entier(c.documents_jour);
-    q('ds-jour-detail').textContent = nd === 0 ? 'Aucun document aujourd\'hui' : (nd === 1 ? 'dans 1 document' : 'dans ' + nd + ' documents');
+    var nj = entier(c.mouvements_jour);
+    q('ds-jour').textContent = w.fmtQte(nj);
+    q('ds-jour-unite').textContent = nj > 1 ? 'mouvements' : 'mouvement';
 
-    dessinerActivite(r.activite, r.derniers_documents, c, r);
-
-    if (gest) {
-      var v = r.valeur || [];
-      q('ds-valeur').innerHTML = v.length ? v.map(function (x) {
-        return '<div class="ds-ligne"><span>' + w.esc(x.nom) + '</span><strong class="nombre">' + w.esc(w.fmtArgent(x.valeur)) + '</strong></div>';
-      }).join('') : '<span class="text-muted">Aucune entreprise.</span>';
-
-      var f = r.factures || { lignes: [] };
-      q('ds-mois').textContent = f.libelle_mois ? '(' + f.libelle_mois + ')' : '';
-      q('ds-factures').innerHTML = f.lignes.length ? f.lignes.map(function (x) {
-        var s = parseFloat(x.solde);
-        var etat = s > 0 ? 'à recevoir' : (s < 0 ? 'à payer' : 'équilibré');
-        var cls = s > 0 ? 'sk-pos' : (s < 0 ? 'sk-neg' : 'text-muted');
-        return '<div class="ds-ligne ds-ligne-factures"><span class="ds-ent">' + w.esc(x.nom) + '</span>' +
-          '<span>Émis <strong class="nombre">' + w.esc(w.fmtArgent(x.emis)) + '</strong> <small class="text-muted">(' + entier(x.nb_emises) + ')</small></span>' +
-          '<span>Reçu <strong class="nombre">' + w.esc(w.fmtArgent(x.recu)) + '</strong> <small class="text-muted">(' + entier(x.nb_recues) + ')</small></span>' +
-          '<span>Solde <strong class="nombre ' + cls + '">' + w.esc(signe(x.solde)) + '</strong> <small class="' + cls + '">' + etat + '</small></span></div>';
-      }).join('') : '<span class="text-muted">Aucune entreprise.</span>';
-    }
-
-    // 10 derniers documents
-    var docs = r.derniers_documents || [];
-    q('ds-docs-vide').hidden = docs.length > 0;
-    q('ds-docs-zone').hidden = docs.length === 0;
-    q('ds-docs').innerHTML = docs.map(function (d) {
-      var emp = (d.emplacement ? w.esc(d.emplacement) : '') + (d.emplacement_dest ? (d.emplacement ? ' → ' : '→ ') + w.esc(d.emplacement_dest) : '');
-      if (d.entreprise_dest) { emp = '<span class="text-muted">' + w.esc(d.entreprise) + ' → ' + w.esc(d.entreprise_dest) + '</span>' + (emp ? '<br>' + emp : ''); }
-      return '<tr>' +
-        '<td><a class="code font-weight-bold" href="index.php?page=document_voir&amp;id=' + entier(d.id) + '">' + w.esc(d.numero) + '</a>' +
-          '<br><small class="text-muted">' + w.esc(d.type_libelle) + '</small>' +
-          (d.statut === 'annule' ? '<br><span class="badge badge-danger">Annulé</span>' : '') + '</td>' +
-        '<td class="ds-date">' + w.esc(d.date) + '</td>' +
-        '<td>' + emp + '</td>' +
-        (gest ? '<td class="nombre">' + w.esc(w.fmtArgent(d.total)) + '</td>' : '') +
-        '</tr>';
-    }).join('');
-
-    // 5 pièces les plus sous le minimum
-    var bas = r.plus_bas || [];
-    var multi = r.portee && r.portee.ids && r.portee.ids.length > 1;
-    q('ds-bas-vide').hidden = bas.length > 0;
-    q('ds-bas-zone').hidden = bas.length === 0;
-    q('ds-bas').innerHTML = bas.map(function (b) {
-      return '<tr><td>' + lienPiece(b.piece_id, b.code, b.nom) + (multi ? '<br><small class="text-muted">' + w.esc(b.entreprise) + '</small>' : '') + '</td>' +
-        '<td class="nombre">' + w.esc(w.fmtQte(b.quantite)) + '</td>' +
-        '<td class="nombre">' + w.esc(w.fmtQte(b.minimum)) + '</td>' +
-        '<td class="nombre"><strong class="sk-neg">' + w.esc(w.fmtQte(b.manque)) + '</strong> <small class="text-muted">' + w.esc(b.unite) + '</small></td></tr>';
-    }).join('');
+    dessinerActivite(r.activite, r.derniers_documents, c);
+    if (gest) { dessinerFinances(r); }
   }
 
   function charger() {

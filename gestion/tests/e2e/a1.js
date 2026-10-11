@@ -34,7 +34,7 @@ function suivre(page) {
 /** Erreurs de console « réelles » : les 4xx provoqués volontairement (validation, refus d'accès) sont ignorés. */
 // (et les requêtes de lecture abandonnées parce que le test change de page ou relance une recherche avant leur fin : ERR_ABORTED,
 //  ainsi que celle du test « réseau coupé » qui échoue volontairement)
-const reelles = p => p.erreurs.filter(e => !/status of 40[0-9]/.test(e) && !/ERR_INTERNET_DISCONNECTED/.test(e) && !/requestfailed: \S+\/(pieces_data|piece_prix|piece_code_proposer)\.php/.test(e));
+const reelles = p => p.erreurs.filter(e => !/status of 40[0-9]/.test(e) && !/ERR_INTERNET_DISCONNECTED/.test(e) && !/requestfailed: \S+\/(pieces_data|piece_prix|piece_code_proposer|piece_save)\.php/.test(e));
 const attendre = ms => new Promise(r => setTimeout(r, ms));
 
 async function lignes(p, n) {
@@ -55,6 +55,12 @@ async function empreinte(p, id) {
     return m ? JSON.parse(m[1]).empreinte : null;
   }, id);
 }
+/** Ouvre « Plus d'options » (zone repliée) s'il est fermé : les champs rares n'apparaissent qu'à la demande. */
+async function plus(p, zone) {
+  if (await p.$eval('#' + zone, z => z.hidden)) { await p.click('[data-plus="' + zone + '"]'); }
+}
+/** Nombre de boutons principaux visibles dans la page (hors fenêtres) : il doit y en avoir un seul par écran. */
+async function principaux(p) { return p.$$eval('.content-wrapper .btn-primary', els => els.filter(e => !e.closest('.modal')).length); }
 async function viderToasts(p) { await p.evaluate(() => document.querySelectorAll('#toasts .alert').forEach(e => e.remove())); }
 async function toastTexte(p) { return p.evaluate(() => (document.getElementById('toasts') || { textContent: '' }).textContent); }
 async function confirmerModal(p, oui) {
@@ -112,12 +118,14 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   L.verifier((await g.textContent('h1')).trim() === 'Pièces', 'titre de la page');
   const hrefs = await g.$$eval('.cat-actions a', as => as.map(a => [a.textContent.trim(), a.getAttribute('href')]));
   const h = Object.fromEntries(hrefs);
-  L.verifier(h['Nouvelle pièce'] === 'index.php?page=piece_edit', 'bouton Nouvelle pièce');
-  L.verifier(h['Importer (CSV)'] === 'index.php?page=pieces_import', 'bouton Importer');
-  L.verifier(h['Exporter (CSV)'] === 'app/ajax/pieces_export.php', 'bouton Exporter');
-  L.verifier(h['Étiquettes'] === 'index.php?page=etiquettes', 'bouton Étiquettes');
+  L.verifier(h['Ajouter une pièce'] === 'index.php?page=piece_edit', 'bouton Ajouter une pièce');
+  L.verifier(h['Exporter'] === 'app/ajax/pieces_export.php', 'bouton Exporter');
+  L.verifier(!h['Importer (CSV)'] && !h['Étiquettes'], 'pas de doublon des entrées du menu (Importer des pièces, Étiquettes) sur la liste');
+  L.verifier((await principaux(g)) === 1, 'liste des pièces : un seul bouton principal');
+  L.verifier(await g.evaluate(() => { const r = document.getElementById('recherche'), c = document.getElementById('f-categorie'); return !!(r.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING) && r.getBoundingClientRect().top < document.querySelector('#table-pieces').getBoundingClientRect().top; }), 'la recherche vient en premier, au-dessus du tableau');
+  L.verifier(await g.$eval('#options-pieces', z => z.hidden), 'filtres rares (statut, en stock) cachés derrière « Plus d\'options »');
   const entetes = await textes(g, '#table-pieces thead th');
-  L.verifier(entetes.join('|') === 'Code|Nom|Catégorie|Unité|Quantité totale|Statut', 'colonnes : ' + entetes.join('|'));
+  L.verifier(entetes.join('|') === 'Code|Nom|Catégorie|Quantité', 'colonnes : ' + entetes.join('|'));
 
   await g.fill('#recherche', 'gicleur'); await uneLigne(g, 'P-0003');
   L.verifier(true, 'recherche par nom');
@@ -128,12 +136,13 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await g.fill('#recherche', 'thermo'); await lignes(g, 2);       // P-0001 et P-0012 : chaque mot cherché dans le code, le nom ou un alias
   await g.fill('#recherche', 'introuvable-xyz');
   await g.waitForSelector('#table-pieces td.dataTables_empty');
-  L.verifier((await g.textContent('#table-pieces td.dataTables_empty')).includes('Aucune pièce ne correspond'), 'message de liste vide');
+  L.verifier((await g.textContent('#table-pieces td.dataTables_empty')).includes('Aucune pièce trouvée'), 'message de liste vide');
   await g.fill('#recherche', '50%_'); await g.waitForSelector('#table-pieces td.dataTables_empty');   // jokers LIKE échappés
   await g.fill('#recherche', ''); await lignes(g, 14);
 
   await g.selectOption('#f-categorie', { label: 'Brûleurs' }); await lignes(g, 2);
   await g.selectOption('#f-categorie', { value: '' }); await lignes(g, 14);
+  await plus(g, 'options-pieces');
   await g.selectOption('#f-statut', 'inactives'); await g.waitForSelector('#table-pieces td.dataTables_empty');
   await g.selectOption('#f-statut', 'toutes'); await lignes(g, 14);
   await g.selectOption('#f-statut', 'actives'); await lignes(g, 14);
@@ -147,17 +156,17 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await L.aller(g, 'pieces&q=gicleur');
   L.verifier((await g.inputValue('#recherche')) === 'gicleur', 'recherche prérenseignée par l\'adresse'); await uneLigne(g, 'P-0003');
   await L.aller(g, 'pieces&statut=toutes&categorie_id=1'); await lignes(g, 2);
-  L.verifier((await g.inputValue('#f-categorie')) === '1' && (await g.inputValue('#f-statut')) === 'toutes', 'catégorie et statut prérenseignés par l\'adresse');
+  L.verifier((await g.inputValue('#f-categorie')) === '1' && (await g.inputValue('#f-statut')) === 'toutes' && !(await g.$eval('#options-pieces', z => z.hidden)), 'catégorie et statut prérenseignés par l\'adresse (le filtre venu de l\'adresse reste visible)');
   await L.aller(g, 'pieces&q=%3Cscript%3Ewindow.__x%3D1%3C%2Fscript%3E&statut=%22%3E&categorie_id=%27'); await g.waitForSelector('#table-pieces td.dataTables_empty');
   L.verifier((await g.evaluate(() => window.__x)) === undefined && (await g.inputValue('#f-statut')) === 'actives', 'paramètres d\'adresse hostiles : sans effet');
   await L.aller(g, 'pieces'); await lignes(g, 14);
 
   // chaque colonne triable répond sans erreur serveur (alias des colonnes = columns[].data)
-  for (const col of [1, 2, 3, 4, 5, 6]) {
+  for (const col of [1, 2, 3, 4]) {
     await g.click('#table-pieces thead th:nth-child(' + col + ')');
     await g.waitForTimeout(350); await lignes(g, 14);
   }
-  L.verifier(!(await toastTexte(g)).includes('Impossible de charger'), 'tri sur chacune des 6 colonnes : aucune erreur de chargement');
+  L.verifier(!(await toastTexte(g)).includes('Impossible de charger'), 'tri sur chacune des 4 colonnes : aucune erreur de chargement');
 
   // scanner : un code exact (interne, alias) ouvre la fiche ; un code d'emplacement avertit
   await L.aller(g, 'pieces');
@@ -185,7 +194,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
 
   // entreprise choisie en haut : P-0009 = 18 pour toutes, 4 pour Boutique Chaleur
   await L.aller(g, 'pieces'); await lignes(g, 14);
-  const qteP9 = async () => (await textes(g, '#table-pieces tbody tr:has-text("P-0009") td:nth-child(5)'))[0];
+  const qteP9 = async () => (await textes(g, '#table-pieces tbody tr:has-text("P-0009") td:nth-child(4)'))[0].split(' ')[0];
   L.verifier((await qteP9()) === '18', 'quantité totale (toutes entreprises) de P-0009 : ' + await qteP9());
   await Promise.all([g.waitForNavigation(), g.selectOption('#entreprise-courante', '2')]);
   await lignes(g, 14);
@@ -198,10 +207,12 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   // =====================================================================================================================
   console.log('2. Création d\'une pièce');
   await L.aller(g, 'piece_edit');
-  await g.click('#btn-proposer');
   await g.waitForFunction(() => /^P-\d{4}$/.test(document.getElementById('f-code').value), null, { timeout: 5000 });
   const codeProp = await g.inputValue('#f-code');
-  L.verifier(codeProp === 'P-0015', 'proposition du prochain code libre : ' + codeProp);
+  L.verifier(codeProp === 'P-0015', 'le prochain code libre est déjà inscrit à l\'ouverture : ' + codeProp);
+  L.verifier((await g.evaluate(() => document.activeElement.id)) === 'f-nom', 'nouvelle pièce : le curseur est dans « Nom »');
+  L.verifier((await principaux(g)) === 1 && await g.$eval('#options-piece', z => z.hidden), 'formulaire de pièce : un seul bouton principal ; description, autres codes et minimums cachés derrière « Plus d\'options »');
+  L.verifier((await g.$$('.content-wrapper p.text-muted, .content-wrapper small.form-text')).length === 0, 'formulaire de pièce : aucun texte d\'aide affiché en permanence');
   // validations : tout vide -> messages précis
   await g.fill('#f-code', ''); await g.click('#btn-enregistrer');
   await g.waitForSelector('[data-erreur-pour="code"]:not([hidden])');
@@ -214,11 +225,12 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await g.fill('#f-code', 'P-0003'); await g.press('#f-code', 'Tab');
   await g.waitForFunction(() => /déjà le code interne de la pièce/.test(document.querySelector('[data-erreur-pour="code"]').textContent), null, { timeout: 5000 });
   L.verifier(true, 'vérification du code en quittant le champ (code déjà pris par une pièce)');
-  await g.click('#btn-proposer'); await g.waitForFunction(() => document.getElementById('f-code').value === 'P-0015');
+  await g.fill('#f-code', 'P-0015');
   await g.click('#btn-enregistrer');
   await g.waitForFunction(() => /Le nom est obligatoire/.test(document.querySelector('[data-erreur-pour="nom"]').textContent));
   L.verifier(await g.evaluate(() => document.activeElement.id) === 'f-nom', 'le champ fautif reçoit le focus');
   await g.fill('#f-nom', XSS1);
+  await plus(g, 'options-piece');
   await g.fill('#f-description', 'Ligne 1\nLigne 2 <b>gras</b>');
   // catégorie : création rapide sans quitter la page (+ doublon refusé)
   await g.click('#btn-nouvelle-categorie');
@@ -234,8 +246,8 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   L.verifier(['unité', 'paire', 'm', 'pi', 'kg', 'L', 'boîte', 'rouleau', 'lot'].every(u => unites.includes(u)), 'suggestions d\'unités');
   // réseau coupé : message en français (pas de « Failed to fetch »)
   await g.context().setOffline(true);
-  await g.click('#btn-proposer');
-  await g.waitForFunction(() => (document.getElementById('toasts') || { textContent: '' }).textContent.includes('Connexion impossible au serveur'), null, { timeout: 5000 });
+  await g.click('#btn-enregistrer');
+  await g.waitForFunction(() => document.getElementById('erreur-form').textContent.includes('Connexion impossible au serveur') && !document.getElementById('erreur-form').hidden, null, { timeout: 5000 });
   await g.context().setOffline(false); await viderToasts(g);
   L.verifier(true, 'réseau coupé : message d\'erreur en français');
   // alias : codes déjà pris (pièce, alias, emplacement), doublons, ajout, retrait
@@ -272,12 +284,12 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await g.click('#btn-enregistrer');
   await g.waitForURL(/page=piece_voir&id=\d+&msg=cree/);
   const idNouvelle = (g.url().match(/id=(\d+)/) || [])[1];
-  L.verifier(!!(await g.$('.alert-success:has-text("a été créée")')), 'message de succès après création');
+  L.verifier(!!(await g.$('.alert-success:has-text("créée")')), 'message de succès après création');
   L.verifier((await g.textContent('h1')) === 'P-0015 — ' + XSS1, 'le nom (avec balises) s\'affiche comme texte dans le titre');
   L.verifier((await g.$$('img[src="x"]')).length === 0, 'aucune balise injectée (fiche)');
   const dd = await textes(g, 'dl dd');
-  L.verifier(dd[2].includes('Ligne 1') && dd[2].includes('<b>gras</b>'), 'description multiligne affichée telle quelle : ' + dd[2]);
-  L.verifier(dd[3] === XSS3, 'catégorie affichée comme texte');
+  L.verifier(dd[0].includes('Ligne 1') && dd[0].includes('<b>gras</b>'), 'description multiligne affichée telle quelle : ' + dd[0]);
+  L.verifier(dd[1] === XSS3, 'catégorie affichée comme texte');
   // fiche : codes, aperçu Code 128, stock, minimum
   const codes = await textes(g, '#table-codes tbody tr');
   L.verifier(codes.length === 3 && codes[0].startsWith('Interne P-0015') && codes[1].startsWith('Fabricant A1-UPC-001') && codes[2].includes('Autre ' + XSSA), 'codes interne + alias : ' + codes.join(' / '));
@@ -286,13 +298,15 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   const stockTxt = (await textes(g, '#table-stock tbody tr')).join(' | ');
   L.verifier(stockTxt.includes('Beauchemin (minimum : 5,5) Sous le minimum') && stockTxt.includes('Boutique Chaleur') && stockTxt.includes('Aucun stock'), 'stock vide, minimum et alerte : ' + stockTxt);
   L.verifier(!!(await g.$('a:has-text("Étiquette")[href="index.php?page=etiquettes&piece_id=' + idNouvelle + '"]')), 'bouton Étiquette');
-  L.verifier(!!(await g.$('a:has-text("Réception")[href="index.php?page=reception&piece_id=' + idNouvelle + '"]')) && !!(await g.$('a:has-text("Transfert")[href="index.php?page=transfert&piece_id=' + idNouvelle + '"]')) && !!(await g.$('a:has-text("Sortie")[href="index.php?page=sortie&piece_id=' + idNouvelle + '"]')), 'liens rapides Réception / Transfert / Sortie');
+  L.verifier(!!(await g.$('a:has-text("Recevoir")[href="index.php?page=reception&piece_id=' + idNouvelle + '"]')) && !!(await g.$('a:has-text("Déplacer")[href="index.php?page=transfert&piece_id=' + idNouvelle + '"]')) && !!(await g.$('a:has-text("Utiliser")[href="index.php?page=sortie&piece_id=' + idNouvelle + '"]')), 'liens rapides Recevoir / Déplacer / Utiliser (mêmes mots que le menu)');
+  L.verifier((await principaux(g)) === 1 && (await g.textContent('.cat-actions .btn-primary')).trim() === 'Modifier', 'fiche (gestionnaire) : un seul bouton principal, « Modifier »');
   L.verifier((await g.textContent('#table-mouvements, .card:has(h3:has-text("Derniers mouvements")) .card-body')).includes('Aucun mouvement'), 'aucun mouvement pour une pièce neuve');
 
   // liste : XSS inoffensif, filtre « avec stock seulement » retire la pièce neuve
   await L.aller(g, 'pieces'); await lignes(g, 15);
   L.verifier((await g.$$('#table-pieces img')).length === 0, 'aucune balise injectée (liste)');
   L.verifier((await textes(g, '#table-pieces tbody tr:has-text("P-0015") td:nth-child(2)'))[0] === XSS1, 'nom affiché comme texte dans la liste');
+  await plus(g, 'options-pieces');
   await g.click('label[for="f-stock"]'); await lignes(g, 14);
   await g.click('label[for="f-stock"]'); await lignes(g, 15);
   await g.selectOption('#f-categorie', { label: XSS3 }); await uneLigne(g, 'P-0015');   // catégorie créée à l'instant
@@ -304,7 +318,8 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await g.fill('#f-code', 'p-0300'); await g.fill('#f-nom', 'Pièce de série A1'); await g.fill('#f-unite', 'lot');
   await g.click('#btn-enregistrer-nouveau');
   await g.waitForURL(/page=piece_edit&cree=\d+/);
-  L.verifier(!!(await g.$('.alert-success:has-text("P-0300")')) && (await g.inputValue('#f-code')) === '', 'enregistrer et créer une autre : message + formulaire vierge');
+  await g.waitForFunction(() => /^P-\d{4}$/.test(document.getElementById('f-code').value), null, { timeout: 5000 });
+  L.verifier(!!(await g.$('.alert-success:has-text("P-0300")')) && (await g.inputValue('#f-nom')) === '' && (await g.inputValue('#f-code')) !== 'P-0300', 'enregistrer et ajouter une autre : message + formulaire prêt (nom vide, nouveau code proposé)');
   // double clic sur « Enregistrer » : une seule pièce créée
   await L.aller(g, 'piece_edit');
   await g.fill('#f-code', 'P-0310'); await g.fill('#f-nom', 'Double clic'); await g.fill('#f-unite', 'lot');
@@ -331,7 +346,8 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await g.selectOption('#prix-fournisseur', { label: 'Distribution Chauffage Plus' });
   await g.fill('#prix-montant', 'abc'); await g.click('#prix-enregistrer');
   await g.waitForFunction(() => /doit être un nombre/.test(document.getElementById('prix-erreur').textContent));
-  await g.fill('#prix-montant', '12,5 $'); await g.fill('#prix-no', 'ZZ-1'); await g.fill('#prix-note', 'Prix de liste');
+  L.verifier(await g.$eval('#options-prix', z => z.hidden), 'fenêtre de prix : date, numéro et note cachés derrière « Plus d\'options »');
+  await g.fill('#prix-montant', '12,5 $'); await plus(g, 'options-prix'); await g.fill('#prix-no', 'ZZ-1'); await g.fill('#prix-note', 'Prix de liste');
   await g.click('#prix-enregistrer');
   await g.waitForSelector('#modal-prix', { state: 'hidden' });
   await g.waitForSelector('#table-prix tbody tr');
@@ -381,7 +397,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   L.verifier(mouv[0].includes('Sortie') && mouv[0].includes('-1'), 'dernier mouvement : la sortie : ' + mouv[0]);
   // stock par entreprise puis par emplacement, avec totaux
   const st = (await textes(g, '#table-stock tbody tr')).join(' | ');
-  L.verifier(st.includes('Total : 11 (unité)') && st.includes('Entrepôt principal Entrepôt 8') && st.includes('Cube 12 — Marc Cube de service 3'), 'stock par emplacement et totaux : ' + st);
+  L.verifier(st.includes('Total : 11 (unité)') && st.includes('Entrepôt principal 8') && st.includes('Cube 12 — Marc 3'), 'stock par emplacement et totaux : ' + st);
 
   // =====================================================================================================================
   //  4. Modification, code figé, désactivation
@@ -389,13 +405,13 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   console.log('4. Modification et désactivation');
   await L.aller(g, 'piece_edit&id=1');
   L.verifier(await g.$eval('#f-code', e => e.readOnly), 'code interne en lecture seule (la pièce a des mouvements)');
-  L.verifier((await g.$('#btn-proposer')) === null, 'pas de « Proposer un code » pour une pièce avec mouvements');
+  L.verifier(!!(await g.$('#f-code ~ .input-group-append .fa-lock')), 'cadenas sur le code d\'une pièce avec mouvements');
   L.verifier((await textes(g, '#liste-alias li'))[0] === 'Fabricant 012345678905', 'alias existant affiché');
   L.verifier((await g.inputValue('#seuil-1')) === '10', 'minimum existant affiché');
   await g.fill('#f-nom', 'Thermocouple 36 po (essai)'); await g.fill('#seuil-2', '3');
   await g.click('#btn-enregistrer');
   await g.waitForURL(/page=piece_voir&id=1&msg=modifie/);
-  L.verifier((await g.textContent('h1')).includes('(essai)') && !!(await g.$('.alert-success:has-text("modifications")')), 'modification enregistrée');
+  L.verifier((await g.textContent('h1')).includes('(essai)') && !!(await g.$('.alert-success:has-text("modifiée")')), 'modification enregistrée');
   L.verifier(sql("SELECT minimum FROM seuils WHERE piece_id = 1 AND entreprise_id = 2") === '3.000', 'minimum de l\'entreprise 2 enregistré');
   // règle côté serveur (même en contournant l'interface)
   let r = await appel(g, 'app/action/piece_save.php', { id: 1, code: 'P-9001', nom: 'Thermocouple', unite: 'unité', empreinte: await empreinte(g, 1) });
@@ -419,28 +435,31 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   L.verifier(Number(sql("SELECT COUNT(*) FROM journal WHERE action = 'piece.modifie' AND entite_id = " + idNouvelle)) === 1, 'modification journalisée');
   // désactivation : pièce avec stock -> confirmation avec le stock restant
   await L.aller(g, 'piece_voir&id=3');
+  await plus(g, 'options-fiche');
   await g.click('#btn-activer');
   let m = await confirmerModal(g, false);
   L.verifier(m.includes('a encore du stock') && m.includes('Beauchemin : 10') && /transféré, sorti ou compté/.test(m) && !/ne peut plus être transféré/.test(m), 'confirmation avec le stock restant (le stock peut toujours être vidé) : ' + m);
   L.verifier(sql("SELECT actif FROM pieces WHERE id = 3") === '1', 'refus de la confirmation : la pièce reste active');
   await g.click('#btn-activer'); await confirmerModal(g, true);
   await g.waitForURL(/page=piece_voir&id=3&msg=desactivee/);
-  L.verifier(!!(await g.$('.alert-secondary:has-text("désactivée")')) && (await g.$('.cat-actions a:has-text("Réception")')) === null, 'pièce désactivée : bandeau, plus de lien Réception');
-  L.verifier(!!(await g.$('.cat-actions a:has-text("Transfert")')) && !!(await g.$('.cat-actions a:has-text("Sortie")')), 'pièce désactivée avec du stock : liens Transfert et Sortie conservés (le stock se vide)');
+  L.verifier(!!(await g.$('.alert-secondary:has-text("désactivée")')) && (await g.$('.cat-actions a:has-text("Recevoir")')) === null, 'pièce désactivée : bandeau, plus de lien Recevoir');
+  L.verifier(!!(await g.$('.cat-actions a:has-text("Déplacer")')) && !!(await g.$('.cat-actions a:has-text("Utiliser")')), 'pièce désactivée avec du stock : liens Déplacer et Utiliser conservés (le stock se vide)');
   L.verifier(sql("SELECT COUNT(*) FROM journal WHERE action = 'piece.desactive' AND entite_id = 3") === '1', 'désactivation journalisée');
   await L.aller(g, 'pieces'); await lignes(g, Number(sql("SELECT COUNT(*) FROM pieces WHERE actif = 1")));   // 16 pièces dont une désactivée
   L.verifier((await textes(g, '#table-pieces tbody')).join('').indexOf('P-0003') === -1, 'une pièce désactivée disparaît de la liste par défaut');
+  await plus(g, 'options-pieces');
   await g.selectOption('#f-statut', 'inactives'); await uneLigne(g, 'P-0003');
   L.verifier((await textes(g, '#table-pieces tbody tr'))[0].includes('Désactivée'), 'filtre « Désactivées »');
   await L.aller(g, 'piece_voir&id=3'); await g.click('#btn-activer');
   await g.waitForURL(/page=piece_voir&id=3&msg=reactivee/);
   L.verifier(sql("SELECT actif FROM pieces WHERE id = 3") === '1', 'pièce réactivée');
   // pièce sans stock : confirmation simple ; via le formulaire de modification : confirmation aussi
-  await L.aller(g, 'piece_voir&id=' + idNouvelle); await g.click('#btn-activer');
+  await L.aller(g, 'piece_voir&id=' + idNouvelle); await plus(g, 'options-fiche'); await g.click('#btn-activer');
   m = await confirmerModal(g, true);
   L.verifier(m.includes('Désactiver « P-0150 »') && !m.includes('stock'), 'confirmation simple sans stock : ' + m);
   await g.waitForURL(/msg=desactivee/);
   await L.aller(g, 'piece_edit&id=4');
+  await plus(g, 'options-piece');
   await g.click('label[for="f-actif"]'); await g.click('#btn-enregistrer');
   m = await confirmerModal(g, false);
   await g.waitForFunction(() => document.getElementById('f-actif').checked, null, { timeout: 5000 });
@@ -460,6 +479,8 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await L.aller(g, 'fournisseurs');
   await g.waitForSelector('#table-fournisseurs tbody tr td:not(.dataTables_empty)');
   L.verifier((await g.$$('#table-fournisseurs tbody tr')).length === 3, '3 fournisseurs de démonstration');
+  L.verifier((await principaux(g)) === 1 && (await g.$$('.content-wrapper p.text-muted, .content-wrapper small.text-muted')).length === 0 && !!(await g.$('#zone-recherche input[type=search]')), 'fournisseurs : recherche dans la barre du haut, un seul bouton principal, aucun texte d\'aide');
+  L.verifier((await textes(g, '#table-fournisseurs thead th')).join('|') === 'Nom|Contact|Téléphone|Courriel|Pièces|Actions', 'fournisseurs : colonnes : ' + (await textes(g, '#table-fournisseurs thead th')).join('|'));
   await g.click('#btn-nouveau'); await g.waitForSelector('#modal-fournisseur.show');
   await g.fill('#fo-nom', ''); await g.click('#fournisseur-enregistrer');
   await g.waitForSelector('#fournisseur-erreur:not([hidden])');
@@ -481,7 +502,8 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await g.click('#table-fournisseurs tbody tr:has-text("Pièces Mazout Express") button[data-action="modifier"]');
   await g.waitForSelector('#modal-fournisseur.show');
   L.verifier((await g.inputValue('#fo-nom')) === 'Pièces Mazout Express' && (await g.inputValue('#fo-telephone')) === '418-555-0103', 'modification : champs préremplis');
-  await g.fill('#fo-telephone', '418-555-7777'); await g.fill('#fo-notes', 'Livraison le jeudi'); await g.click('#fournisseur-enregistrer');
+  L.verifier(await g.$eval('#options-fournisseur', z => z.hidden), 'fenêtre fournisseur : adresse et notes cachées derrière « Plus d\'options »');
+  await g.fill('#fo-telephone', '418-555-7777'); await plus(g, 'options-fournisseur'); await g.fill('#fo-notes', 'Livraison le jeudi'); await g.click('#fournisseur-enregistrer');
   await g.waitForSelector('#modal-fournisseur', { state: 'hidden' });
   await g.waitForFunction(() => document.querySelector('#table-fournisseurs').textContent.includes('418-555-7777'));
   L.verifier(sql("SELECT notes FROM fournisseurs WHERE nom = 'Pièces Mazout Express'") === 'Livraison le jeudi', 'fournisseur modifié');
@@ -500,6 +522,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   m = await confirmerModal(g, true);
   L.verifier(m.includes('Pièces Mazout Express') && m.includes('prix et son historique sont conservés'), 'confirmation de désactivation du fournisseur');
   await g.waitForFunction(() => !document.querySelector('#table-fournisseurs').textContent.includes('Pièces Mazout Express'));
+  await plus(g, 'options-fournisseurs');
   await g.selectOption('#f-statut', 'inactifs');
   await g.waitForFunction(() => document.querySelector('#table-fournisseurs').textContent.includes('Pièces Mazout Express') && document.querySelectorAll('#table-fournisseurs tbody tr').length === 1);
   L.verifier(sql("SELECT actif FROM fournisseurs WHERE nom = 'Pièces Mazout Express'") === '0', 'fournisseur désactivé');
@@ -523,6 +546,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await L.aller(g, 'categories');
   await g.waitForSelector('#table-categories tbody tr td:not(.dataTables_empty)');
   L.verifier((await g.$$('#table-categories tbody tr')).length === 6, '5 catégories de démonstration + celle créée à l\'instant');
+  L.verifier((await principaux(g)) === 1 && (await g.$$('.content-wrapper p.text-muted, .content-wrapper small.text-muted')).length === 0 && !!(await g.$('#zone-recherche input[type=search]')), 'catégories : recherche dans la barre du haut, un seul bouton principal, aucun texte d\'aide');
   L.verifier((await g.$$('#table-categories img')).length === 0, 'nom de catégorie avec balises : affiché comme texte');
   await g.click('#btn-nouvelle'); await g.waitForSelector('#modal-categorie.show');
   await g.fill('#ca-nom', 'Vannes A1'); await g.fill('#ca-description', 'Vannes et robinets'); await g.click('#categorie-enregistrer');
@@ -575,8 +599,9 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await L.aller(e, 'piece_voir&id=1');
   const html = await e.content();
   L.verifier(!/section-prix|Coût moyen|Ajouter un prix|Écart vs|Distribution Chauffage|14,50|F1-0001/.test(html), 'fiche de l\'employé : aucun coût ni prix dans le HTML');
-  L.verifier((await e.$('#btn-activer')) === null && (await e.$('.cat-actions a:has-text("Modifier")')) === null && (await e.$('.cat-actions a:has-text("Étiquette")')) === null && (await e.$('.cat-actions a:has-text("Réception")')) === null, 'fiche de l\'employé : pas de boutons de gestion');
-  L.verifier(!!(await e.$('.cat-actions a:has-text("Transfert")')) && !!(await e.$('.cat-actions a:has-text("Sortie")')), 'l\'employé garde Transfert et Sortie');
+  L.verifier((await e.$('#btn-activer')) === null && (await e.$('.cat-actions a:has-text("Modifier")')) === null && (await e.$('.cat-actions a:has-text("Étiquette")')) === null && (await e.$('.cat-actions a:has-text("Recevoir")')) === null && (await e.$('[data-plus]')) === null, 'fiche de l\'employé : pas de boutons de gestion');
+  L.verifier(!!(await e.$('.cat-actions a:has-text("Déplacer")')) && !!(await e.$('.cat-actions a:has-text("Utiliser")')), 'l\'employé garde Déplacer et Utiliser');
+  L.verifier((await principaux(e)) === 1 && (await e.textContent('.cat-actions .btn-primary')).trim() === 'Utiliser', 'fiche (employé) : un seul bouton principal, « Utiliser »');
   const stE = (await textes(e, '#table-stock tbody tr')).join(' | ');
   L.verifier(stE.includes('Beauchemin') && !stE.includes('Boutique Chaleur'), 'l\'employé ne voit que le stock de son entreprise : ' + stE);
   L.verifier(!!(await e.$('#table-codes img')) && (await e.$$('#table-mouvements tbody tr')).length === 4, 'l\'employé voit les codes et les mouvements');
@@ -633,6 +658,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   const exp = await nouvelle();
   await L.connecter(exp, 'gestionnaire'); await L.aller(exp, 'pieces'); await lignes(exp, Number(sql("SELECT COUNT(*) FROM pieces WHERE actif = 1")));
   await exp.context().clearCookies();
+  await plus(exp, 'options-pieces');
   await Promise.all([exp.waitForURL(/login\.php/, { timeout: 8000 }), exp.selectOption('#f-statut', 'toutes')]);
   L.verifier(/login\.php/.test(exp.url()), 'session expirée : retour à la page de connexion');
   const lib = await g.evaluate(async () => { const rep = await fetch('app/action/piece_lib.php'); await rep.text(); return rep.status; });
@@ -692,6 +718,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
     L.verifier(d <= 1, 'pas de défilement horizontal de la page à 768 px : ' + route + ' (' + d + ')');
   }
   await L.aller(t, 'piece_edit');
+  await plus(t, 'options-piece');
   const champs = await t.$$eval('#form-piece input:not([type=checkbox]):not([type=hidden]), #form-piece select, #form-piece button.btn', els => els.filter(e => e.offsetParent !== null).map(e => e.getBoundingClientRect().height));
   L.verifier(champs.every(hh => hh >= 43.5), 'formulaire de pièce : champs et boutons ≥ 44 px (' + champs.filter(hh => hh < 43.5).join(',') + ')');
   const inputmode = await t.$$eval('.champ-seuil', els => els.map(e => e.getAttribute('inputmode')));
@@ -707,6 +734,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   // =====================================================================================================================
   console.log('10. Scanner');
   await L.aller(g, 'piece_edit');
+  await plus(g, 'options-piece');
   await g.route('**/piece_code_verifier.php*', async route => { await attendre(300); await route.continue().catch(() => {}); });
   await g.focus('#f-alias');
   for (const c of ['RAF-AAA1', 'RAF-BBB2', 'RAF-CCC3']) { await g.keyboard.type(c); await g.keyboard.press('Enter'); }
@@ -742,7 +770,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await g.waitForFunction(() => document.querySelectorAll('#liste-alias li .code').length === 7, null, { timeout: 5000 });
   await g.click('#btn-enregistrer');
   await g.waitForURL(/page=piece_voir&id=\d+&msg=cree/);
-  L.verifier((await tx(g, '.alert-success')).includes('La pièce « P-0900 » a été créée.'), 'message de création : la pièce est nommée : ' + await tx(g, '.alert-success'));
+  L.verifier((await tx(g, '.alert-success')).includes('Pièce « P-0900 » créée.'), 'message de création : la pièce est nommée : ' + await tx(g, '.alert-success'));
   const aliasEnreg = sql("SELECT GROUP_CONCAT(code ORDER BY code) FROM pieces_codes WHERE piece_id = (SELECT id FROM pieces WHERE code = 'P-0900')");
   L.verifier(aliasEnreg === 'FOU-5555,LENT-7777,RAF-AAA1,RAF-BBB2,RAF-CCC3,RAF-DDD4,TAB-6666', 'les 7 alias enregistrés sont exacts (aucun alias collé) : ' + aliasEnreg);
 
@@ -765,6 +793,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await g.waitForURL(/page=piece_voir&id=3$/, { timeout: 5000 });
   L.verifier(true, 'scan alors que le focus est sur la liste « Catégorie » : la fiche s\'ouvre (la catégorie n\'a pas changé)');
   await L.aller(g, 'pieces'); await lignes(g, NB_ACTIVES());
+  await plus(g, 'options-pieces');
   await g.click('label[for="f-stock"]');
   L.verifier((await g.evaluate(() => document.activeElement.id)) === 'recherche', 'après un clic sur un filtre, le focus revient au champ de scan');
   await g.keyboard.type('P-0004'); await g.keyboard.press('Enter');
@@ -866,6 +895,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await L.aller(g, 'piece_voir&id=3');
   L.verifier(!!(await g.$('.badge-bas:has-text("Sous le minimum")')), 'pièce active sous le minimum : badge affiché');
   const avant400 = g.erreurs.length;
+  await plus(g, 'options-fiche');
   await g.click('#btn-activer'); const msgStock = await confirmerModal(g, false);
   L.verifier(g.erreurs.slice(avant400).every(e => !/400/.test(e)), 'désactivation d\'une pièce avec du stock : aucune erreur 400 dans la console : ' + JSON.stringify(g.erreurs.slice(avant400)));
   L.verifier(/Beauchemin : 10/.test(msgStock), 'la confirmation montre le stock restant');
@@ -875,11 +905,12 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await L.aller(g, 'piece_voir&id=3');
   L.verifier(!(await g.$('.badge-bas')), 'pièce désactivée : plus de badge « Sous le minimum »');
   const bandeau = await tx(g, '.alert-secondary');
-  L.verifier(/ne peut plus être reçue, mais son stock peut encore être transféré ou sorti/.test(bandeau), 'bandeau d\'une pièce désactivée avec du stock : ' + bandeau);
+  L.verifier(/^Pièce désactivée\.$/.test(bandeau), 'bandeau d\'une pièce désactivée : une courte ligne : ' + bandeau);
   r = await appel(g, 'app/action/piece_activer.php', { id: 3, actif: true });
 
   // ---- minimum invalide : l'entreprise est nommée et le bon champ est marqué --------------------------------------
   await L.aller(g, 'piece_edit&id=2');
+  await plus(g, 'options-piece');
   await g.fill('#seuil-2', 'abc'); await g.click('#btn-enregistrer');
   await g.waitForSelector('[data-erreur-pour="seuils"]:not([hidden])');
   const msgMin = await g.textContent('[data-erreur-pour="seuils"]');
@@ -889,6 +920,13 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await g.fill('#seuil-2', '2'); await g.fill('#seuil-1', '-5'); await g.click('#btn-enregistrer');
   await g.waitForFunction(() => /Beauchemin/.test(document.querySelector('[data-erreur-pour="seuils"]').textContent));
   L.verifier(await g.evaluate(() => document.activeElement.id === 'seuil-1'), 'minimum négatif de Beauchemin : focus sur le premier champ');
+  // une erreur dans un champ caché ouvre « Plus d'options » : elle ne reste jamais invisible
+  await L.aller(g, 'piece_edit');
+  L.verifier(await g.$eval('#options-piece', z => z.hidden), 'formulaire neuf : options cachées');
+  await g.fill('#f-nom', 'Essai minimum caché'); await g.evaluate(() => { document.getElementById('seuil-1').value = 'abc'; });
+  await g.click('#btn-enregistrer');
+  await g.waitForSelector('[data-erreur-pour="seuils"]:not([hidden])');
+  L.verifier(!(await g.$eval('#options-piece', z => z.hidden)) && await g.evaluate(() => document.activeElement.id === 'seuil-1'), 'erreur sur un minimum : « Plus d\'options » s\'ouvre et le champ fautif reçoit le focus');
 
   // =====================================================================================================================
   //  12. Modification concurrente (formulaire périmé) et unicité des codes sous charge
@@ -896,6 +934,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   console.log('12. Concurrence');
   // A ouvre le formulaire de P-0004 ; B ajoute un alias, fixe un minimum et désactive la pièce ; A enregistre ensuite
   await L.aller(g, 'piece_edit&id=4');
+  await plus(g, 'options-piece');
   await g.fill('#f-description', 'Description saisie par A');
   const gb = await nouvelle(); await L.connecter(gb, 'admin');
   const nom4 = sql("SELECT nom FROM pieces WHERE id = 4");
@@ -912,6 +951,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   L.verifier(sql("SELECT COUNT(*) FROM journal WHERE action = 'piece.reactive' AND entite_id = 4") === reactivationsAvant, 'aucune réactivation journalisée à tort');
   await g.reload(); await g.waitForLoadState('networkidle');
   L.verifier((await g.inputValue('#f-description')) !== 'Description saisie par A' && (await textes(g, '#liste-alias li .code'))[0] === 'ALIAS-B-4', 'après rechargement : l\'alias de B est là');
+  await plus(g, 'options-piece');
   await g.fill('#f-description', 'Description saisie par A (après rechargement)'); await g.click('#btn-enregistrer');
   await g.waitForURL(/page=piece_voir&id=4&msg=modifie/);
   L.verifier(sql("SELECT description FROM pieces WHERE id = 4") === 'Description saisie par A (après rechargement)' && sql("SELECT actif FROM pieces WHERE id = 4") === '0', 'après rechargement, l\'enregistrement passe et l\'état de B est respecté');
@@ -966,8 +1006,10 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await L.aller(g, 'pieces'); await lignes(g, NB_ACTIVES());
   await g.selectOption('#f-categorie', { label: 'Catégorie vide A1' });
   await g.waitForSelector('#table-pieces td.dataTables_empty');
-  L.verifier((await g.textContent('#table-pieces td.dataTables_empty')).trim() === 'Aucune pièce ne correspond à ces critères.', 'catégorie sans pièce : message « ne correspond à ces critères » : ' + await g.textContent('#table-pieces td.dataTables_empty'));
-  await g.selectOption('#f-categorie', { value: '' }); await lignes(g, NB_ACTIVES());
+  L.verifier((await g.textContent('#table-pieces td.dataTables_empty')).trim() === 'Aucune pièce trouvée. Tout afficher', 'catégorie sans pièce : une ligne et le bouton « Tout afficher » : ' + await g.textContent('#table-pieces td.dataTables_empty'));
+  await g.click('#table-pieces td.dataTables_empty button'); await lignes(g, NB_ACTIVES());
+  L.verifier((await g.inputValue('#f-categorie')) === '', '« Tout afficher » remet les filtres à zéro');
+  await plus(g, 'options-pieces');
   await g.selectOption('#f-statut', 'inactives');
   await g.waitForFunction(() => document.querySelectorAll('#table-pieces tbody tr:not(.dataTables_empty)').length === 1 || !!document.querySelector('#table-pieces td.dataTables_empty'));
   await g.selectOption('#f-statut', 'actives'); await lignes(g, NB_ACTIVES());
@@ -993,6 +1035,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   const nErr = g.erreurs.length;
   await g.route('**/pieces_data.php', route => route.fulfill({ status: 500, contentType: 'application/json', body: '{"ok":false}' }));
   await viderToasts(g);
+  await plus(g, 'options-pieces');
   await g.selectOption('#f-statut', 'toutes');
   await g.waitForSelector('#table-pieces tr.cat-echec', { timeout: 5000 });
   await attendre(400);
@@ -1016,6 +1059,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   const nErr2 = g.erreurs.length;
   await g.route('**/fournisseur_liste.php*', route => route.abort('internetdisconnected'));
   await viderToasts(g);
+  await plus(g, 'options-fournisseurs');
   await g.selectOption('#f-statut', 'inactifs');
   await g.waitForSelector('#table-fournisseurs tr.cat-echec', { timeout: 5000 });
   L.verifier((await g.$$('#table-fournisseurs tbody tr td a[data-action="prix"]')).length === 0, 'fournisseurs, réseau coupé : les fournisseurs actifs ne restent pas affichés sous le filtre « Désactivés »');
@@ -1025,6 +1069,7 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   const e3 = await nouvelle(); await L.connecter(e3, 'gestionnaire');
   await L.aller(e3, 'pieces'); await lignes(e3, NB_ACTIVES());
   await e3.context().clearCookies();                      // la session « expire » vraiment : le serveur répond 401
+  await plus(e3, 'options-pieces');
   await e3.selectOption('#f-statut', 'toutes');
   await e3.waitForURL(/login\.php/, { timeout: 5000 });
   await attendre(300);
@@ -1076,20 +1121,24 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
     if (vp.width === 768) {
       let pt = await petits(t, '#table-fournisseurs .col-actions button');
       L.verifier(pt.length === 0, 'fournisseurs : boutons d\'action ≥ 44 × 44 : ' + JSON.stringify(pt));
-      const champsDt = await t.$$eval('#table-fournisseurs_wrapper select, #table-fournisseurs_wrapper input[type=search]', els => els.map(e => Math.round(e.getBoundingClientRect().height)));
-      L.verifier(champsDt.length === 2 && champsDt.every(h => h >= 43.5), 'fournisseurs : menu « Afficher… lignes » et champ « Rechercher » ≥ 44 px : ' + champsDt);
+      const champsDt = await t.$$eval('#table-fournisseurs_filter input[type=search]', els => els.map(e => Math.round(e.getBoundingClientRect().height)));
+      L.verifier(champsDt.length === 1 && champsDt.every(h => h >= 43.5), 'fournisseurs : champ de recherche ≥ 44 px : ' + champsDt);
       await L.aller(t, 'categories'); await attendre(500);
       pt = await petits(t, '#table-categories .col-actions button, #table-categories .cat-lien-cible');
       L.verifier(pt.length === 0, 'catégories : boutons Modifier / Supprimer et liens du nombre de pièces ≥ 44 px : ' + JSON.stringify(pt));
       const espace = await t.$eval('#table-categories tbody .col-actions', td => { const b = td.querySelectorAll('button'); return Math.round(b[1].getBoundingClientRect().left - b[0].getBoundingClientRect().right); });
       L.verifier(espace >= 6, 'catégories : au moins 6 px entre Modifier et Supprimer (' + espace + ' px)');
       await L.aller(t, 'pieces'); await lignes(t, NB_ACTIVES());
+      const bp = await petits(t, '.cat-plus');
+      L.verifier(bp.length === 0, 'liste des pièces : « Plus d\'options » ≥ 44 px : ' + JSON.stringify(bp));
+      await plus(t, 'options-pieces');
       const hl = await t.$eval('label[for="f-stock"]', e => Math.round(e.getBoundingClientRect().height));
-      L.verifier(hl >= 43, 'liste des pièces : le libellé « Avec stock seulement » mesure ' + hl + ' px');
+      L.verifier(hl >= 43, 'liste des pièces : le libellé « En stock seulement » mesure ' + hl + ' px');
       await L.aller(t, 'piece_voir&id=1'); await t.waitForSelector('#table-prix tbody tr');
       pt = await petits(t, '#btn-ajouter-prix, #table-prix .col-actions button, #section-historique .btn-tool');
       L.verifier(pt.length === 0, 'fiche : « Ajouter un prix », Modifier / Retirer le prix et le repli de l\'historique ≥ 44 px : ' + JSON.stringify(pt));
       await L.aller(t, 'piece_edit'); await attendre(300);
+      await plus(t, 'options-piece');
       await t.fill('#f-alias', 'TAB-1'); await t.press('#f-alias', 'Enter'); await t.waitForSelector('#liste-alias li button');
       pt = await petits(t, '#liste-alias li button');
       L.verifier(pt.length === 0, 'formulaire : bouton de retrait d\'un alias ≥ 44 px : ' + JSON.stringify(pt));
@@ -1112,7 +1161,8 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   });
   // fiche : badge, quantités positives, liens rapides, bouton Désactiver, bandeau de succès
   await L.aller(g, 'piece_voir&id=1&msg=modifie'); await g.waitForSelector('#table-prix tbody tr');
-  for (const [sel, nom] of [['dd .badge-success', 'badge « Active »'], ['#table-mouvements .text-success', 'quantité positive'], ['.cat-actions a.btn-outline-success', 'lien rapide'], ['#btn-activer', 'bouton Désactiver'], ['.alert-success', 'bandeau de succès'], ['.cat-ecart-mauvais', 'écart défavorable'], ['.cat-ecart-bon, .cat-ecart-mauvais', 'écart au coût moyen']]) {
+  await plus(g, 'options-fiche');
+  for (const [sel, nom] of [['#table-prix .badge-success', 'badge « Meilleur prix »'], ['#table-mouvements .text-success', 'quantité positive'], ['.cat-actions a.btn-outline-secondary', 'lien rapide'], ['#btn-activer', 'bouton Désactiver'], ['.alert-success', 'bandeau de succès'], ['.cat-ecart-mauvais', 'écart défavorable'], ['.cat-ecart-bon, .cat-ecart-mauvais', 'écart au coût moyen']]) {
     if (!(await g.$(sel))) { L.verifier(false, 'élément introuvable pour le contraste : ' + nom); continue; }
     const c = await contraste(g, sel);
     L.verifier(c >= 4.5, 'contraste de « ' + nom + ' » : ' + c.toFixed(2) + ':1 (minimum 4,5)');
@@ -1146,14 +1196,14 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   // libellés cohérents
   await L.aller(g, 'piece_voir&id=1'); await g.waitForSelector('#table-prix tbody tr');
   const thPrix = await textes(g, '#table-prix thead th');
-  L.verifier(thPrix.slice(0, 4).join('|') === 'Fournisseur|N° de pièce chez le fournisseur|Prix|Date du prix', 'colonnes des prix : ' + thPrix.join('|'));
+  L.verifier(thPrix.slice(0, 4).join('|') === 'Fournisseur|Prix|Date|Écart au coût moyen', 'colonnes des prix : ' + thPrix.join('|'));
   const thMouv = await textes(g, '#table-mouvements thead th');
   L.verifier(thMouv[thMouv.length - 1] === 'Utilisateur', 'mouvements : colonne « Utilisateur » : ' + thMouv.join('|'));
   const premier = (await textes(g, '#table-mouvements tbody tr'))[0];
   L.verifier(/Gestionnaire Démo|Administrateur|Employé Démo/.test(premier) && !/ (admin|gestionnaire1|employe1)$/.test(premier), 'mouvements : le nom complet de l\'utilisateur (pas l\'identifiant) : ' + premier);
   await g.click('#section-historique [data-card-widget="collapse"]'); await g.waitForSelector('#table-hist-prix', { state: 'visible' });
   const thHist = await textes(g, '#table-hist-prix thead th');
-  L.verifier(thHist.join('|') === 'Date du prix|Fournisseur|Prix|Utilisateur', 'historique des prix : ' + thHist.join('|'));
+  L.verifier(thHist.join('|') === 'Date|Fournisseur|Prix|Utilisateur', 'historique des prix : ' + thHist.join('|'));
   await g.click('#btn-ajouter-prix'); await g.waitForSelector('#modal-prix.show');
   L.verifier((await tx(g, '#modal-prix label[for="prix-montant"]')).startsWith('Prix ($ par unité)'), 'fenêtre de prix : unité de la pièce dans le libellé : ' + await tx(g, '#modal-prix label[for="prix-montant"]'));
   L.verifier((await tx(g, '#modal-prix label[for="prix-fournisseur"]')).includes('*') && (await tx(g, '#modal-prix label[for="prix-montant"]')).includes('*'), 'fenêtre de prix : astérisque sur les champs obligatoires');
@@ -1163,12 +1213,12 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   L.verifier((await tx(g, '#modal-prix label[for="prix-montant"]')).startsWith('Prix ($ par m)'), 'pièce vendue au mètre : « Prix ($ par m) » : ' + await tx(g, '#modal-prix label[for="prix-montant"]'));
   await g.keyboard.press('Escape'); await attendre(600);
   await L.aller(g, 'piece_edit');
-  L.verifier((await tx(g, 'h3:has-text("Minimum")')) === 'Minimum fixé', 'formulaire : « Minimum fixé » (vocabulaire du reste de l\'application)');
-  L.verifier(/Permis : lettres majuscules \(A-Z\), chiffres et les symboles \. - _ \/ \(40 caractères au plus/.test(await tx(g, '#aide-code, #aide-code-fige') + ' ' + (await g.textContent('.cat-form'))), 'aide du code interne : symboles énoncés sans point ambigu');
+  L.verifier((await tx(g, '#titre-minimum')) === 'Minimum en stock', 'formulaire : « Minimum en stock » : ' + await tx(g, '#titre-minimum'));
+  L.verifier(/Permis : lettres majuscules \(A-Z\), chiffres et les symboles \. - _ \/ \(40 caractères au plus/.test(await g.getAttribute('label[for="f-code"] .cat-info', 'title')), 'infobulle du code : symboles énoncés sans point ambigu');
   // quantités : unité entre parenthèses, titre exact
   await L.aller(g, 'piece_voir&id=6');
   L.verifier(/Total : \d+ \(paire\)/.test((await textes(g, '#table-stock tbody tr')).join(' ')), 'total « 12 (paire) » et non « 12 paire »');
-  L.verifier(!!(await g.$('h3:has-text("Derniers mouvements")')) && /20 au plus/.test(await tx(g, 'h3:has-text("Derniers mouvements")')), 'titre « Derniers mouvements (20 au plus) »');
+  L.verifier((await tx(g, 'h3:has-text("Derniers mouvements")')) === 'Derniers mouvements', 'titre « Derniers mouvements » (sans légende)');
   // format de l'écart : milliers et espace insécable avant %, même signe moins que les quantités
   sql("INSERT INTO stock_couts (entreprise_id, piece_id, cout_moyen) VALUES (1, 1, 0.15) ON DUPLICATE KEY UPDATE cout_moyen = 0.15");
   await L.aller(g, 'piece_voir&id=1'); await g.waitForSelector('#table-prix .cat-ecart-mauvais');
@@ -1238,5 +1288,5 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
   await b.close();
   process.exit(L.bilan());
 
-  async function qte(p, code) { return (await textes(p, '#table-pieces tbody tr:has-text("' + code + '") td:nth-child(5)'))[0]; }
+  async function qte(p, code) { return (await textes(p, '#table-pieces tbody tr:has-text("' + code + '") td:nth-child(4)'))[0].split(' ')[0]; }
 })().catch(e => { console.error(e); process.exit(1); });

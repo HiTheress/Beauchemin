@@ -6,7 +6,8 @@
  * l'envoi et un jeton à usage unique empêche qu'un double envoi crée deux documents.
  * Les lignes (scan, recherche, quantités, coûts) sont gérées par le composant partagé saisie-lignes.js ; ce fichier
  * ajoute par-dessus : vérification stricte des nombres (même grammaire que le serveur), totaux exacts en cents,
- * protection contre un scan tombé dans une quantité, avertissement avant de quitter une saisie, bouton +/− de l'ajustement.
+ * protection contre un scan tombé dans une quantité, avertissement avant de quitter une saisie, bouton +/− de l'ajustement,
+ * « Plus d'options » (champs rares repliés), confirmation par une notification puis écran prêt pour la saisie suivante.
  */
 (function (w, $) {
   'use strict';
@@ -36,7 +37,7 @@
     var m = (err && err.message) ? String(err.message) : '';
     if (err instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed|connexion (au serveur )?impossible/i.test(m)) {
       return typo(enregistrement
-        ? 'Connexion au serveur impossible. Vérifiez le réseau, puis cliquez de nouveau sur Enregistrer : le document ne sera pas créé en double.'
+        ? 'Connexion au serveur impossible. Vérifiez le réseau, puis réessayez : le document ne sera pas créé en double.'
         : 'Connexion au serveur impossible. Vérifiez le réseau, puis réessayez.');
     }
     return typo(m || 'Erreur inattendue. Réessayez.');
@@ -127,8 +128,9 @@
 
   function initSaisie(cfg) {
     var $emp = q('#emplacement'), $dest = q('#destination'), $date = q('#date'), $note = q('#note');
-    var $motif = q('#motif'), $ref = q('#reference'), $fourn = q('#fournisseur'), $majPrix = q('#maj-prix'), $majAide = q('#maj-prix-aide');
-    var $btn = q('#btn-enregistrer'), $err = q('#mv-erreur'), $succes = q('#mv-succes'), $resume = q('#mv-resume'), $total = q('#mv-total');
+    var $motif = q('#motif'), $ref = q('#reference'), $fourn = q('#fournisseur'), $majPrix = q('#maj-prix'), $majLigne = q('#maj-prix-ligne');
+    var $btn = q('#btn-enregistrer'), $err = q('#mv-erreur'), $resume = q('#mv-resume'), $total = q('#mv-total');
+    var $plus = q('#mv-plus'), $options = q('#mv-options');
     var cleMemo = 'bea.mv.' + page + '.emplacement';
     var emplacements = [];
     var enCours = false;
@@ -184,12 +186,12 @@
       if (!$dest) { return; }
       var ancien = $dest.value;
       if (!$emp.value) {
-        $dest.innerHTML = '<option value="">Choisissez d\'abord la source</option>';
+        $dest.innerHTML = '<option value="">— Choisissez —</option>';
         $dest.disabled = true;
         return;
       }
       var liste = listeDestination();
-      remplir($dest, liste, liste.length ? '— Choisissez la destination —' : 'Aucun autre emplacement dans cette entreprise', ancien);
+      remplir($dest, liste, liste.length ? '— Choisissez —' : 'Aucun autre emplacement', ancien);
       $dest.disabled = !liste.length;
     }
 
@@ -266,6 +268,15 @@
       });
     }
 
+    // ---- Plus d'options : les champs rares (facture, bon de travail, date, note…) restent repliés ------------------------------
+    function ouvrirOptions(oui) {
+      if (!$options || !$plus) { return; }
+      $options.hidden = !oui;
+      $plus.setAttribute('aria-expanded', oui ? 'true' : 'false');
+      var ic = q('i', $plus);
+      if (ic) { ic.className = oui ? 'fas fa-chevron-down mv-plus-icone' : 'fas fa-chevron-right mv-plus-icone'; }
+    }
+
     // ---- messages ------------------------------------------------------------------
     var champsFautifs = { emplacement_id: $emp, emplacement_dest_id: $dest, date: $date, motif: $motif, fournisseur_id: $fourn, reference: $ref, note: $note };
 
@@ -288,6 +299,7 @@
       $err.textContent = texte;
       montrer($err, true);
       var f = champ ? champsFautifs[champ] : null;
+      if (f && $options && $options.contains(f)) { ouvrirOptions(true); }       // le champ fautif ne doit pas rester caché
       if (elLigne) {
         elLigne.classList.add('is-invalid');
         try { elLigne.focus(); elLigne.scrollIntoView({ block: 'center' }); } catch (e) { /* ancien navigateur */ }
@@ -321,29 +333,19 @@
       afficherErreur(msg({ message: texte }, true), err && err.champ, el);
     }
 
+    /** Confirmation courte : une notification (avec un lien vers le document) ; l'écran, lui, est remis à zéro par l'appelant. */
     function afficherSucces(r) {
-      $succes.textContent = '';
-      var ic = document.createElement('i');
-      ic.className = 'fas fa-check-circle mr-1';
-      ic.setAttribute('aria-hidden', 'true');
-      $succes.appendChild(ic);
-      $succes.appendChild(document.createTextNode(cfg.doc + ' '));
-      var a = document.createElement('a');
-      a.href = lienDocument(r.id);
-      a.textContent = r.numero;
-      $succes.appendChild(a);
-      $succes.appendChild(document.createTextNode(r.doublon ? NB + ': ce document avait déjà été enregistré (aucun doublon créé)' : ' ' + cfg.fini));
-      if (r.total !== undefined && r.total !== null && page === 'reception') {
-        $succes.appendChild(document.createTextNode(' — total ' + w.fmtArgent(r.total)));
+      var t = cfg.doc + ' ' + r.numero + (r.doublon ? NB + ': ce document avait déjà été enregistré (aucun doublon créé)' : ' ' + cfg.fini);
+      if (r.total !== undefined && r.total !== null && page === 'reception') { t += ' — total ' + w.fmtArgent(r.total); }
+      w.toast(t, 'success', 7000);
+      var boite = document.getElementById('toasts'), carte = boite ? boite.lastElementChild : null;
+      if (carte) {
+        var a = document.createElement('a');
+        a.href = lienDocument(r.id);
+        a.className = 'alert-link ml-1';
+        a.textContent = 'Voir';
+        carte.appendChild(a);
       }
-      $succes.appendChild(document.createTextNode('. '));
-      var b = document.createElement('a');
-      b.href = lienDocument(r.id);
-      b.className = 'alert-link';
-      b.textContent = 'Voir le document';
-      $succes.appendChild(b);
-      montrer($succes, true);
-      try { $succes.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ancien navigateur */ }
     }
 
     // ---- résumé et totaux ----------------------------------------------------------------
@@ -386,8 +388,6 @@
         var champ = tr.querySelector('input[aria-label^="Quantité"]');
         if (!champ || tr.querySelector('.mv-signe')) { return; }
         var code = tr.cells[0].textContent;
-        var enveloppe = document.createElement('div');
-        enveloppe.className = 'mv-qte-signee';
         var b = document.createElement('button');
         b.type = 'button';
         b.className = 'btn btn-outline-secondary mv-signe';
@@ -400,9 +400,9 @@
           champ.dispatchEvent(new Event('input', { bubbles: true }));
           champ.focus();
         });
-        champ.parentNode.insertBefore(enveloppe, champ);
-        enveloppe.appendChild(b);
-        enveloppe.appendChild(champ);
+        var pas = champ.parentNode;                    // le bloc − / + (ou la cellule) : le bouton de signe passe en premier
+        pas.classList.add('mv-qte-signee');
+        pas.insertBefore(b, pas.firstChild);
       });
     }
 
@@ -411,7 +411,6 @@
       majResume(lignes);
       corrigerTotaux(lignes);
       if (cfg.signe) { ajouterBoutonsSigne(); }
-      if (lignes.length) { montrer($succes, false); }     // le message de réussite du document précédent n'a plus lieu d'être
       if (erreurSurLignes) { effacerErreur(); }            // un message d'erreur périmé laisse croire que le problème persiste (un champ d'en-tête non corrigé garde son message)
     }
 
@@ -494,7 +493,7 @@
       var a = !!($fourn && $fourn.value);
       $majPrix.disabled = !a;
       if (!a) { $majPrix.checked = false; }
-      if ($majAide) { $majAide.textContent = a ? 'Les prix de ce fournisseur seront remplacés par les coûts saisis ci-dessous (l\'historique des prix est conservé).' : 'Choisissez d\'abord un fournisseur.'; }
+      montrer($majLigne, a);       // sans fournisseur, la case n'a pas de sens : elle n'apparaît pas
     }
 
     function occupe(oui) {
@@ -503,7 +502,6 @@
       // Pendant l'envoi on n'accepte plus de scan : une pièce ajoutée à ce moment serait effacée avec la liste envoyée
       var $scan = q('#scan');
       if ($scan) { $scan.readOnly = oui; }
-      $('#recherche').prop('disabled', oui);
       var s = q('span', $btn), i = q('i', $btn);
       if (oui) { $btn.setAttribute('data-libelle', s.textContent); s.textContent = 'Enregistrement…'; i.className = 'fas fa-spinner fa-spin mr-1'; }
       else if ($btn.hasAttribute('data-libelle')) { s.textContent = $btn.getAttribute('data-libelle'); i.className = 'fas fa-check mr-1'; }
@@ -525,7 +523,6 @@
       if (enCours) { return; }                         // double clic : un seul envoi
       enCours = true; $btn.disabled = true;            // verrou immédiat pendant l'attente de la file de scans
       effacerErreur();
-      montrer($succes, false);
       attendreScans().then(function () {
         occupe(true);                                  // le champ de scan est verrouillé seulement une fois la file vidée
         var e = valider();
@@ -546,14 +543,14 @@
 
     // ---- démarrage ----------------------------------------------------------------------
     sl = w.SaisieLignes.creer({
-      conteneur: '#lignes', scan: '#scan', recherche: '#recherche',
+      conteneur: '#lignes', scan: '#scan', suggestions: true, stepper: true,
       coutColonne: cfg.cout, coutObligatoire: cfg.coutObligatoire, signe: cfg.signe,
       inactivesOk: page !== 'reception',      // une pièce désactivée garde son stock : on peut le sortir, le transférer ou le diminuer
       emplacementSource: cfg.disponible ? function () { return $emp.value || null; } : undefined,
       coutParDefaut: page === 'reception' ? proposerCout : undefined,
       onEmplacement: emplacementScanne,
       onChange: surChangementLignes,
-      vide: 'Scannez une pièce ou cherchez-la ci-dessus.'
+      vide: 'Aucune pièce.'
     });
     if (page === 'ajustement') {       // à l'ajustement, la colonne montre le solde actuel (avant la correction)
       qa('#lignes thead th').forEach(function (th) { if (th.textContent === 'Disponible') { th.textContent = 'Stock actuel'; } });
@@ -581,6 +578,7 @@
     if ($fourn) { $fourn.addEventListener('change', function () { surChangementFournisseur(); rafraichirCouts(); effacerErreur(); }); }
     [$date, $motif, $ref, $note, $majPrix].forEach(function (c) { if (c) { c.addEventListener('input', effacerErreur); c.addEventListener('change', effacerErreur); } });
     $btn.addEventListener('click', enregistrer);
+    if ($plus && $options) { $plus.addEventListener('click', function () { ouvrirOptions($options.hidden); }); }
     surChangementFournisseur();
 
     // Entrée dans une quantité ou un coût : retour au champ de scan (enchaîne la saisie au scanner)
@@ -656,7 +654,11 @@
     var $avert = q('#f-avert'), $erreur = q('#documents-erreur');
     var entetes = qa('#table-documents thead th');
     var colonnes = entetes.map(function (th) {
-      return { data: th.getAttribute('data-col'), className: th.className.replace(/\bsorting\w*\b/g, '').trim(), orderSequence: ['desc', 'asc'] };
+      var c = { data: th.getAttribute('data-col'), className: th.className.replace(/\bsorting\w*\b/g, '').trim(), orderSequence: ['desc', 'asc'] };
+      if (c.data === 'numero') {      // pas de colonne « Statut » : seul un document annulé le dit, à côté de son numéro (HTML du serveur, déjà échappé)
+        c.render = function (d, type, row) { return (type === 'display' && row.statut && String(row.statut).indexOf('badge-danger') !== -1) ? d + ' ' + row.statut : d; };
+      }
+      return c;
     });
     var langue = $.extend(true, {}, w.DT_LANG, {
       emptyTable: 'Aucun document pour le moment.', zeroRecords: 'Aucun document ne correspond à ces critères.',
@@ -675,7 +677,7 @@
     function majMessageVide(settings) {
       var inv = datesInversees(), lang = settings.oLanguage;
       lang.sEmptyTable = inv ? 'Aucun document : la date de début est après la date de fin.'
-        : (filtresActifs() ? 'Aucun document ne correspond à ces critères. Utilisez «' + NB + 'Effacer les filtres' + NB + '».' : 'Aucun document pour le moment.');
+        : (filtresActifs() ? 'Aucun document ne correspond à ces critères.' : 'Aucun document pour le moment.');
       lang.sZeroRecords = lang.sEmptyTable;
       $avert.textContent = inv ? 'La date de début est après la date de fin.' : '';
       montrer($avert, inv);
