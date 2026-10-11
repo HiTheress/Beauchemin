@@ -1,12 +1,14 @@
 <?php
-// Facture interne au coût : présentation imprimable (gestionnaire+). Paramètre : id.
+// Facture interne au coût : document avec en-tête (logos), imprimable (A4) et téléchargeable en PDF (gestionnaire+). Paramètre : id.
 // Accès refusé à tout utilisateur qui n'a accès ni à l'entreprise émettrice ni à la destinataire. Un document d'un autre type est
 // renvoyé vers la page des documents (document_voir).
 if (!acces_page('gestionnaire')) { return; }
 require_once __DIR__ . '/../app/action/facture_lib.php';
+require_once __DIR__ . '/../app/classes/DocumentVue.php';
 page_script('assets/js/interentreprise.js');
 $id = (isset($_GET['id']) && is_string($_GET['id']) && ctype_digit($_GET['id']) && strlen($_GET['id']) < 10) ? (int) $_GET['id'] : 0;
-$css = '<link rel="stylesheet" href="assets/css/interentreprise.css?v=' . (int) @filemtime(__DIR__ . '/../assets/css/interentreprise.css') . '">';
+$css = '<link rel="stylesheet" href="assets/css/interentreprise.css?v=' . (int) @filemtime(__DIR__ . '/../assets/css/interentreprise.css') . '">'
+	. '<link rel="stylesheet" href="assets/css/documents.css?v=' . (int) @filemtime(__DIR__ . '/../assets/css/documents.css') . '">';
 
 $r = null;
 $erreur_doc = 'Cette facture n\'existe pas.';
@@ -32,31 +34,26 @@ if (!$r) {
 <?php return; }
 
 $d = $r['doc'];
-$lignes = $r['lignes'];
-$annule = ($d['statut'] === 'annule');
+$m = DocumentVue::document($pdo, $Ouser, $r, array('masque' => 'non communiqué'));   // même modèle que le PDF
+$annule = $m['annule'];
 // Seule l'entreprise qui a ÉMIS la facture peut l'annuler (règle du service) : le destinataire voit la facture, sans le bouton,
 // avec une petite icône d'information (infobulle) qui dit pourquoi.
 $peut_annuler = !$annule && $Ouser->peutAcces((int) $d['entreprise_id']);
-$moment = function ($s) { return $s ? substr((string) $s, 0, 16) : ''; };
-$qte = function ($s) { return Interentreprise::nombre($s); };
 // Message de succès de l'annulation : affiché UNE seule fois (mémorisé dans la session par facture_annuler.php), pas à chaque rechargement
 $flash = ($annule && isset($_GET['ok']) && $_GET['ok'] === 'annule' && isset($_SESSION['ie_flash_annule']) && (int) $_SESSION['ie_flash_annule'] === (int) $d['id']);
 if ($flash) { unset($_SESSION['ie_flash_annule']); }
-// Le service ne communique pas le nom d'un emplacement d'une entreprise à laquelle l'utilisateur n'a pas accès (valeur nulle)
-$nom_emp = function ($n) { return ($n === null || $n === '') ? '<span class="text-muted">non communiqué</span>' : '<strong>' . e($n) . '</strong>'; };
-$guill = function ($t) { return "«\xc2\xa0" . $t . "\xc2\xa0»"; };
-$nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
 ?>
 <?php echo $css; ?>
-<div class="content-wrapper" data-ie="facture_interne_voir" data-document-id="<?php echo (int) $d['id']; ?>" data-numero="<?php echo e($d['numero']); ?>" data-titre="<?php echo e('Facture interne ' . $d['numero'] . ' — Beauchemin'); ?>">
+<div class="content-wrapper" data-ie="facture_interne_voir" data-doc="1" data-document-id="<?php echo (int) $d['id']; ?>" data-numero="<?php echo e($d['numero']); ?>" data-titre="<?php echo e('Facture interne ' . $d['numero'] . ' — Beauchemin'); ?>">
   <?php page_titre($d['numero'], array('Facturation', 'Factures')); ?>
   <section class="content"><div class="container-fluid">
 
     <?php if ($flash) { ?><div class="alert ie-succes no-print" role="status" id="flash-annule"><i class="fas fa-check-circle mr-1" aria-hidden="true"></i> Facture <strong><?php echo e($d['numero']); ?></strong> annulée.</div><?php } ?>
 
-    <div class="mb-3 no-print ie-barre">
+    <div class="mb-3 no-print ie-barre doc-barre">
       <a class="btn btn-outline-secondary" href="index.php?page=factures_internes"><i class="fas fa-arrow-left mr-1" aria-hidden="true"></i> Factures</a>
-      <button type="button" class="btn btn-primary" id="btn-imprimer"><i class="fas fa-print mr-1" aria-hidden="true"></i> Imprimer</button>
+      <a class="btn btn-primary" id="btn-pdf" href="app/ajax/document_pdf.php?id=<?php echo (int) $d['id']; ?>"><i class="fas fa-file-pdf mr-1" aria-hidden="true"></i> Télécharger en PDF</a>
+      <button type="button" class="btn btn-outline-secondary" id="btn-imprimer"><i class="fas fa-print mr-1" aria-hidden="true"></i> Imprimer</button>
       <?php if ($peut_annuler) { ?>
         <button type="button" class="btn ie-btn-danger" id="btn-annuler"><i class="fas fa-ban mr-1" aria-hidden="true"></i> Annuler la facture</button>
       <?php } elseif (!$annule) { $info_annul = 'Seule l\'entreprise émettrice (' . $d['entreprise'] . ') peut annuler cette facture.'; ?>
@@ -64,76 +61,7 @@ $nom_utilisateur = $d['utilisateur'] !== null ? $d['utilisateur'] : '—';
       <?php } ?>
     </div>
 
-    <article class="card ie-facture<?php echo $annule ? ' ie-annulee' : ''; ?>" id="facture" aria-label="Facture interne <?php echo e($d['numero']); ?>">
-      <?php if ($annule) { ?><div class="ie-filigrane" aria-hidden="true">ANNULÉE</div><?php } ?>
-      <div class="card-body">
-        <?php if ($annule) { ?>
-        <div class="alert ie-bandeau-annule" role="status" id="bandeau-annule">
-          <span class="badge badge-danger ie-badge-annule">ANNULÉE</span>
-          <span class="ml-2">
-            Annulée<?php echo $d['annule_par_nom'] ? ' par <strong>' . e($d['annule_par_nom']) . '</strong>' : ''; ?><?php echo $d['annule_le'] ? ' le ' . e($moment($d['annule_le'])) : ''; ?>.
-            <?php if ($d['motif_annulation'] !== null && $d['motif_annulation'] !== '') { ?>Motif : <?php echo e($guill($d['motif_annulation'])); ?>.<?php } ?>
-          </span>
-        </div>
-        <?php } ?>
-
-        <header class="ie-entete">
-          <div>
-            <h2 class="ie-titre">FACTURE INTERNE</h2>
-          </div>
-          <dl class="ie-meta">
-            <dt>Numéro</dt><dd class="code font-weight-bold"><?php echo e($d['numero']); ?></dd>
-            <dt>Date</dt><dd><?php echo e(fmt_date($d['date_document'])); ?></dd>
-            <dt>Statut</dt><dd><?php echo $annule ? '<span class="badge badge-danger">ANNULÉE</span>' : '<span class="badge badge-success">Valide</span>'; ?></dd>
-          </dl>
-        </header>
-
-        <div class="ie-parties">
-          <section class="ie-partie" aria-labelledby="ie-emetteur">
-            <h3 id="ie-emetteur">Émetteur</h3>
-            <p class="ie-partie-nom"><?php echo e($d['entreprise']); ?></p>
-            <p class="mb-0">Emplacement source : <?php echo $nom_emp($d['emplacement']); ?></p>
-          </section>
-          <section class="ie-partie" aria-labelledby="ie-destinataire">
-            <h3 id="ie-destinataire">Destinataire</h3>
-            <p class="ie-partie-nom"><?php echo e($d['entreprise_dest']); ?></p>
-            <p class="mb-0">Emplacement de destination : <?php echo $nom_emp($d['emplacement_dest']); ?></p>
-          </section>
-        </div>
-
-        <div class="table-responsive">
-          <table class="table table-sm ie-table-facture" id="table-lignes">
-            <caption class="sr-only">Pièces de la facture <?php echo e($d['numero']); ?></caption>
-            <thead><tr>
-              <th scope="col">Code</th><th scope="col">Pièce</th><th scope="col" class="nombre">Quantité</th>
-              <th scope="col" class="nombre">Coût unitaire</th><th scope="col" class="nombre">Total</th>
-            </tr></thead>
-            <tbody>
-            <?php foreach ($lignes as $l) { ?>
-              <tr>
-                <td class="code"><a href="index.php?page=piece_voir&amp;id=<?php echo (int) $l['piece_id']; ?>"><?php echo e($l['code']); ?></a></td>
-                <td><?php echo e($l['nom']); ?></td>
-                <td class="nombre"><?php echo e($qte($l['quantite'])); ?><?php echo ($l['unite'] && $l['unite'] !== 'unité') ? ' <small class="text-muted">' . e($l['unite']) . '</small>' : ''; ?></td>
-                <td class="nombre"><?php echo e(Interentreprise::cout($l['cout_unitaire'])); ?></td>
-                <td class="nombre"><?php echo e(Interentreprise::argent($l['total_ligne'])); ?></td>
-              </tr>
-            <?php } ?>
-            </tbody>
-            <tfoot><tr class="ie-ligne-total"><th colspan="4" class="text-right">Total</th><th class="nombre" id="total-facture"><?php echo e(Interentreprise::argent($d['total'])); ?></th></tr></tfoot>
-          </table>
-        </div>
-
-        <?php if ($d['note'] !== null && $d['note'] !== '') { ?>
-        <div class="ie-note"><strong>Note</strong><div class="ie-note-texte"><?php echo e($d['note']); ?></div></div>
-        <?php } ?>
-
-        <div class="ie-signatures">
-          <div class="ie-signature"><div class="ie-trait"></div><div>Préparé par — <?php echo e($d['entreprise']); ?></div></div>
-          <div class="ie-signature"><div class="ie-trait"></div><div>Reçu par — <?php echo e($d['entreprise_dest']); ?></div></div>
-        </div>
-        <p class="ie-pied">Saisie par <?php echo e($nom_utilisateur); ?> · <?php echo e($moment($d['cree_le'])); ?> · imprimée le <?php echo e(date('Y-m-d H:i')); ?></p>
-      </div>
-    </article>
+    <?php DocumentVue::documentHtml($m, array('id' => 'facture')); ?>
 
   </div></section>
 </div>
