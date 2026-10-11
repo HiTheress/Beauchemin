@@ -531,7 +531,7 @@ class PdfDocument extends FPDF
 	/** Petit titre de section : majuscules grises. */
 	public function etiquetteSection($texte)
 	{
-		$this->reserver(9);
+		$this->reserver(30);                // le titre n'est jamais seul au bas d'une page : l'en-tête du tableau et une ligne le suivent
 		$this->texteCouleur($this->entete['marque']['fort']);
 		$this->police('B', 9.5);
 		$y = $this->GetY();

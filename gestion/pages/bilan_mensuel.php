@@ -8,6 +8,7 @@ if (!acces_page('gestionnaire')) { return; }
 require_once __DIR__ . '/../app/action/facture_lib.php';
 require_once __DIR__ . '/../app/classes/DocumentVue.php';
 page_script('assets/js/interentreprise.js');
+page_script('assets/js/documents.js');
 $css = '<link rel="stylesheet" href="assets/css/interentreprise.css?v=' . (int) @filemtime(__DIR__ . '/../assets/css/interentreprise.css') . '">'
 	. '<link rel="stylesheet" href="assets/css/documents.css?v=' . (int) @filemtime(__DIR__ . '/../assets/css/documents.css') . '">';
 

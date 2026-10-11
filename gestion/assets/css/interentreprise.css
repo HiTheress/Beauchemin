@@ -158,7 +158,6 @@
   .badge { border: 1px solid #000; color: #000 !important; background: var(--surface) !important; }
   .table { font-size: 10.5pt; }
   .ie-sens tr { break-inside: avoid; }
-  .ie-sens, .ie-solde { break-inside: avoid; }
   .ie-carte-total { background: var(--surface) !important; border: 1px solid #000 !important; }
   .ie-carte-total .ie-valeur-nom, .ie-carte-total .ie-valeur-montant { color: #000 !important; }
   .ie-table-emplacements tbody tr.ie-ligne-emplacement { cursor: auto; }

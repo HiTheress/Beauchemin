@@ -237,6 +237,10 @@ est en format lettre portrait avec marges de 12 mm (les notifications `#toasts` 
   session expirée (déjà géré par `api`), confirmation avant action destructrice (annuler un document, désactiver…).
 * Après un succès : message vert avec le **numéro du document** et lien vers lui ; le formulaire se remet à zéro prêt pour le suivant.
 * Une page imprimable (facture interne, bilan, étiquettes) se met en page propre avec `@media print` (la coquille masque déjà menu et boutons `.no-print`).
+* Documents (facture interne, réception, déplacement, utilisation, correction du stock, bilan du mois) : en-tête avec le logo de l'entreprise émettrice
+  (`Marque`, d'après le code BEA/BCH), `assets/css/documents.css` (écran et A4), et un PDF serveur par `app/ajax/document_pdf.php?id=` et `app/ajax/bilan_pdf.php`.
+  Le texte vient d'un seul modèle (`DocumentVue`, mêmes droits et mêmes masques que la page) ; `DocumentsPdf` le met en page avec `PdfDocument` (FPDF 1.9 dans `app/lib/fpdf`, jamais servi par le web).
+  L'employé ne reçoit aucun montant ni aucune facture interne en PDF.
 * Accessibilité de base : `<label for>` sur chaque champ, contraste suffisant, focus visible, ordre de tabulation logique.
 
 ## 9. Droits (qui voit/fait quoi)

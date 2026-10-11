@@ -283,10 +283,10 @@ final class DocumentVue
 		echo '</dl></div></header><div class="doc-filet" aria-hidden="true"></div>';
 	}
 
-	/** Règle d'impression : « Imprimé le … · Page n / N » en bas de chaque page (navigateurs qui gèrent les marges de page). */
+	/** Règle d'impression : « Imprimé le … · Page n / N » en bas de chaque page (navigateurs qui gèrent les marges de page) ; assets/js/documents.js remet l'heure à jour au moment d'imprimer. */
 	public static function styleImpression()
 	{
-		return '<style>@page { @bottom-right { content: "Imprimé le ' . e(date('Y-m-d H:i')) . ' · Page " counter(page) " / " counter(pages); } }</style>';
+		return '<style id="doc-style-impression">@page { @bottom-right { content: "Imprimé le ' . e(date('Y-m-d H:i')) . ' · Page " counter(page) " / " counter(pages); } }</style>';
 	}
 
 	/**
@@ -337,9 +337,9 @@ final class DocumentVue
 		echo '</tr></thead><tbody>';
 		foreach ($m['lignes'] as $l) {
 			echo '<tr><td class="code"><a href="index.php?page=piece_voir&amp;id=' . (int) $l['piece_id'] . '">' . e($l['code']) . '</a></td><td>' . e($l['nom']) . '</td>'
-				. '<td class="nombre">' . e($l['quantite']) . ($l['unite'] !== '' ? ' <small class="text-muted">' . e($l['unite']) . '</small>' : '') . '</td>';
+				. '<td class="nombre" data-label="Quantité">' . e($l['quantite']) . ($l['unite'] !== '' ? ' <small class="text-muted">' . e($l['unite']) . '</small>' : '') . '</td>';
 			if ($m['couts']) {
-				echo '<td class="nombre">' . e($l['cout']) . '</td><td class="nombre">' . e($l['total']) . '</td>';
+				echo '<td class="nombre" data-label="Coût unitaire">' . e($l['cout']) . '</td><td class="nombre">' . e($l['total']) . '</td>';
 			}
 			echo '</tr>';
 		}

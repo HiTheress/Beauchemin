@@ -52,7 +52,7 @@
 .doc-table thead th { padding: .55rem .75rem; background: var(--doc-fort); color: #fff; border: 0; font-size: .82rem; letter-spacing: .03em; white-space: nowrap; }
 .doc-table thead th:first-child { border-radius: 12px 0 0 12px; }
 .doc-table thead th:last-child { border-radius: 0 12px 12px 0; }
-.doc-table tbody td { padding: .5rem .75rem; border-bottom: 1px solid var(--line-soft, #e5e7e5); overflow-wrap: anywhere; }
+.doc-table tbody td { padding: .5rem .75rem; border-bottom: 1px solid var(--line-soft, #e5e7e5); overflow-wrap: break-word; }
 .doc-table tbody tr:nth-child(even) td { background: rgba(0, 0, 0, .028); }
 .doc-table td.code { font-family: var(--sans, inherit); font-weight: 700; white-space: nowrap; }
 .doc-table td.code a { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink, #1f1e1d); text-decoration: none; }
@@ -105,8 +105,27 @@
   .doc-titre-bloc { margin-left: 0; text-align: left; }
   .doc-meta { justify-content: start; }
   .doc-meta dt { text-align: left; }
+  .doc-logos { flex-wrap: nowrap; max-width: 100%; }
+  .doc-logo { max-width: 100%; max-height: 52px; }
+  .doc-logos-duo .doc-logo { max-width: calc((100vw - 9.5rem) / 2); max-height: 46px; }
   .doc-table thead th, .doc-table tbody td { padding-left: .4rem; padding-right: .4rem; }
   .doc-table tfoot th { padding-left: .4rem; padding-right: .4rem; }
+  /* Téléphone : chaque pièce devient une carte (code et total, nom, quantité et coût) au lieu d'un tableau qui déborde */
+  #table-lignes, #table-lignes tbody { display: block; width: 100%; }
+  #table-lignes thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #table-lignes tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "code total" "nom nom" "qte cout"; column-gap: .75rem; row-gap: .1rem; padding: .65rem .15rem; border-bottom: 1px solid var(--line-soft, #e5e7e5); }
+  #table-lignes tbody tr:nth-child(even) { background: rgba(0, 0, 0, .028); }
+  #table-lignes tbody td { display: block; padding: .05rem 0; border: 0; background: transparent !important; text-align: left; white-space: normal; }
+  #table-lignes tbody td.code { grid-area: code; }
+  #table-lignes tbody td:nth-child(2) { grid-area: nom; font-weight: 600; }
+  #table-lignes tbody td:nth-child(3) { grid-area: qte; }
+  #table-lignes tbody td:nth-child(4) { grid-area: cout; text-align: right; }
+  #table-lignes tbody td:nth-child(5) { grid-area: total; text-align: right; align-self: center; }
+  #table-lignes tbody td[data-label]::before { content: attr(data-label) " : "; font-size: .8rem; font-weight: 400; color: var(--muted, #66655f); }
+  #table-lignes tbody td.code a { min-height: 32px; }
+  #table-lignes tfoot { display: block; }
+  #table-lignes tfoot tr { display: flex; justify-content: flex-end; margin-top: .5rem; }
+  #table-lignes tfoot th:empty { display: none; }
 }
 
 /* ---------- Impression : A4, l'en-tête et ses filets de couleur s'impriment ---------- */
@@ -127,13 +146,14 @@
   .doc-logos-duo .doc-logo { max-width: 46mm; max-height: 17mm; }
   .doc-titre { font-size: 20pt; }
   .doc-filet { margin: 4mm 0 5mm; height: 1.6mm; border-radius: 0; }
-  .doc-filigrane { position: fixed; z-index: 0; font-size: 90pt; color: rgba(220, 53, 69, .15) !important; border-color: rgba(220, 53, 69, .15) !important; }
+  .doc-filigrane { position: fixed; z-index: 0; font-size: 68pt; color: rgba(220, 53, 69, .15) !important; border-color: rgba(220, 53, 69, .15) !important; }
   .doc-bandeau-annule { background: #fdecea !important; border: 1px solid #f5c2c7; color: #58151c; }
   .doc .table { font-size: 9.5pt; }
   .doc .doc-table { border-collapse: separate !important; }          /* Bootstrap impose « collapse » à l'impression : les coins arrondis du total disparaîtraient */
   .doc-table-wrap { overflow: visible !important; }
   .doc-table th, .doc-table td { padding: 1.6mm 2mm !important; white-space: normal; }
-  .doc-table td.nombre, .doc-table th.nombre, .doc-table td.code { white-space: nowrap; }
+  /* Bootstrap impose « white-space: normal !important » aux cellules d'un .table-responsive à l'impression */
+  .doc .table-responsive > .table.doc-table tr td.nombre, .doc .table-responsive > .table.doc-table tr td.code, .doc .table-responsive > .table.doc-table thead tr th { white-space: nowrap !important; }
   .doc-table td.code a { min-height: 0; }
   .doc-table thead { display: table-header-group; }
   /* Chromium répète le <tfoot> au bas de CHAQUE page : le « Total » n'apparaît qu'une fois, à la fin. */

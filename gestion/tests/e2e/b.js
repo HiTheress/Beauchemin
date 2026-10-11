@@ -5,7 +5,7 @@
 // (comptes gestionnaire2 = entreprise 2 seulement, pièces de test) et la remet à zéro à la fin.
 // Il suppose donc un serveur de DÉVELOPPEMENT branché sur la base $DB_NAME (défaut bea_b) ; le journal PHP est lu
 // dans /tmp/bea-<port>.log (port de BASE_URL).
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const L = require('./lib.js');
@@ -23,6 +23,12 @@ function sql(requete) { return execSync('mysql -uroot -N --default-character-set
 const stock = (piece, emp) => sql('SELECT COALESCE((SELECT quantite FROM stock WHERE piece_id=' + piece + ' AND emplacement_id=' + emp + '), 0)');
 const nbDocs = (where) => parseInt(sql('SELECT COUNT(*) FROM documents' + (where ? ' WHERE ' + where : '')), 10);
 const num = s => parseFloat(String(s));
+/** Texte d'un PDF (pdftotext), espaces normalisés ; null si l'outil est absent (les vérifications de texte sont alors comptées comme échec : il est installé avec poppler-utils). */
+function pdfTexte(buf) {
+  try { return execFileSync('pdftotext', ['-layout', '-enc', 'UTF-8', '-', '-'], { input: buf, maxBuffer: 64 * 1024 * 1024 }).toString('utf8').replace(/[  ]/g, ' ').replace(/\s+/g, ' '); }
+  catch (x) { return null; }
+}
+const pdfPages = buf => { const m = buf.toString('latin1').match(/\/Count (\d+)/); return m ? parseInt(m[1], 10) : 0; };
 
 function suivre(page) {
   // « Quitter la page ? » (saisie en cours) : on accepte pour pouvoir naviguer ; toute autre boîte de dialogue est refusée et consignée
@@ -33,7 +39,7 @@ function suivre(page) {
   return page;
 }
 /** Erreurs de console « réelles » : les 4xx provoqués volontairement (validation, refus d'accès) sont ignorés. */
-const reelles = p => p.erreurs.filter(e => !/status of 40[0-9]/.test(e) && !/ERR_ABORTED/.test(e) && !/requestfailed: \S+\/(documents_data|reception_prix|emplacements_liste)\.php/.test(e));
+const reelles = p => p.erreurs.filter(e => !/status of 40[0-9]/.test(e) && !/ERR_ABORTED/.test(e) && !/requestfailed: \S+\/(documents_data|reception_prix|emplacements_liste|document_pdf)\.php/.test(e));
 
 /** Appel d'API depuis le navigateur (jeton CSRF inclus sauf indication) ; renvoie {status, json, texte}. */
 async function appel(p, url, corps, opts) {
@@ -679,7 +685,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await aller(g, 'document_voir&id=' + docRec1);
   L.verifier((await g.textContent('h1')).trim().startsWith('REC-'), 'titre = numéro du document');
   const dt = await texteNorm(g, '.mv-entete');
-  L.verifier(/Grossiste Gaz du Nord/.test(dt) && /FAC-TEST-1/.test(dt) && /Première réception de test/.test(dt) && /N° de facture du fournisseur/.test(dt), 'en-tête : fournisseur, référence, note : ' + dt);
+  L.verifier(/Grossiste Gaz du Nord/.test(dt) && /FAC-TEST-1/.test(dt) && /N° de facture du fournisseur/.test(dt) && /Première réception de test/.test(await texteNorm(g, '.doc-note')), 'en-tête : fournisseur, référence ; note dans l\'encadré « Note » : ' + dt);
   const th2 = await g.$$eval('#table-lignes thead th', x => x.map(c => c.textContent.trim()));
   L.verifier(th2.join('|') === 'Code|Pièce|Quantité|Coût unitaire|Total', 'lignes (gestionnaire) avec coûts : ' + th2.join('|'));
   L.verifier(/130,40/.test(await texteNorm(g, '#total-document')), 'total du document : ' + await texteNorm(g, '#total-document'));
@@ -692,7 +698,8 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   // impression : menu et boutons masqués
   await g.emulateMedia({ media: 'print' });
   L.verifier(await g.$eval('.main-sidebar', x => getComputedStyle(x).display) === 'none' && await g.$eval('#btn-annuler', x => getComputedStyle(x).display) === 'none', 'impression : menu et boutons masqués');
-  L.verifier(await g.$eval('.mv-impression-entete', x => getComputedStyle(x).display) !== 'none', 'impression : entête d\'impression visible');
+  L.verifier(await g.$eval('.doc-entete', x => getComputedStyle(x).display) !== 'none' && await g.$eval('.doc-entete img.doc-logo', x => x.complete && x.naturalWidth > 0 && getComputedStyle(x).display !== 'none'), 'impression : l\'en-tête du document (avec le logo) est visible');
+  L.verifier(await g.$eval('#btn-pdf', x => getComputedStyle(x).display) === 'none' && await g.$eval('.mv-carte.no-print', x => getComputedStyle(x).display) === 'none', 'impression : ni le bouton PDF, ni les mouvements créés');
   await g.emulateMedia({ media: 'screen' });
 
   // annulation : motif obligatoire, fenêtre de confirmation
@@ -756,10 +763,105 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(/page=facture_interne_voir&id=5$/.test(neg.url()), 'facture interne : redirection vers facture_interne_voir : ' + neg.url());
   await aller(e, 'document_voir&id=5');
   const fin = await texteNorm(e, '.content-wrapper');
-  L.verifier(/FIN-/.test(fin) && /Facture interne/.test(fin) && !/Boutique Centre-ville/.test(fin) && /Autre entreprise/.test(fin) && !/\d\s?\$/.test(fin), 'employé : facture interne sans coûts ; l\'emplacement de l\'autre entreprise est masqué');
+  L.verifier(/FIN-/.test(fin) && /FACTURE INTERNE/.test(fin) && !/Boutique Centre-ville/.test(fin) && /Autre entreprise/.test(fin) && !/\d\s?\$/.test(fin), 'employé : facture interne sans coûts ; l\'emplacement de l\'autre entreprise est masqué');
   await aller(e, 'document_voir&id=6');
   const fin2 = await texteNorm(e, '.content-wrapper');
   L.verifier(/FIN-/.test(fin2) && /Autre entreprise/.test(fin2) && /Cube 14/.test(fin2) && !/\d\s?\$/.test(fin2), 'employé : facture reçue de l\'autre entreprise : l\'emplacement émetteur est masqué, le sien est visible : ' + fin2.slice(0, 220));
+
+  // =====================================================================================================================
+  console.log('8b. PDF des documents : bouton, téléchargement, droits, contenu, impression');
+  // =====================================================================================================================
+  {
+    const pdf = async (p, id) => { const r = await p.context().request.get(L.BASE + '/app/ajax/document_pdf.php?id=' + id); return { status: r.status(), h: r.headers(), corps: await r.body() }; };
+    const estPdf = r => r.status === 200 && /^application\/pdf/.test(r.h['content-type']) && r.corps.slice(0, 5).toString('latin1') === '%PDF-' && r.corps.slice(-8).toString('latin1').includes('%%EOF');
+    const numTrf = sql("SELECT numero FROM documents WHERE id=" + docTrf);
+    // le bouton : « Télécharger en PDF » est le bouton principal, « Imprimer » est secondaire
+    await aller(g, 'document_voir&id=' + docTrf);
+    const bPdf = await g.$eval('#btn-pdf', x => ({ texte: x.textContent.replace(/\s+/g, ' ').trim(), href: x.getAttribute('href'), classe: x.className, icone: !!x.querySelector('.fa-file-pdf'), balise: x.tagName }));
+    L.verifier(bPdf.texte === 'Télécharger en PDF' && bPdf.href === 'app/ajax/document_pdf.php?id=' + docTrf && /btn-primary/.test(bPdf.classe) && bPdf.icone && bPdf.balise === 'A', 'bouton « Télécharger en PDF » (icône PDF, bouton principal, lien vers le PDF du document) : ' + JSON.stringify(bPdf));
+    L.verifier((await g.$$('.mv-barre .btn-primary')).length === 1 && /btn-outline-secondary/.test(await g.getAttribute('#btn-imprimer', 'class')), 'un seul bouton principal : « Imprimer » est secondaire');
+    // la réponse HTTP
+    const rt = await pdf(g, docTrf);
+    L.verifier(estPdf(rt), 'PDF : application/pdf, commence par %PDF-, finit par %%EOF : ' + rt.status + ' ' + rt.h['content-type']);
+    L.verifier(rt.h['content-disposition'] === 'attachment; filename="' + numTrf + '.pdf"' && rt.h['x-content-type-options'] === 'nosniff' && rt.h['cache-control'] === 'private, no-store' && parseInt(rt.h['content-length'], 10) === rt.corps.length, 'PDF : téléchargement (attachment, nom = numéro), nosniff, private + no-store : ' + rt.h['content-disposition'] + ' | ' + rt.h['cache-control']);
+    // le clic télécharge vraiment le fichier
+    const [dl] = await Promise.all([g.waitForEvent('download', { timeout: 15000 }), g.click('#btn-pdf')]);
+    const fichierDl = fs.readFileSync(await dl.path());
+    L.verifier(dl.suggestedFilename() === numTrf + '.pdf' && fichierDl.slice(0, 5).toString('latin1') === '%PDF-' && /^http/.test(g.url()) && /page=document_voir/.test(g.url()), 'clic sur le bouton : le fichier ' + dl.suggestedFilename() + ' est téléchargé, la page reste ouverte');
+    // contenu : mêmes textes et mêmes montants que la page
+    const textePage = (await texteNorm(g, '#table-lignes')).replace(/ /g, ' ');
+    const totalPage = (await texteNorm(g, '#total-document')).replace(/ /g, ' ');
+    const tt = pdfTexte(rt.corps);
+    const destTrf = sql("SELECT e.nom FROM documents d JOIN emplacements e ON e.id = d.emplacement_dest_id WHERE d.id = " + docTrf);
+    L.verifier(tt !== null && tt.includes(numTrf) && tt.includes('DÉPLACEMENT') && tt.includes('Entrepôt principal') && tt.includes(destTrf) && tt.includes(totalPage) && tt.includes('Coût unitaire') && /Page 1 \/ 1/.test(tt) && tt.includes('Logiciel de gestion d\'inventaire — Beauchemin / Boutique Chaleur') && /Imprimé le \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(tt),
+      'PDF du déplacement : numéro, titre, emplacements, coût unitaire, total « ' + totalPage + ' », pied de page : ' + (tt || '').slice(0, 260));
+    // document annulé : « ANNULÉ », motif et auteur
+    const ra = await pdf(g, docRec1);
+    const ta = pdfTexte(ra.corps);
+    L.verifier(estPdf(ra) && ta !== null && ta.includes('ANNULÉ') && ta.includes('Erreur de saisie <b>test</b>') && ta.includes('Gestionnaire Démo') && ta.includes('FAC-TEST-1') && ta.includes('Grossiste Gaz du Nord') && ta.includes('Première réception de test'), 'PDF d\'un document annulé : « ANNULÉ », motif, auteur, fournisseur, référence, note : ' + (ta || '').slice(0, 200));
+    L.verifier(ra.corps.toString('latin1').includes('/ca 0.160'), 'PDF d\'un document annulé : filigrane translucide');
+    const rj = await pdf(g, docAju);
+    const tj = pdfTexte(rj.corps);
+    L.verifier(estPdf(rj) && tj !== null && tj.includes('CORRECTION DU STOCK') && tj.includes('+2') && /-1/.test(tj) && tj.includes('MOTIF Correction'), 'PDF d\'une correction du stock : titre, quantités signées, motif');
+    // entreprise émettrice BCH : logo, couleurs et texte de Boutique Chaleur
+    await aller(g, 'document_voir&id=2');
+    const bch = await g.evaluate(() => ({ cls: document.querySelector('.doc').className, alt: document.querySelector('.doc-entete img.doc-logo').alt, src: document.querySelector('.doc-entete img.doc-logo').getAttribute('src'), filet: getComputedStyle(document.querySelector('.doc-filet')).backgroundImage }));
+    L.verifier(/doc-bch/.test(bch.cls) && bch.alt === 'Boutique Chaleur' && /logo-boutique-chaleur\.png$/.test(bch.src) && bch.filet.includes('rgb(208, 2, 27)') && bch.filet.includes('rgb(201, 162, 77)'), 'document de Boutique Chaleur : logo et filet rouge + or : ' + JSON.stringify(bch));
+    await aller(g, 'document_voir&id=' + docTrf);
+    const bea = await g.evaluate(() => ({ cls: document.querySelector('.doc').className, src: document.querySelector('.doc-entete img.doc-logo').getAttribute('src'), filet: getComputedStyle(document.querySelector('.doc-filet')).backgroundImage }));
+    L.verifier(/doc-bea/.test(bea.cls) && /logo-beauchemin\.png$/.test(bea.src) && bea.filet.includes('rgb(74, 168, 74)') && bea.filet.includes('rgb(45, 178, 209)'), 'document de Beauchemin : logo et filet vert + cyan : ' + JSON.stringify(bea));
+
+    // employé : le PDF d'une opération est offert, sans aucun prix, coût ni total
+    await aller(e, 'document_voir&id=' + docTrf);
+    L.verifier((await e.$$('#btn-pdf')).length === 1, 'employé : bouton « Télécharger en PDF » sur une opération');
+    const re = await pdf(e, docTrf);
+    const te = pdfTexte(re.corps);
+    L.verifier(estPdf(re) && te !== null && te.includes(numTrf) && te.includes('Quantité') && !te.includes('$') && !/Coût|Total|\d,\d\d/.test(te), 'employé : PDF du déplacement sans prix, coût ni total : ' + (te || '').slice(0, 220));
+    const reRec = await pdf(e, docRec1);
+    const teRec = pdfTexte(reRec.corps);
+    L.verifier(estPdf(reRec) && teRec !== null && !teRec.includes('$') && !/Coût|Total/.test(teRec) && teRec.includes('ANNULÉ'), 'employé : PDF d\'une réception annulée sans montants, avec « ANNULÉ »');
+    // employé : jamais de facture interne en PDF (ni le bouton), autre entreprise = réponse neutre identique à un document inexistant
+    for (const id of [5, 6]) {
+      await aller(e, 'document_voir&id=' + id);
+      const rf = await pdf(e, id);
+      L.verifier((await e.$$('#btn-pdf')).length === 0 && rf.status === 403 && /^text\/plain/.test(rf.h['content-type']) && rf.corps.slice(0, 5).toString('latin1') !== '%PDF-' && !/\d,\d\d|FIN-/.test(rf.corps.toString()), 'employé : facture interne ' + id + ' : pas de bouton PDF, PDF refusé (403, texte brut) : ' + rf.status + ' ' + rf.corps.toString());
+    }
+    const rInex = await pdf(e, 99999);
+    const rAutre = await pdf(e, 2);
+    const rAutre2 = await pdf(g2, docTrf);
+    const rInex2 = await pdf(g2, 99999);
+    L.verifier(rInex.status === 404 && rAutre.status === 404 && rAutre.corps.toString() === rInex.corps.toString() && rAutre.h['content-type'] === rInex.h['content-type'], 'employé : document d\'une autre entreprise : EXACTEMENT la même réponse qu\'un document inexistant : ' + rAutre.status + ' « ' + rAutre.corps.toString() + ' » / ' + rInex.status + ' « ' + rInex.corps.toString() + ' »');
+    L.verifier(rAutre2.status === 404 && rInex2.status === 404 && rAutre2.corps.toString() === rInex2.corps.toString() && /^text\/plain/.test(rAutre2.h['content-type']), 'gestionnaire de l\'entreprise 2 : document de l\'entreprise 1 : même réponse neutre qu\'un document inexistant');
+    // identifiant invalide : jamais de PDF ni d'erreur serveur
+    const invalides = ['id=abc', 'id=1abc', 'id=-1', 'id=1.5', 'id=', 'id=0', 'id=99999999999999999999', 'id=1%20OR%201%3D1', 'id=0x1', 'id%5B%5D=1', 'id%5Ba%5D=1', ''];
+    const repInv = [];
+    for (const q of invalides) { const r = await g.context().request.get(L.BASE + '/app/ajax/document_pdf.php' + (q ? '?' + q : '')); repInv.push([q, r.status(), (await r.text()).trim()]); }
+    L.verifier(repInv.every(x => x[1] === 404 && x[2] === 'Introuvable.'), 'identifiant invalide (' + invalides.length + ' formes) : toujours 404 « Introuvable. » : ' + JSON.stringify(repInv.filter(x => x[1] !== 404)));
+    // sans connexion, par POST, sans jeton
+    const ctxAnon = await b.newContext();
+    const ranon = await ctxAnon.request.get(L.BASE + '/app/ajax/document_pdf.php?id=' + docTrf, { headers: { Accept: 'application/json' } });
+    L.verifier(ranon.status() === 401 && (await ranon.body()).slice(0, 5).toString('latin1') !== '%PDF-', 'non connecté : le PDF répond 401, aucun fichier');
+    await ctxAnon.close();
+    const rpost = await appel(g, 'app/ajax/document_pdf.php?id=' + docTrf, {});
+    const rpost2 = await appel(g, 'app/ajax/document_pdf.php?id=' + docTrf, {}, { sansJeton: true });
+    L.verifier(rpost.status === 405 && rpost2.status === 403, 'PDF : POST refusé (405), POST sans jeton refusé (403)');
+
+    // impression : l'en-tête avec le logo et le filet de couleur s'imprime, ni menu ni boutons
+    await aller(g, 'document_voir&id=' + docTrf);
+    await g.emulateMedia({ media: 'print' });
+    const imp = await g.evaluate(() => {
+      const d = s => { const x = document.querySelector(s); return x ? getComputedStyle(x).display : 'absent'; };
+      const logo = document.querySelector('.doc-entete img.doc-logo'), filet = getComputedStyle(document.querySelector('.doc-filet'));
+      return { menu: d('.main-sidebar'), barre: d('.mv-barre'), titrePage: d('.content-header'), logo: logo.complete && logo.naturalWidth > 0 && logo.getBoundingClientRect().width > 40, titre: document.querySelector('.doc-titre').textContent,
+        exact: (filet.printColorAdjust || filet.webkitPrintColorAdjust), degrade: filet.backgroundImage.includes('linear-gradient') };
+    });
+    L.verifier(imp.menu === 'none' && imp.barre === 'none' && imp.titrePage === 'none' && imp.logo && imp.titre === 'DÉPLACEMENT' && imp.exact === 'exact' && imp.degrade, 'impression : en-tête avec logo et filet de couleur (couleurs exactes), ni menu ni boutons : ' + JSON.stringify(imp));
+    const pdfImp = await g.pdf({ preferCSSPageSize: true, printBackground: true });
+    const timp = pdfTexte(pdfImp);
+    L.verifier(/\/MediaBox \[0 0 59[45](\.\d+)? 84[12](\.\d+)?\]/.test(pdfImp.toString('latin1')) && pdfImp.toString('latin1').includes('/Subtype /Image') && timp !== null && timp.includes('DÉPLACEMENT') && timp.includes(numTrf) && timp.includes('Statut') && /Page 1 \/ 1/.test(timp) && /Imprimé le/.test(timp),
+      'impression en PDF (Chromium) : format A4, logo, titre, numéro, pied « Page 1 / 1 » et « Imprimé le » : ' + (timp || '').slice(0, 200));
+    await g.emulateMedia({ media: 'screen' });
+  }
 
   // =====================================================================================================================
   console.log('9. Texte hostile (XSS) : réception, listes, détail');
@@ -783,7 +885,12 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.waitForURL(/document_voir/);
   const htmlDoc = await g.content();
   L.verifier((await g.$$('.content-wrapper img[src="x"], #table-lignes img')).length === 0 && !/<img src=x onerror=alert\(1\)>/.test(htmlDoc), 'XSS : détail du document inerte (nom de pièce)');
-  L.verifier((await texteNorm(g, '.mv-entete')).includes('<script>window.__x=1</script>') && (await texteNorm(g, '.mv-entete')).includes('<img src=x onerror=alert(4)> & "note"'), 'XSS : référence et note affichées en texte');
+  L.verifier((await texteNorm(g, '.mv-entete')).includes('<script>window.__x=1</script>') && (await texteNorm(g, '.doc-note')).includes('<img src=x onerror=alert(4)> & "note"'), 'XSS : référence et note affichées en texte');
+  // le PDF de ce document : le même texte, inerte (aucun HTML interprété, rien d'échappé en double)
+  const idDocX = parseInt(new URL(g.url()).searchParams.get('id'), 10);
+  const rX = await g.context().request.get(L.BASE + '/app/ajax/document_pdf.php?id=' + idDocX);
+  const tX = pdfTexte(await rX.body());
+  L.verifier(rX.status() === 200 && tX !== null && tX.includes(XSS_PIECE) && tX.includes('<script>window.__x=1</script>') && tX.includes('<img src=x onerror=alert(4)> & "note"') && tX.includes('<b>Cube</b> "X" <img src=x onerror=alert(3)>') && !tX.includes('&lt;') && !tX.includes('&amp;'), 'XSS : le PDF montre les mêmes textes piégés, en texte brut : ' + (tX || '').slice(0, 200));
   t = await ouvrirDocuments(g, '&q=%3Cscript%3E');
   L.verifier(t.rows.length === 1 && (await g.$$('#table-documents img, #table-documents script')).length === 0, 'XSS : liste des documents inerte (recherche de la référence)');
   t = await ouvrirDocuments(g, '');
@@ -865,6 +972,11 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   const idDoc300 = parseInt(sql("SELECT MAX(id) FROM documents"), 10);
   await aller(g, 'document_voir&id=' + idDoc300);
   L.verifier((await g.$$eval('#table-lignes tbody tr', r => r.length)) === 300, 'détail : 300 lignes affichées');
+  {
+    const r300 = await g.context().request.get(L.BASE + '/app/ajax/document_pdf.php?id=' + idDoc300);
+    const b300 = await r300.body(), t300 = pdfTexte(b300), np300 = pdfPages(b300);
+    L.verifier(r300.status() === 200 && np300 >= 8 && t300 !== null && t300.includes('Page 1 / ' + np300) && t300.includes('Page ' + np300 + ' / ' + np300) && (t300.match(/Code Pièce Quantité/g) || []).length >= np300, 'PDF de 300 lignes : ' + np300 + ' pages, « Page n / ' + np300 + ' », en-tête des colonnes sur chaque page');
+  }
 
   // =====================================================================================================================
   console.log('12. Tablette (768 x 1024), zones cliquables, aucun défilement horizontal');

@@ -6,6 +6,7 @@
 // cloisonnement. Les montants attendus sont recalculés par des requêtes SQL indépendantes du service d'inventaire.
 const { execFileSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const L = require('./lib.js');
 
 const DB = process.env.DB_NAME || 'bea_c';
@@ -22,7 +23,7 @@ function suivre(page) {
 }
 /** Erreurs de console « réelles » : les 4xx provoqués volontairement (validation, refus d'accès) sont ignorés. */
 // (et les requêtes de lecture abandonnées parce que le test change de page avant leur fin : ERR_ABORTED)
-const reelles = p => p.erreurs.filter(e => !/status of 40[0-9]/.test(e) && !/requestfailed: \S+\/(factures_internes_data|factures_internes_totaux|valeur_detail|facture_apercu|emplacements_liste|scan_code|pieces_recherche)\.php/.test(e));
+const reelles = p => p.erreurs.filter(e => !/status of 40[0-9]/.test(e) && !/requestfailed: \S+\/(factures_internes_data|factures_internes_totaux|valeur_detail|facture_apercu|emplacements_liste|scan_code|pieces_recherche|document_pdf|bilan_pdf)\.php/.test(e));
 const attendre = ms => new Promise(r => setTimeout(r, ms));
 
 // ---- outils : SQL indépendant, PHP, formats -------------------------------------------------------------------
@@ -35,6 +36,12 @@ const norm = t => String(t).replace(/[  ]/g, ' ').replace(/\s+/g, ' ').trim()
 const fr = s => { const [e, f = ''] = String(s).split('.'); return e.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ',' + (f + '00').slice(0, 2) + ' $'; };
 const tx = async (p, sel) => norm(await p.textContent(sel));
 const num = s => parseFloat(String(s).replace(/\s/g, '').replace(',', '.'));
+/** Texte d'un PDF (pdftotext), espaces normalisés ; null si l'outil est absent. */
+function pdfTexte(buf) {
+  try { return execFileSync('pdftotext', ['-layout', '-enc', 'UTF-8', '-', '-'], { input: buf, maxBuffer: 64 * 1024 * 1024 }).toString('utf8').replace(/[  ]/g, ' ').replace(/\s+/g, ' '); }
+  catch (x) { return null; }
+}
+const pdfPages = buf => { const m = buf.toString('latin1').match(/\/Count (\d+)/); return m ? parseInt(m[1], 10) : 0; };
 
 const AUJ = php('echo date("Y-m-d");');
 const PREC = php('echo date("Y-m-d", strtotime("first day of last month"));');       // date rétroactive : 1er jour du mois précédent
@@ -296,7 +303,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(await p.$eval('#cout-zero', e => e.checked) === false && await p.$eval('#ie-zero-bloc', e => e.hidden), 'case décochée et masquée après l\'envoi');
   const id5 = idDoc(num5);
   await L.aller(p, 'facture_interne_voir&id=' + id5);
-  L.verifier(dialogues.length === 0 && (await p.$$('#facture img')).length === 0, 'aucun script exécuté, aucune balise injectée sur la facture');
+  L.verifier(dialogues.length === 0 && (await p.$$('#facture img:not(.doc-logo)')).length === 0, 'aucun script exécuté, aucune balise injectée sur la facture');
   L.verifier((await tx(p, '#facture')).includes('<img src=x onerror=alert(2)>') && (await tx(p, '#facture')).includes('<img src=x onerror=alert(1)>'), 'note et nom de pièce affichés en texte sur la facture');
 
   // ==== 6. Factures du mois précédent (date rétroactive) et sens inverse ======================================================
@@ -426,7 +433,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(sql("SELECT statut FROM documents WHERE id = " + idA) === 'annule', 'facture annulée en base');
   L.verifier(parseFloat(stockQte(1, 1)) === stockP1Avant + 2 && parseFloat(stockQte(1, 5)) === 0, 'stock revenu à la source et retiré de la destination');
   const banniere = await tx(p, '#bandeau-annule');
-  L.verifier(banniere.includes('ANNULÉE') && banniere.includes('par') && banniere.includes('gestionnaire1') && /le \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(banniere) && banniere.includes('<img src=x onerror=alert(3)>'), 'bandeau ANNULÉE avec qui, quand et motif (en texte) : ' + banniere);
+  L.verifier(banniere.includes('ANNULÉE') && banniere.includes('par') && banniere.includes('Gestionnaire Démo') && !banniere.includes('gestionnaire1') && /le \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(banniere) && banniere.includes('<img src=x onerror=alert(3)>'), 'bandeau ANNULÉE avec qui, quand et motif (en texte) : ' + banniere);
   L.verifier(!!(await p.$('.ie-filigrane')) && (await tx(p, '.ie-filigrane')) === 'ANNULÉE', 'filigrane ANNULÉE');
   const flash = await tx(p, '#flash-annule');
   L.verifier((await p.$('#btn-annuler')) === null && flash.includes('annulée') && flash.includes(numA), 'plus de bouton « Annuler » ; confirmation affichée avec le numéro ' + numA + ' : ' + flash);
@@ -434,7 +441,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await p.reload();
   await p.waitForLoadState('networkidle');
   L.verifier((await p.$('#flash-annule')) === null, 'le message d\'annulation ne réapparaît pas au rechargement');
-  L.verifier(dialogues.length === 0 && (await p.$$('#facture img')).length === 0, 'motif piégé : aucun script exécuté');
+  L.verifier(dialogues.length === 0 && (await p.$$('#facture img:not(.doc-logo)')).length === 0, 'motif piégé : aucun script exécuté');
   await L.aller(p, 'bilan_mensuel&annee=' + A_PREC + '&mois=' + M_PREC);
   L.verifier((await tx(p, '#sens-ab .ie-total-sens-montant')) === '0,00 $' && (await tx(p, '#solde')) === 'Beauchemin doit 53,40 $ à Boutique Chaleur', 'le bilan n\'inclut plus la facture annulée : ' + await tx(p, '#solde'));
   L.verifier((await tx(p, '#lien-annulees')) === '1 facture annulée', 'lien « factures annulées » du mois affiché (correction #26) : ' + await tx(p, '#lien-annulees'));
@@ -819,6 +826,107 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(!!(await ad.$('#btn-annuler')) && !(await ad.$('#annulation-emettrice')), 'l\'administrateur (accès à l\'émettrice) garde le bouton d\'annulation');
   L.verifier(reelles(gt).length === 0 && reelles(ad).length === 0, 'aucune erreur console (entreprise tierce, admin) : ' + JSON.stringify(reelles(gt).concat(reelles(ad))));
 
+  // ==== 14b. PDF des factures et du bilan ===================================================================================
+  console.log('14b. PDF des factures et du bilan : bouton, en-tête, contenu, droits, impression');
+  {
+    const pdf = async (pg, url) => { const r = await pg.context().request.get(L.BASE + '/' + url); return { status: r.status(), h: r.headers(), corps: await r.body() }; };
+    const estPdf = r => r.status === 200 && /^application\/pdf/.test(r.h['content-type']) && r.corps.slice(0, 5).toString('latin1') === '%PDF-' && r.corps.slice(-8).toString('latin1').includes('%%EOF');
+    const logos = pg => pg.$$eval('.doc-entete img.doc-logo', i => i.map(x => x.alt));
+    // -- la facture à l'écran : bouton, en-tête avec les deux logos, filet de l'entreprise émettrice
+    await L.aller(p, 'facture_interne_voir&id=' + id5);
+    const bf = await p.$eval('#btn-pdf', x => ({ texte: x.textContent.replace(/\s+/g, ' ').trim(), href: x.getAttribute('href'), classe: x.className, icone: !!x.querySelector('.fa-file-pdf') }));
+    L.verifier(bf.texte === 'Télécharger en PDF' && bf.href === 'app/ajax/document_pdf.php?id=' + id5 && /btn-primary/.test(bf.classe) && bf.icone && (await p.$$('.ie-barre .btn-primary')).length === 1 && /btn-outline-secondary/.test(await p.getAttribute('#btn-imprimer', 'class')), 'facture : « Télécharger en PDF » est le bouton principal (« Imprimer » est secondaire) : ' + JSON.stringify(bf));
+    const ent = await p.evaluate(() => ({ cls: document.querySelector('.doc').className, fleche: !!document.querySelector('.doc-entete .doc-fleche'), titre: document.querySelector('.doc-titre').textContent, filet: getComputedStyle(document.querySelector('.doc-filet')).backgroundImage,
+      parties: [...document.querySelectorAll('.doc-partie h3')].map(h => h.textContent), imgs: [...document.querySelectorAll('.doc-entete img.doc-logo')].map(i => [i.alt, i.getAttribute('src'), i.naturalWidth / i.naturalHeight, i.getBoundingClientRect().width / i.getBoundingClientRect().height]) }));
+    L.verifier(ent.imgs.length === 2 && ent.imgs[0][0] === 'Beauchemin' && ent.imgs[1][0] === 'Boutique Chaleur' && ent.fleche && ent.titre === 'FACTURE INTERNE' && /doc-bea/.test(ent.cls) && ent.filet.includes('rgb(74, 168, 74)') && ent.filet.includes('rgb(45, 178, 209)') && ent.parties.join('|') === 'Émetteur|Destinataire',
+      'en-tête de la facture : logo émetteur → flèche → logo destinataire, filet vert + cyan, Émetteur / Destinataire : ' + JSON.stringify(ent));
+    L.verifier(ent.imgs.every(i => Math.abs(i[2] - i[3]) < 0.05), 'logos affichés sans déformation (proportions respectées) : ' + JSON.stringify(ent.imgs.map(i => [i[2].toFixed(2), i[3].toFixed(2)])));
+    // -- le PDF de cette facture (coût 0 $, nom de pièce et note piégés)
+    const rf = await pdf(p, 'app/ajax/document_pdf.php?id=' + id5);
+    const tf = pdfTexte(rf.corps);
+    L.verifier(estPdf(rf) && rf.h['content-disposition'] === 'attachment; filename="' + num5 + '.pdf"' && rf.h['x-content-type-options'] === 'nosniff' && rf.h['cache-control'] === 'private, no-store', 'PDF de la facture : application/pdf, %PDF- … %%EOF, attachment ' + num5 + '.pdf, nosniff, private + no-store : ' + rf.h['content-disposition']);
+    L.verifier(tf !== null && tf.includes('FACTURE INTERNE') && tf.includes(num5) && tf.includes('ÉMETTEUR') && tf.includes('DESTINATAIRE') && tf.includes('Préparé par — Beauchemin') && tf.includes('Reçu par — Boutique Chaleur') && tf.includes('Total') && tf.includes('0,00 $') && tf.includes('Coût unitaire')
+      && tf.includes('<img src=x onerror=alert(1)>') && tf.includes('<img src=x onerror=alert(2)>') && /Page 1 \/ 1/.test(tf) && tf.includes('Valide'), 'PDF de la facture : titre, numéro, émetteur, destinataire, signatures, total 0,00 $, noms piégés en texte brut : ' + (tf || '').slice(0, 240));
+    // -- facture annulée : ANNULÉE, motif, auteur
+    const rfa = await pdf(p, 'app/ajax/document_pdf.php?id=' + idA);
+    const tfa = pdfTexte(rfa.corps);
+    L.verifier(estPdf(rfa) && tfa !== null && tfa.includes('ANNULÉE') && tfa.includes('<img src=x onerror=alert(3)>') && tfa.includes('Gestionnaire Démo') && rfa.corps.toString('latin1').includes('/ca 0.160'), 'PDF d\'une facture annulée : « ANNULÉE », motif piégé en texte, auteur, filigrane : ' + (tfa || '').slice(0, 200));
+    // -- facture émise par Chaleur : logos dans l'ordre émetteur → destinataire, filet rouge + or
+    const idB = idDoc(numB);
+    await L.aller(p, 'facture_interne_voir&id=' + idB);
+    const entB = await p.evaluate(() => ({ cls: document.querySelector('.doc').className, filet: getComputedStyle(document.querySelector('.doc-filet')).backgroundImage, alts: [...document.querySelectorAll('.doc-entete img.doc-logo')].map(i => i.alt) }));
+    L.verifier(/doc-bch/.test(entB.cls) && entB.filet.includes('rgb(208, 2, 27)') && entB.filet.includes('rgb(201, 162, 77)') && entB.alts.join('|') === 'Boutique Chaleur|Beauchemin', 'facture émise par Boutique Chaleur : logos Chaleur → Beauchemin, filet rouge + or : ' + JSON.stringify(entB));
+    const rb = await pdf(p, 'app/ajax/document_pdf.php?id=' + idB);
+    const tb = pdfTexte(rb.corps);
+    L.verifier(estPdf(rb) && tb !== null && tb.includes(numB) && tb.includes('53,40 $') && tb.includes('ÉMETTEUR DESTINATAIRE Boutique Chaleur Beauchemin'), 'PDF d\'une facture émise par Chaleur : numéro, total 53,40 $, émetteur Chaleur');
+    // -- un clic télécharge le fichier
+    await L.aller(p, 'facture_interne_voir&id=' + id5);
+    const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 15000 }), p.click('#btn-pdf')]);
+    const dlBuf = fs.readFileSync(await dl.path());
+    L.verifier(dl.suggestedFilename() === num5 + '.pdf' && dlBuf.slice(0, 5).toString('latin1') === '%PDF-' && /page=facture_interne_voir/.test(p.url()), 'clic sur « Télécharger en PDF » : ' + dl.suggestedFilename() + ' téléchargé, la page reste ouverte');
+    // -- droits : employé (aucune facture), entreprise étrangère (réponse neutre), sans connexion, méthode
+    const rfe = await pdf(emp, 'app/ajax/document_pdf.php?id=' + id5);
+    L.verifier(rfe.status === 403 && /^text\/plain/.test(rfe.h['content-type']) && rfe.corps.slice(0, 5).toString('latin1') !== '%PDF-' && !/\d,\d\d/.test(rfe.corps.toString()), 'employé : PDF d\'une facture interne refusé (403, texte brut, aucun montant) : ' + rfe.status);
+    const rfInex = await pdf(gt, 'app/ajax/document_pdf.php?id=999999');
+    const rfEtr = await pdf(gt, 'app/ajax/document_pdf.php?id=' + id5);
+    L.verifier(rfEtr.status === 404 && rfInex.status === 404 && rfEtr.corps.toString() === rfInex.corps.toString() && rfEtr.h['content-type'] === rfInex.h['content-type'], 'entreprise étrangère : PDF d\'une facture qu\'elle ne peut pas voir = EXACTEMENT la réponse d\'un document inexistant : ' + rfEtr.status + ' « ' + rfEtr.corps.toString() + ' »');
+    const ctxAnon = await b.newContext();
+    const ranon = await ctxAnon.request.get(L.BASE + '/app/ajax/document_pdf.php?id=' + id5, { headers: { Accept: 'application/json' } });
+    const ranonB = await ctxAnon.request.get(L.BASE + '/app/ajax/bilan_pdf.php', { headers: { Accept: 'application/json' } });
+    L.verifier(ranon.status() === 401 && ranonB.status() === 401, 'non connecté : PDF de la facture et du bilan répondent 401');
+    await ctxAnon.close();
+    // -- facture reçue : l'emplacement de l'autre entreprise n'est pas communiqué (PDF comme écran)
+    const rfn = await pdf(gb, 'app/ajax/document_pdf.php?id=' + idDoc(numA));
+    const tfn = pdfTexte(rfn.corps);
+    L.verifier(estPdf(rfn) && tfn !== null && tfn.includes('Emplacement de destination : non communiqué') && !tfn.includes('Boutique Centre-ville') && tfn.includes('Emplacement source : Entrepôt principal'), 'facture vue par Beauchemin seule : l\'emplacement de destination (Chaleur) est « non communiqué » dans le PDF : ' + (tfn || '').slice(0, 220));
+    // -- bilan : bouton, PDF, contenu
+    await L.aller(p, 'bilan_mensuel&annee=' + A_PREC + '&mois=' + M_PREC);
+    const bb = await p.$eval('#btn-pdf', x => ({ texte: x.textContent.replace(/\s+/g, ' ').trim(), href: x.getAttribute('href'), classe: x.className, icone: !!x.querySelector('.fa-file-pdf') }));
+    L.verifier(bb.texte === 'Télécharger en PDF' && bb.href === 'app/ajax/bilan_pdf.php?annee=' + A_PREC + '&mois=' + M_PREC + '&a=1&b=2' && /btn-primary/.test(bb.classe) && bb.icone && (await p.$$('.ie-bilan-outils .btn-primary')).length === 1 && /btn-outline-secondary/.test(await p.getAttribute('#btn-csv', 'class')) && /btn-outline-secondary/.test(await p.getAttribute('#btn-imprimer', 'class')), 'bilan : « Télécharger en PDF » est le bouton principal (Exporter et Imprimer sont secondaires) : ' + JSON.stringify(bb));
+    const entBil = await p.evaluate(() => ({ titre: document.querySelector('.doc-titre').textContent, alts: [...document.querySelectorAll('.doc-entete img.doc-logo')].map(i => i.alt), double: !!document.querySelector('.doc-entete .fa-exchange-alt'), filet: getComputedStyle(document.querySelector('.doc-filet')).backgroundImage }));
+    L.verifier(entBil.titre === 'BILAN DU MOIS' && entBil.alts.join('|') === 'Beauchemin|Boutique Chaleur' && entBil.double && entBil.filet.includes('rgb(74, 168, 74)'), 'en-tête du bilan : logos des deux entreprises, titre, filet : ' + JSON.stringify(entBil));
+    const rbil = await pdf(p, 'app/ajax/bilan_pdf.php?annee=' + A_PREC + '&mois=' + M_PREC);
+    const tbil = pdfTexte(rbil.corps);
+    const periodeCap = MOIS[M_PREC - 1][0].toUpperCase() + MOIS[M_PREC - 1].slice(1) + ' ' + A_PREC;
+    L.verifier(estPdf(rbil) && rbil.h['content-disposition'] === 'attachment; filename="bilan-' + ym(A_PREC, M_PREC) + '.pdf"' && rbil.h['x-content-type-options'] === 'nosniff' && rbil.h['cache-control'] === 'private, no-store', 'PDF du bilan : application/pdf, attachment bilan-' + ym(A_PREC, M_PREC) + '.pdf : ' + rbil.h['content-disposition']);
+    L.verifier(tbil !== null && tbil.includes('BILAN DU MOIS') && tbil.includes(periodeCap) && tbil.includes('SOLDE DU MOIS') && tbil.includes('Beauchemin doit à Boutique Chaleur 53,40 $') && tbil.includes(numB) && !tbil.includes(numA) && tbil.includes('Total : 0,00 $') && /Page 1 \/ \d/.test(tbil) && tbil.includes('Pièces') && tbil.includes('Factures'),
+      'PDF du bilan : titre, période, solde « Beauchemin doit à Boutique Chaleur 53,40 $ », facture B listée, facture annulée A absente : ' + (tbil || '').slice(0, 300));
+    const [dlb] = await Promise.all([p.waitForEvent('download', { timeout: 15000 }), p.click('#btn-pdf')]);
+    L.verifier(dlb.suggestedFilename() === 'bilan-' + ym(A_PREC, M_PREC) + '.pdf' && fs.readFileSync(await dlb.path()).slice(0, 5).toString('latin1') === '%PDF-' && /page=bilan_mensuel/.test(p.url()), 'clic sur « Télécharger en PDF » du bilan : ' + dlb.suggestedFilename());
+    // mois et année invalides : retour au mois courant, comme l'export CSV
+    const rbInv = await pdf(p, 'app/ajax/bilan_pdf.php?annee=abc&mois=99');
+    L.verifier(estPdf(rbInv) && rbInv.h['content-disposition'] === 'attachment; filename="bilan-' + ym(A_NOW, M_NOW) + '.pdf"', 'bilan PDF : période invalide = mois courant : ' + rbInv.h['content-disposition']);
+    // une paire à trois entreprises : l'entreprise sans logo s'écrit en texte
+    const rb3 = await pdf(ad, 'app/ajax/bilan_pdf.php?annee=' + A_NOW + '&mois=' + M_NOW + '&a=1&b=3');
+    const tb3 = pdfTexte(rb3.corps);
+    L.verifier(estPdf(rb3) && tb3 !== null && tb3.includes('Entreprise Tierce doit à Beauchemin 9,80 $') && tb3.includes(num14) && (rb3.corps.toString('latin1').match(/\/Subtype \/Image/g) || []).length === 1, 'bilan Beauchemin / Entreprise Tierce : le nom de l\'entreprise sans logo est en texte, un seul logo, solde 9,80 $ : ' + (tb3 || '').slice(0, 200));
+    // droits du bilan : employé 403, entreprise étrangère 403 (aucune donnée), entreprise d'une seule paire refusée comme l'export
+    const rbe = await pdf(emp, 'app/ajax/bilan_pdf.php?annee=' + A_PREC + '&mois=' + M_PREC);
+    const rbt = await pdf(gt, 'app/ajax/bilan_pdf.php?annee=' + A_PREC + '&mois=' + M_PREC + '&a=1&b=2');
+    const rbg = await pdf(gb, 'app/ajax/bilan_pdf.php?annee=' + A_PREC + '&mois=' + M_PREC + '&a=2&b=3');
+    L.verifier(rbe.status === 403 && rbt.status === 403 && rbg.status === 403 && [rbe, rbt, rbg].every(r => /^text\/plain/.test(r.h['content-type']) && r.corps.slice(0, 5).toString('latin1') !== '%PDF-' && !/FIN-|\d,\d\d/.test(r.corps.toString())), 'bilan PDF : refusé (403, texte brut, aucune donnée) à un employé, à une entreprise étrangère, à une paire sans accès : ' + [rbe.status, rbt.status, rbg.status] + ' ' + rbt.corps.toString());
+    const rbPost = await api(p, 'app/ajax/bilan_pdf.php', {});
+    const rbPost2 = await api(p, 'app/ajax/bilan_pdf.php', {}, { sansJeton: true });
+    L.verifier(rbPost.status === 405 && rbPost2.status === 403, 'bilan PDF : POST refusé (405), sans jeton (403)');
+    L.verifier(parseInt(sql("SELECT COUNT(*) FROM journal WHERE action = 'export.bilan' AND details LIKE '%\"format\":\"pdf\"%'"), 10) >= 2, 'le téléchargement du PDF du bilan est consigné au journal (format pdf)');
+    // -- impression du bilan : en-tête avec les deux logos, solde, pas de boutons ; PDF A4 avec le pied de page
+    await L.aller(p, 'bilan_mensuel&annee=' + A_PREC + '&mois=' + M_PREC);
+    await p.emulateMedia({ media: 'print' });
+    const impB = await p.evaluate(() => { const d = s => { const x = document.querySelector(s); return x ? getComputedStyle(x).display : 'absent'; }; return { barre: d('.ie-bilan-barre'), plus: d('.ie-bilan-plus'), logos: [...document.querySelectorAll('.doc-entete img.doc-logo')].filter(i => i.complete && i.naturalWidth > 0 && i.getBoundingClientRect().width > 30).length, solde: d('#solde'), pdf: d('#btn-pdf') }; });
+    L.verifier(impB.barre === 'none' && impB.plus === 'none' && impB.pdf === 'none' && impB.logos === 2 && impB.solde !== 'none', 'impression du bilan : les deux logos et le solde s\'impriment, ni boutons ni sélecteur de mois : ' + JSON.stringify(impB));
+    const pdfBil = await p.pdf({ preferCSSPageSize: true, printBackground: true });
+    const tpb = pdfTexte(pdfBil);
+    L.verifier(tpb !== null && /\/MediaBox \[0 0 59[45](\.\d+)? 84[12](\.\d+)?\]/.test(pdfBil.toString('latin1')) && tpb.includes('BILAN DU MOIS') && tpb.includes(periodeCap) && /Page 1 \/ \d/.test(tpb) && tpb.includes('Imprimé le'), 'impression du bilan en PDF (Chromium) : A4, titre, période, pied « Page 1 / n » : ' + (tpb || '').slice(0, 160));
+    await p.emulateMedia({ media: 'screen' });
+    // -- impression de la facture annulée : filigrane, en-tête
+    await L.aller(p, 'facture_interne_voir&id=' + idA);
+    await p.emulateMedia({ media: 'print' });
+    const pdfFa = await p.pdf({ preferCSSPageSize: true, printBackground: true });
+    const tpf = pdfTexte(pdfFa);
+    L.verifier(tpf !== null && tpf.includes('FACTURE INTERNE') && tpf.includes('ANNULÉE') && tpf.includes(numA) && pdfFa.toString('latin1').includes('/Subtype /Image'), 'impression d\'une facture annulée en PDF : titre, ANNULÉE, numéro, logos');
+    await p.emulateMedia({ media: 'screen' });
+  }
+
   // ==== 15. Noms piégés partout =====================================================================================================
   console.log('15. Noms piégés (entreprise, emplacement, catégorie, unité, pièce)');
   const PIEGE = ['<img src=x onerror=alert(11)>', '<img src=x onerror=alert(12)>', '<img src=x onerror=alert(13)>', '<u>m</u>'];
@@ -1075,7 +1183,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
     await L.aller(p, 'bilan_mensuel&annee=2020&mois=' + m);
     const titre = await tx(p, '.ie-bilan-titre');
     L.verifier(titre === attendu + ' 2020', '#25 mois affiché entre les flèches : « ' + titre + ' »');
-    L.verifier((await tx(p, '.ie-impression-entete')).startsWith('Bilan ' + de + attendu + ' 2020'), '#25 en-tête d\'impression : Bilan ' + de + attendu + ' 2020 : ' + await tx(p, '.ie-impression-entete'));
+    L.verifier((await tx(p, '.doc-titre')) === 'BILAN DU MOIS' && (await tx(p, '.doc-meta dd')) === attendu[0].toUpperCase() + attendu.slice(1) + ' 2020', '#25 en-tête du document : BILAN DU MOIS, période « ' + attendu[0].toUpperCase() + attendu.slice(1) + ' 2020 » : ' + await tx(p, '.doc-meta dd'));
     L.verifier((await p.title()).startsWith('Bilan ' + de + attendu + ' 2020'), '#42 titre d\'onglet : ' + await p.title());
   }
   L.verifier(!(await p.$('#lien-annulees')) && (await tx(p, '#solde')).includes('Aucune facture en mars 2020.'), '#26 texte du mois consulté (plus de « ce mois-ci ») : ' + await tx(p, '#solde'));

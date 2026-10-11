@@ -423,6 +423,185 @@ egal('-1,50', fmt_nombre('-1.5', 2), 'fmt_nombre : négatif');
 egal('0,00', fmt_nombre('-0.001', 2), 'fmt_nombre : pas de « -0,00 »');
 egal('12', fmt_nombre('12.000'), 'fmt_nombre : zéros inutiles retirés');
 
+// ---- PDF : conversion du texte, un document de chaque type, employé sans montant, document long, bilan ---------------------------
+groupe('PDF des documents et du bilan');
+require_once __DIR__ . '/../app/classes/DocumentVue.php';
+require_once __DIR__ . '/../app/classes/DocumentsPdf.php';
+/** Utilisateur « connecté » (même chemin que les pages : session, rôle, entreprises). */
+function user_pour($id) { global $pdo; $_SESSION = array('user_id' => $id, 'auth_v' => (int) val('SELECT mdp_version FROM utilisateurs WHERE id = ?', array($id))); return new User($pdo); }
+/** Textes (octets Windows-1252, non compressés) des instructions « (texte) Tj » d'un PDF dont la compression est coupée. */
+function pdf_textes($bin) {
+	preg_match_all('/\(((?:[^()\\\\]|\\\\.)*)\)\s*Tj/s', $bin, $m);
+	return array_map(function ($t) { return stripslashes($t); }, $m[1]);
+}
+function pdf_pages($bin) { return preg_match_all('/\/Type \/Page(?!s)/', $bin); }
+/** « Page n / N » extrait des pieds de page (« Imprimé le … · Page n / N »). */
+function pdf_pieds($textes) { return array_map(function ($t) { return preg_replace('/^.*\xB7 /s', '', $t); }, $textes); }
+function cp($s) { return PdfDocument::cp1252($s); }
+/** PDF d'un document pour un utilisateur, sans compression ; retourne array(binaire, textes, modèle). */
+function pdf_document($inv, $uid, $docId, $masque = 'Autre entreprise') {
+	global $pdo;
+	$u = user_pour($uid);
+	$m = DocumentVue::document($pdo, $u, $inv->document($uid, $docId), array('masque' => $masque));
+	$pdf = DocumentsPdf::document($m);
+	$pdf->SetCompression(false);
+	$bin = $pdf->contenu();
+	return array($bin, pdf_textes($bin), $m);
+}
+$nbsp = "\xc2\xa0";
+
+// conversion UTF-8 -> Windows-1252 (accents, œ, tirets, guillemets, espaces insécables) avec repli sûr
+egal("\xE9\xE8\xE0\xE7\xEA\xF4 \xC9\xC0\xCA", PdfDocument::cp1252('éèàçêô ÉÀÊ'), 'cp1252 : lettres accentuées');
+egal("\x9C\x8C \x97 \x96 \x92 \x93\x94 \xAB\xA0\xBB \x80 \x95", PdfDocument::cp1252("œŒ — – ’ “” «{$nbsp}» € •"), 'cp1252 : œ, tirets, apostrophe courbe, guillemets, espace insécable, euro, puce');
+egal("a\xA0b c", PdfDocument::cp1252("a\u{202F}b\u{2009}c"), 'cp1252 : espace fine insécable -> espace insécable, espace fine -> espace');
+egal('Lodz l a c e n s z z', PdfDocument::cp1252('Łodz ł ą ć ę ń ś ź ż'), 'cp1252 : lettres hors Windows-1252 -> lettre de base');
+egal('a?b?c?', PdfDocument::cp1252("a😀b中c\u{0394}"), 'cp1252 : emoji, chinois, grec -> « ? » (un seul par caractère)');
+egal('a->b <= c', PdfDocument::cp1252("a→b ≤ c"), 'cp1252 : flèche et inférieur ou égal en ASCII');
+egal("ab cd\nef", PdfDocument::cp1252("a\x01b\tcd\r\nef\x7F"), 'cp1252 : caractères de contrôle retirés, tabulation -> espace, saut de ligne gardé');
+egal('a?b', PdfDocument::cp1252("a\xFFb"), 'cp1252 : octet UTF-8 invalide -> « ? », jamais d\'erreur');
+egal('', PdfDocument::cp1252(''), 'cp1252 : texte vide');
+egal('ab', PdfDocument::cp1252("a\u{200B}\u{FEFF}b"), 'cp1252 : espace de largeur nulle et BOM retirés');
+// nom de fichier : jamais de retour de ligne, de guillemet ni de barre dans l'en-tête Content-Disposition
+egal('REC-2026-00001.pdf', PdfDocument::nomFichier('REC-2026-00001'), 'nom de fichier : numéro de document');
+ok(preg_match('/^[A-Za-z0-9._-]+\.pdf$/', PdfDocument::nomFichier("a\r\nSet-Cookie: x=1\"/../é")) === 1, 'nom de fichier : assaini (aucun CR, LF, guillemet ni barre)');
+egal('document.pdf', PdfDocument::nomFichier("\r\n/"), 'nom de fichier : jamais vide');
+
+// un document de chaque type, vu par un gestionnaire
+$pdo->exec("INSERT INTO pieces (code, nom, unite) VALUES ('PDF-A', 'Thermocouple à gaz — 1/2 po « œil » 3 µm ’test’', 'unité'), ('PDF-L', 'Tuyau', 'm')");
+$pa = (int) val("SELECT id FROM pieces WHERE code = 'PDF-A'"); $pl = (int) val("SELECT id FROM pieces WHERE code = 'PDF-L'");
+$inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'lignes' => array(L($pa, '40', '3.10'), L($pl, '12.5', '2.3333'))));
+$r1 = $inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'fournisseur_id' => 1, 'reference' => 'FAC-é-1', 'note' => "Ligne 1\nLigne 2 — œuvre 😀 中", 'lignes' => array(L($pa, '4', '3.10'), L($pl, '2.5', '2.3333'))));
+$t1 = $inv->transferer($gA, array('emplacement_id' => $E['A1'], 'emplacement_dest_id' => $E['CUBE'], 'lignes' => array(L($pa, '2'))));
+$s1 = $inv->sortir($gA, array('emplacement_id' => $E['A1'], 'motif' => 'service', 'reference' => 'BT-é', 'lignes' => array(L($pa, '1'))));
+$a1 = $inv->ajuster($gA, array('emplacement_id' => $E['A1'], 'motif' => 'comptage', 'lignes' => array(L($pa, '3'), L($pl, '-1'))));
+$f1 = $inv->factureInterne($gA, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 2, 'emplacement_dest_id' => $E['BOUT'], 'note' => 'Pièces pour la boutique', 'lignes' => array(L($pa, '2'), L($pl, '1.5'))));
+$titres = array($r1['id'] => 'R' . "\xC9" . 'CEPTION', $t1['id'] => 'D' . "\xC9" . 'PLACEMENT', $s1['id'] => 'UTILISATION', $a1['id'] => 'CORRECTION DU STOCK', $f1['id'] => 'FACTURE INTERNE');
+$numeros = array($r1['id'] => $r1['numero'], $t1['id'] => $t1['numero'], $s1['id'] => $s1['numero'], $a1['id'] => $a1['numero'], $f1['id'] => $f1['numero']);
+foreach ($titres as $id => $titre) {
+	list($bin, $textes, $m) = pdf_document($inv, $gA, $id, $id == $f1['id'] ? 'non communiqué' : 'Autre entreprise');
+	$n = $numeros[$id];
+	ok(strpos($bin, '%PDF-') === 0, "PDF $n : commence par %PDF-");
+	ok(substr(rtrim($bin), -5) === '%%EOF', "PDF $n : se termine par %%EOF");
+	egal(1, pdf_pages($bin), "PDF $n : une page");
+	ok(in_array(cp('N° ' . $n), $textes, true), "PDF $n : le numéro du document (« N° … ») est dans le texte");
+	ok(in_array($titre, $textes, true), "PDF $n : titre « $titre » dans l'en-tête");
+	ok(in_array('Page 1 / 1', pdf_pieds($textes), true), "PDF $n : « Page 1 / 1 » dans le pied de page");
+	ok(in_array("Logiciel de gestion d'inventaire \x97 Beauchemin / Boutique Chaleur", $textes, true), "PDF $n : mention du logiciel dans le pied de page");
+	ok(in_array('Code', $textes, true) && in_array('Total', $textes, true) && in_array('Co' . "\xFB" . 't unitaire', $textes, true), "PDF $n : colonnes de coût pour un gestionnaire");
+	ok(in_array(PdfDocument::cp1252(fmt_argent($m['total'] === null ? '0' : $inv->document($gA, $id)['doc']['total'])), $textes, true), "PDF $n : total du document (même texte que la page)");
+	ok(strpos(implode(' ', $textes), "Thermocouple \xE0 gaz \x97 1/2 po \xAB \x9Cil \xBB 3 \xB5m \x92test\x92") !== false, "PDF $n : nom de pièce avec accents, œ, tiret long, guillemets, µ et apostrophes courbes");
+	ok(!in_array('?', $textes, true) && strpos(implode('', $textes), "\xEF\xBF\xBD") === false, "PDF $n : aucun caractère corrompu");
+}
+list($bin, $textes) = pdf_document($inv, $gA, $r1['id']);
+$plat = implode("\n", $textes);
+ok(strpos($plat, 'Ligne 2 ' . "\x97" . ' ' . "\x9C" . 'uvre ? ?') !== false, 'PDF : note avec emoji et chinois -> « ? » (aucune erreur)');
+ok(strpos($plat, "FAC-\xE9-1") !== false && strpos($plat, 'Fournisseur') === false && strpos($plat, 'FOURNISSEUR') !== false, 'PDF réception : fournisseur et n° de facture du fournisseur (accent)');
+list($bin, $textes) = pdf_document($inv, $gA, $a1['id']);
+ok(in_array('+3', $textes, true) && in_array("-1\xA0m", $textes, true), 'PDF correction du stock : quantités signées (+3 ; -1 m avec son unité)');
+list($bin, $textes) = pdf_document($inv, $gA, $f1['id'], 'non communiqué');
+$plat = implode("\n", $textes);
+ok(strpos($plat, "Pr\xE9par\xE9 par \x97 Beauchemin") !== false && strpos($plat, "Re\xE7u par \x97 Boutique Chaleur") !== false, 'PDF facture interne : signatures « Préparé par » et « Reçu par »');
+$nomA1 = val('SELECT nom FROM emplacements WHERE id = ?', array($E['A1']));
+ok(strpos($plat, 'Emplacement source : ' . cp($nomA1)) !== false && strpos($plat, "Emplacement de destination : non communiqu\xE9") !== false && strpos($plat, "\xC9METTEUR") !== false && strpos($plat, 'DESTINATAIRE') !== false, 'PDF facture interne (gestionnaire de l\'émettrice) : émetteur et destinataire ; l\'emplacement de l\'autre entreprise n\'est pas communiqué');
+ok(strpos($bin, '/Subtype /Image') !== false && substr_count($bin, '/Subtype /Image') === 2, 'PDF facture interne : les deux logos (émetteur et destinataire) sont dans le fichier');
+// proportions des logos respectées : rapport largeur / hauteur placé dans la page = rapport du fichier PNG
+preg_match_all('/q ([\d.]+) 0 0 ([\d.]+) [\d.]+ [\d.]+ cm \/I\d+ Do Q/', $bin, $ml);
+$rapports = array();
+foreach ($ml[1] as $i => $w) { $rapports[] = round($w / $ml[2][$i], 2); }
+sort($rapports);
+$attendus = array();
+foreach (array('logo-beauchemin.png', 'logo-boutique-chaleur.png') as $f) { $d = getimagesize(Marque::racine() . '/assets/img/' . $f); $attendus[] = round($d[0] / $d[1], 2); }
+sort($attendus);
+ok(count($rapports) === 2 && abs($rapports[0] - $attendus[0]) < 0.03 && abs($rapports[1] - $attendus[1]) < 0.03, 'PDF : logos non déformés (rapport ' . implode(' et ', $rapports) . ' = ' . implode(' et ', $attendus) . ')');
+
+// l'employé : aucun prix, coût ni total, comme à l'écran
+foreach (array($r1['id'], $t1['id'], $s1['id']) as $id) {
+	list($bin, $textes, $m) = pdf_document($inv, $emp, $id);
+	$plat = implode("\n", $textes);
+	ok($m['couts'] === false && $m['total'] === null && $m['lignes'][0]['cout'] === null && $m['lignes'][0]['total'] === null, 'modèle d\'un employé : aucun coût ni total');
+	ok(strpos($plat, '$') === false && strpos($plat, 'Total') === false && strpos($plat, "Co\xFBt") === false && !preg_match('/\d,\d\d/', $plat), 'PDF ' . $numeros[$id] . ' d\'un employé : ni prix, ni coût, ni total');
+	ok(in_array(cp('N° ' . $numeros[$id]), $textes, true), 'PDF ' . $numeros[$id] . ' d\'un employé : numéro présent');
+}
+// emplacement d'une entreprise inaccessible : masqué, comme à l'écran (l'employé voit la facture reçue sans le nom de l'emplacement source)
+$m = DocumentVue::document($pdo, user_pour($gB), $inv->document($gB, $f1['id']), array('masque' => 'non communiqué'));
+$nomBout = val('SELECT nom FROM emplacements WHERE id = ?', array($E['BOUT']));
+ok($m['parties'][0]['emplacement'] === null && $m['parties'][1]['emplacement'] === $nomBout, 'facture vue par la destinataire : l\'emplacement source (autre entreprise) n\'est pas communiqué, le sien l\'est');
+$pdf = DocumentsPdf::document($m); $pdf->SetCompression(false);
+$plat = implode("\n", pdf_textes($pdf->contenu()));
+ok(strpos($plat, "Emplacement source : non communiqu\xE9") !== false && strpos($plat, cp($nomA1)) === false && strpos($plat, 'Emplacement de destination : ' . cp($nomBout)) !== false, 'PDF de la destinataire : « non communiqué » à la place du nom de l\'emplacement de l\'émettrice, son propre emplacement visible');
+
+// document annulé : « ANNULÉ » (ANNULÉE pour une facture), motif, filigrane
+$inv->annuler($gA, $s1['id'], 'Erreur « de saisie » à 100 %');
+list($bin, $textes) = pdf_document($inv, $gA, $s1['id']);
+$plat = implode("\n", $textes);
+ok(in_array("ANNUL\xC9", $textes, true) && substr_count($bin, "(ANNUL\xC9) Tj") >= 2 && strpos($plat, "Motif : \xAB\xA0Erreur \xAB de saisie \xBB \xE0 100 %\xA0\xBB") !== false, 'PDF d\'un document annulé : « ANNULÉ » (pastille et filigrane) et motif');
+ok(strpos($bin, '/ca 0.160') !== false && strpos($bin, '/GS1 gs') !== false, 'PDF d\'un document annulé : filigrane translucide');
+$inv->annuler($gA, $f1['id'], 'Erreur');
+list($bin, $textes) = pdf_document($inv, $gA, $f1['id'], 'non communiqué');
+ok(in_array("ANNUL\xC9E", $textes, true), 'PDF d\'une facture annulée : « ANNULÉE »');
+
+// document long : plusieurs pages, en-tête des colonnes répété, pied « Page n / N », nom très long coupé sans rien perdre
+$longNom = str_repeat('Raccord-laiton-filete-', 6) . 'FIN';
+$pdo->exec("INSERT INTO pieces (code, nom) VALUES ('PDF-LONG', '" . $longNom . "')");
+$plong = (int) val("SELECT id FROM pieces WHERE code = 'PDF-LONG'");
+$lignes = array(L($plong, '3', '1.00'));
+for ($i = 1; $i <= 70; $i++) {
+	$pdo->exec("INSERT INTO pieces (code, nom) VALUES ('PDF-N$i', 'Pièce numéro $i de la longue liste avec un nom assez long pour passer à la ligne dans la colonne')");
+	$lignes[] = L((int) $pdo->lastInsertId(), (string) ($i % 4 + 1), '1.50');
+}
+$rl = $inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'note' => str_repeat('Note longue. ', 30), 'lignes' => $lignes));
+list($bin, $textes, $m) = pdf_document($inv, $gA, $rl['id']);
+$np = pdf_pages($bin);
+ok($np >= 3, "document de 71 lignes : plusieurs pages ($np)");
+egal($np, preg_match_all('/\(Code\) Tj/', $bin), 'document long : l\'en-tête de colonnes est répété sur chaque page');
+ok(in_array("Page $np / $np", pdf_pieds($textes), true) && in_array('Page 1 / ' . $np, pdf_pieds($textes), true) && preg_match('/\/Count ' . $np . '\b/', $bin), 'document long : le pied dit « Page 1 / ' . $np . ' » puis « Page ' . $np . ' / ' . $np . ' » et le nombre de pages est celui du fichier');
+egal(1, substr_count(implode("\n", $textes), 'TOTAL'), 'document long : le total n\'apparaît qu\'une fois, à la fin');
+egal(1, substr_count($bin, "(Note) Tj"), 'document long : la note n\'apparaît qu\'une fois');
+ok(strpos(str_replace(array(' ', "\n"), '', implode("\n", $textes)), $longNom) !== false, 'nom de pièce de ' . strlen($longNom) . ' caractères sans espace : coupé en plusieurs lignes, aucune lettre perdue');
+$nbPieces = preg_match_all('/\(PDF-(N\d+|LONG)\) Tj/', $bin);
+egal(71, $nbPieces, 'document long : les 71 lignes sont dans le PDF');
+// le fichier compressé (par défaut) est plus petit et reste un PDF valide
+$pdfC = DocumentsPdf::document($m);
+$binC = $pdfC->contenu();
+ok(strpos($binC, '%PDF-') === 0 && substr(rtrim($binC), -5) === '%%EOF' && strlen($binC) < strlen($bin), 'PDF compressé (réglage par défaut) : valide et plus petit');
+
+// bilan du mois
+$u = user_pour($gA);
+$an = (int) date('Y'); $mo = (int) date('n');
+$rb = $inv->bilanMensuel($gA, $an, $mo, 1, 2);
+$mb = DocumentVue::bilan($pdo, $rb, $an, $mo, 1, 2, MOIS_FR[$mo] . ' ' . $an);
+$pdfB = DocumentsPdf::bilan($mb); $pdfB->SetCompression(false);
+$bin = $pdfB->contenu();
+$textes = pdf_textes($bin);
+$plat = implode("\n", $textes);
+ok(strpos($bin, '%PDF-') === 0 && substr(rtrim($bin), -5) === '%%EOF' && pdf_pages($bin) >= 1, 'PDF du bilan : fichier valide');
+ok(in_array('BILAN DU MOIS', $textes, true) && strpos($plat, ucfirst(MOIS_FR[$mo]) . ' ' . $an) !== false && strpos($plat, 'Beauchemin et Boutique Chaleur') !== false, 'PDF du bilan : titre, mois et entreprises');
+ok(strpos($plat, cp(fmt_argent($rb['a_vers_b']['total']))) !== false && strpos($plat, 'SOLDE DU MOIS') !== false, 'PDF du bilan : total du sens et solde');
+foreach ($rb['a_vers_b']['documents'] as $d) { ok(in_array($d['numero'], $textes, true), 'PDF du bilan : la facture ' . $d['numero'] . ' est listée'); }
+ok(substr_count($bin, '/Subtype /Image') === 2, 'PDF du bilan : logos des deux entreprises');
+// employé : le bilan ne lui est pas offert (rôle) : le service refuse
+refuse(function () use ($inv, $emp, $an, $mo) { $inv->bilanMensuel($emp, $an, $mo, 1, 2); }, '', 'bilan : refusé à un employé');
+// bilan d'un mois vide
+$mbv = DocumentVue::bilan($pdo, $inv->bilanMensuel($gA, 2020, 3, 1, 2), 2020, 3, 1, 2, 'mars 2020');
+$pdfBv = DocumentsPdf::bilan($mbv); $pdfBv->SetCompression(false);
+$pv = implode("\n", pdf_textes($pdfBv->contenu()));
+ok(strpos($pv, 'Aucun solde') !== false && strpos($pv, 'Aucune facture en mars 2020.') !== false && substr_count($pv, 'Aucune facture.') === 2, 'PDF d\'un bilan vide : « Aucun solde », « Aucune facture »');
+
+// entreprise sans logo (autre que BEA et BCH) : son nom en gros texte, jamais d'erreur
+$pdo->exec("INSERT INTO entreprises (code, nom) VALUES ('XYZ', 'Entreprise Tierce Ł')");
+$ent3 = (int) val("SELECT id FROM entreprises WHERE code = 'XYZ'");
+$mq = Marque::pour('XYZ', 'Entreprise Tierce');
+ok($mq['logo'] === null && $mq['slug'] === 'neutre', 'marque inconnue : pas de logo, couleurs neutres');
+$mq2 = Marque::pour('bea', 'Beauchemin');
+ok($mq2['logo'] === 'assets/img/logo-beauchemin.png' && $mq2['slug'] === 'bea' && $mq2['fort'] === '#044c92', 'marque BEA : logo et couleurs (code insensible à la casse)');
+$mt = DocumentVue::bilan($pdo, array('periode' => array(), 'entreprises' => array(1 => 'Beauchemin', $ent3 => 'Entreprise Tierce Ł'), 'a_vers_b' => array('documents' => array(), 'pieces' => array(), 'total' => '0.00'), 'b_vers_a' => array('documents' => array(), 'pieces' => array(), 'total' => '0.00'),
+	'solde' => array('montant' => '0.00', 'debiteur' => null, 'creancier' => null, 'debiteur_nom' => null, 'creancier_nom' => null)), $an, $mo, 1, $ent3, 'octobre');
+$pdfT = DocumentsPdf::bilan($mt); $pdfT->SetCompression(false);
+$bt = $pdfT->contenu();
+ok(substr_count($bt, '/Subtype /Image') === 1 && strpos($bt, 'Entreprise Tierce L') !== false, 'PDF avec une entreprise sans logo : un seul logo, le nom de l\'autre en texte (Ł -> L)');
+$pdo->exec("DELETE FROM entreprises WHERE id = $ent3");
+$_SESSION = array();
+
 invariants('fin des scénarios');
 
 echo "\n" . ($T_FAIL === 0 ? "OK" : "ÉCHECS") . " — $T_PASS vérifications réussies, $T_FAIL échec(s)\n";

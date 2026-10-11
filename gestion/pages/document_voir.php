@@ -5,6 +5,7 @@ if (!acces_page('employe')) { return; }
 require_once __DIR__ . '/../app/action/document_lib.php';
 require_once __DIR__ . '/../app/classes/DocumentVue.php';
 page_script('assets/js/mouvements.js');
+page_script('assets/js/documents.js');
 $id = (isset($_GET['id']) && is_string($_GET['id']) && ctype_digit($_GET['id']) && strlen($_GET['id']) < 10) ? (int) $_GET['id'] : 0;
 $gest = $Ouser->aRole('gestionnaire');
 $couts = $Ouser->peutVoirCouts();

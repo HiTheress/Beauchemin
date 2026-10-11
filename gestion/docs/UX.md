@@ -37,6 +37,12 @@ Objectif : **quelqu'un qui n'a jamais vu le logiciel comprend quoi faire sans li
 * Les règles métier, les droits, les URL des actions, les identifiants (`id`) utilisés par les scripts et les tests : si on en change un, on met le test à jour dans le même geste.
 * Les contrôles de sécurité, les messages d'erreur du serveur, les confirmations d'actions irréversibles.
 
+## 6 bis. Documents (facture interne, réception, déplacement, utilisation, correction du stock, bilan du mois)
+* En haut, le bouton principal est **« Télécharger en PDF »** ; « Imprimer » est un bouton secondaire. Aucun texte explicatif à côté.
+* Le PDF, l'impression et l'écran montrent le même document (même modèle, mêmes droits : un employé ne voit jamais un prix, un coût ni un total).
+* En-tête : logo de l'entreprise qui émet (à gauche), titre en majuscules, numéro, date et statut (à droite) ; filet aux couleurs de cette entreprise.
+  Entre deux entreprises : logo émetteur, flèche, logo destinataire. Pas de logo connu : le nom de l'entreprise en gros texte.
+
 ## Vocabulaire (titre de page = libellé du menu)
 
 | Page | Menu et titre | | Page | Menu et titre |

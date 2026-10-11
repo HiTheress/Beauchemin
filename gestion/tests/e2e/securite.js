@@ -97,6 +97,19 @@ const CHARGES = [
   const anomalies = [];
   const noter = (cond, msg) => { L.verifier(cond, msg); if (!cond) anomalies.push(msg); };
 
+  // Dossiers et fichiers internes : jamais servis par le web (même connecté), ni le code, ni la bibliothèque PDF (app/lib), ni ses polices
+  const INTERDITS = ['/app/lib/', '/app/lib/fpdf/fpdf.php', '/app/lib/fpdf/license.txt', '/app/lib/fpdf/font/helvetica.json', '/app/classes/PdfDocument.php', '/app/classes/DocumentVue.php', '/app/classes/DocumentsPdf.php', '/app/classes/Marque.php',
+    '/app/config/config.php', '/app/init.php', '/app/functions.php', '/pages/document_voir.php', '/inc/header.php', '/tests/run.php', '/tools/router.php', '/docs/UX.md', '/database/schema.sql', '/deploy/nginx.conf', '/.htaccess'];
+  for (const [libelle, session] of [['sans connexion', null], ['connecté', sessions.gestionnaire]]) {
+    const refuses = [];
+    for (const u of INTERDITS) {
+      const r = await appeler(u, { methode: 'GET', session, accept: 'text/html' });
+      if (r.status !== 404 || /<\?php|class\s+(FPDF|PdfDocument)|FPDF_VERSION|"cw":\[/.test(r.texte)) { refuses.push(u + ' → ' + r.status); }
+    }
+    noter(refuses.length === 0, 'dossiers internes (' + libelle + ', ' + INTERDITS.length + ' chemins dont app/lib) : tous refusés (404), aucun code ni police servis : ' + refuses.join(', '));
+  }
+
+
   for (const ep of endpoints) {
     const url = '/app/' + ep.dossier + '/' + ep.fichier;
     const lib = /_lib$/.test(ep.nom) || /^(.*)_lib$/.test(ep.nom);
