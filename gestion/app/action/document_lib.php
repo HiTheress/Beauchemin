@@ -245,7 +245,7 @@ final class Mouvements
 				}
 				json_fail(
 					'Cette saisie a déjà été enregistrée (' . $deja['resultat']['numero'] . ') avant vos dernières modifications. '
-					. 'Ouvrez ce document pour le vérifier ou l\'annuler, puis cliquez de nouveau sur Enregistrer pour créer un nouveau document avec les lignes actuelles.',
+					. 'Ouvrez ce document pour le vérifier ou l\'annuler, puis réessayez pour créer un nouveau document avec les lignes actuelles.',
 					409,
 					array('champ' => 'jeton')
 				);

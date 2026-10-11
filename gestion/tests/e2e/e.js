@@ -923,7 +923,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   L.verifier(/Objet_x n° 7|objet_x n° 7/.test(jhtml2), 'entité inconnue affichée telle quelle');
   L.verifier(/href="index\.php\?page=piece_voir&amp;id=3"/.test(jhtml2), 'lien vers la pièce concernée');
   await a.selectOption('#f-action', 'utilisateur.cree');
-  await attendreTable(a, '#table-journal', 'Tech.Un');
+  await a.waitForFunction(() => [...document.querySelectorAll('#table-journal tbody tr')].some(t => t.textContent.includes('Tech.Un') && t.textContent.includes('Utilisateur créé')));
   const lc = await a.evaluate(() => [...document.querySelectorAll('#table-journal tbody tr')].find(t => t.textContent.includes('Tech.Un') && t.textContent.includes('Utilisateur créé')).textContent.replace(/\s+/g, ' '));
   L.verifier(/Utilisateur créé/.test(lc) && /Nom d'utilisateur : Tech\.Un/.test(lc) && /Rôle : Employé/.test(lc) && /Entreprises : Beauchemin/.test(lc), 'utilisateur.cree : « ' + lc.slice(0, 160) + ' »');
   // filtres

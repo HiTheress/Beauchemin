@@ -149,6 +149,7 @@
           lab.appendChild(el('span', 'ie-trajet-nom', s.nom));
           var fl = el('i', 'fas fa-long-arrow-alt-right ie-trajet-fleche'); fl.setAttribute('aria-hidden', 'true');
           lab.appendChild(fl);
+          lab.appendChild(el('span', 'sr-only', ' vers '));
           lab.appendChild(el('span', 'ie-trajet-nom', d.nom));
           $choix.appendChild(lab);
         });

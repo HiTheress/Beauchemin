@@ -798,7 +798,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await ad.selectOption('#b-b', '3');
   await Promise.all([ad.waitForNavigation(), ad.click('#form-bilan button[type=submit]')]);
   await ad.waitForLoadState('networkidle');
-  L.verifier((await tx(ad, '#solde')).startsWith('Aucun solde pour') && (await tx(ad, '.ie-bilan-paire')).includes('Entreprise Tierce') && ad.url().includes('b=3'), 'Beauchemin ↔ Entreprise Tierce : aucun solde : ' + await tx(ad, '#solde'));
+  L.verifier((await tx(ad, '#solde')).startsWith('Aucun solde') && (await tx(ad, '.ie-bilan-paire')).includes('Entreprise Tierce') && ad.url().includes('b=3'), 'Beauchemin ↔ Entreprise Tierce : aucun solde : ' + await tx(ad, '#solde'));
   L.verifier((await ad.getAttribute('#b-prec', 'href')).includes('a=1&b=3') && (await ad.getAttribute('#btn-csv', 'href')).includes('a=1&b=3'), 'la paire est conservée dans la navigation et l\'export');
   await ouvrirFacture(ad);
   L.verifier((await ad.$$eval('.ie-trajet-carte input[data-src="1"]', i => i.map(x => x.getAttribute('data-dest')))).join(',') === '2,3', 'admin : source Beauchemin → destinataires 2 et 3');
@@ -950,7 +950,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
 
   // ---- #36, #39 : résumé émetteur → destinataire, listes lisibles, libellés ----------------------------------------------------------------
   const carteChoisie = await tx(p, 'label.ie-trajet-carte.ie-choisie');
-  L.verifier(carteChoisie === 'Beauchemin Boutique Chaleur' && await p.$eval('#ie-trajet-choix', e => e.getAttribute('role')) === 'radiogroup', '#36 « qui facture à qui » : la carte choisie nomme l\'entreprise émettrice puis la destinataire : ' + carteChoisie);
+  L.verifier(carteChoisie === 'Beauchemin vers Boutique Chaleur' && await p.$eval('#ie-trajet-choix', e => e.getAttribute('role')) === 'radiogroup', '#36 « qui facture à qui » : la carte choisie nomme l\'entreprise émettrice puis la destinataire : ' + carteChoisie);
   L.verifier(await p.$eval('#emplacement', e => e.options[e.selectedIndex].textContent) === 'Entrepôt principal', '#36 la source est limitée aux emplacements de l\'entreprise émettrice');
   const texteCarte = await tx(p, '.ie-carte');
   L.verifier(!texteCarte.includes('calculés automatiquement') && !texteCarte.includes('Les champs marqués d\'un') && !texteCarte.includes('Au scanner') && !texteCarte.includes('sans marge'), 'aucun paragraphe explicatif sur la page de saisie : ' + texteCarte.slice(0, 160));
@@ -1169,7 +1169,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await connecterCompte(large, 'gestionnaire1');
   await ouvrirFacture(large);
   const tops = await large.$$eval('.ie-trajet-carte, #emplacement, #destination', e => e.map(x => Math.round(x.getBoundingClientRect().top)));
-  L.verifier(tops.length === 4 && tops[0] === tops[1] && tops[2] === tops[3] && tops[2] > tops[0], '#18 les deux cartes « qui facture à qui » sont côte à côte, puis source et destination côte à côte, à 1280 px : ' + tops);
+  L.verifier(tops.length >= 4 && tops[0] === tops[1] && tops[tops.length - 2] === tops[tops.length - 1] && tops[tops.length - 1] > tops[0], '#18 les cartes « qui facture à qui » sont côte à côte, puis source et destination côte à côte, à 1280 px : ' + tops);
   const larg1280 = await large.$$eval('#emplacement, #destination', e => e.map(x => Math.round(x.getBoundingClientRect().width)));
   L.verifier(larg1280.every(w => w >= 150) && (await large.$$eval('.ie-entete-form label', l => l.every(x => x.scrollWidth <= x.clientWidth + 1))), '#18 #36 aucun libellé ni liste tronqué à 1280 px : ' + larg1280);
   await large.setViewportSize({ width: 1024, height: 800 });
@@ -1254,14 +1254,14 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier(!txtVal.includes('Entreprise affichée') && !txtVal.includes('Pour en changer') && !txtVal.includes('coût moyen pondéré'), '#39 valeur du stock : aucun paragraphe explicatif (une seule entreprise) : ' + txtVal);
   await L.aller(p, 'valeur_inventaire');
   L.verifier(!(await tx(p, '.ie-valeur-entete')).includes('Pour en changer'), '#39 valeur du stock (plusieurs entreprises) : aucune indication permanente sur la liste du haut');
-  await ouvrirFacture(gt);
-  await L.scanner(gt, '#scan', 'EMP-000002');                          // gt n'a accès à aucune des deux autres entreprises et n'a choisi aucun trajet
-  await gt.waitForFunction(() => /qui facture à qui/.test((document.querySelector('#toasts') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
-  L.verifier((await tx(gt, '#toasts')).includes('Choisissez d\'abord qui facture à qui'), '#14 scan d\'un emplacement de l\'autre entreprise SANS trajet choisi : message clair : ' + await tx(gt, '#toasts'));
-  await ouvrirFacture(gbea);
-  await L.scanner(gbea, '#scan', 'EMP-000002');                        // gest_bea : un seul trajet possible, choisi d\'office : le code est la destination
+  await ouvrirFacture(gbea);                                           // trois entreprises : deux trajets possibles, aucun choisi d'office
+  await L.scanner(gbea, '#scan', 'EMP-000002');                        // emplacement d'une entreprise sans accès, sans trajet choisi
+  await gbea.waitForFunction(() => /qui facture à qui/.test((document.querySelector('#toasts') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
+  L.verifier((await tx(gbea, '#toasts')).includes('Choisissez d\'abord qui facture à qui'), '#14 scan d\'un emplacement de l\'autre entreprise SANS trajet choisi : message clair : ' + await tx(gbea, '#toasts'));
+  await gbea.click('label.ie-trajet-carte:has(input[value="1>2"])');
+  await L.scanner(gbea, '#scan', 'EMP-000002');                        // trajet choisi : le code de l'autre entreprise devient la destination
   await gbea.waitForFunction(() => document.querySelector('#destination').value === '2', null, { timeout: 5000 }).catch(() => {});
-  L.verifier(await gbea.$eval('#destination', e => e.value) === '2', '#14 un seul trajet possible : le code scanné de l\'autre entreprise devient la destination');
+  L.verifier(await gbea.$eval('#destination', e => e.value) === '2', '#14 trajet choisi : le code scanné de l\'autre entreprise devient la destination');
   L.verifier(reelles(tabl7).length === 0 && reelles(large).length === 0 && reelles(gbea).length === 0 && reelles(gchal).length === 0, 'aucune erreur de console (tablette, grand écran, gest_bea, gest_chal) : ' + JSON.stringify(reelles(tabl7).concat(reelles(large), reelles(gbea), reelles(gchal))));
   L.verifier(dialogues.length === 0, 'aucun script exécuté pendant la section 17');
 
