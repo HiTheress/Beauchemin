@@ -62,7 +62,7 @@ $marque_slug = array('bea' => 'beauchemin', 'bch' => 'boutique-chaleur');
           <small class="text-muted d-none d-md-inline">(<?php echo e(ROLES_FR[$moi['role']]); ?>)</small>
         </a>
         <div class="dropdown-menu dropdown-menu-right">
-          <a href="index.php?page=profil" class="dropdown-item"><i class="fas fa-key mr-2"></i> Mon profil et mot de passe</a>
+          <a href="index.php?page=profil" class="dropdown-item"><i class="fas fa-key mr-2"></i> Mon profil</a>
           <div class="dropdown-divider"></div>
           <a href="app/action/logout.php" class="dropdown-item"><i class="fas fa-sign-out-alt mr-2"></i> Déconnexion</a>
         </div>
