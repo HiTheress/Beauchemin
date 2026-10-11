@@ -64,10 +64,10 @@ table.adm-table thead th { padding-right: 1.3rem; }          /* place des flèch
 .adm-avert { color: #7a5c00; font-weight: 600; }
 .adm-btn-attention { color: #7a5c00; border: 1px solid #b58105; background: var(--surface); }
 .adm-btn-attention:hover, .adm-btn-attention:focus { color: #5c4500; background: #fff3cd; border-color: #8a6100; }
-[data-admin] .badge-success { background-color: #1e7e34; }
+[data-admin] .badge-success { background-color: #1e7e34; color: #fff; }
 .modal .btn-outline-danger { color: #bd2130; border-color: #bd2130; }
 .modal .btn-outline-success { color: #1e7e34; border-color: #1e7e34; }
-[data-admin] .badge-info { background-color: #117a8b; }
+[data-admin] .badge-info { background-color: #117a8b; color: #fff; }
 
 /* Focus clavier bien visible (la bordure bleu pâle de Bootstrap ne se voit presque pas) */
 [data-admin] .form-control:focus, [data-admin] .custom-select:focus, .modal .form-control:focus {

@@ -776,7 +776,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   await gt.selectOption('#f-annee', '');
   await gt.waitForSelector('#table-factures .dataTables_empty');
   await gt.waitForFunction(() => document.querySelector('#ie-totaux').hidden);
-  L.verifier(await gt.$eval('#ie-totaux', e => e.hidden) && (await tx(gt, '#table-factures .dataTables_empty')).includes('Aucune facture interne pour ces filtres'), 'liste vide pour l\'entreprise étrangère : un seul message (correction #39), pas de ligne de totaux');
+  L.verifier(await gt.$eval('#ie-totaux', e => e.hidden) && (await tx(gt, '#table-factures .dataTables_empty')) === 'Aucune facture.', 'liste vide pour l\'entreprise étrangère : un seul message (correction #39), pas de ligne de totaux');
   r = await api(gt, 'app/ajax/bilan_export.php?annee=' + A_PREC + '&mois=' + M_PREC + '&a=1&b=2');
   L.verifier(r.status === 403 && !r.texte.includes('FIN-'), 'export du bilan Beauchemin/Chaleur par l\'entreprise étrangère : refusé (403)');
   await L.aller(gt, 'bilan_mensuel&annee=' + A_PREC + '&mois=' + M_PREC + '&a=1&b=2');
@@ -794,6 +794,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
   L.verifier((await ad.$$('#b-a')).length === 1 && (await ad.$$('#b-b')).length === 1, '3 entreprises : choix de la paire');
   const paireDefaut = [await ad.$eval('#b-a', e => e.value), await ad.$eval('#b-b', e => e.value)];
   L.verifier(paireDefaut.join(',') === '1,2' && (await tx(ad, '#solde')).includes('Beauchemin doit 53,40 $'), 'paire par défaut A = 1, B = 2 : ' + paireDefaut);
+  await ad.click('#b-plus');
   await ad.selectOption('#b-b', '3');
   await Promise.all([ad.waitForNavigation(), ad.click('#form-bilan button[type=submit]')]);
   await ad.waitForLoadState('networkidle');
