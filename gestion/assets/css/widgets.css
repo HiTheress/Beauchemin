@@ -1,0 +1,83 @@
+/* Widget Kit (fourni par le client) — adapté à l'application.
+   Tout est limité au conteneur <div class="wk"> pour ne pas entrer en conflit avec Bootstrap/AdminLTE (.progress, .row, .card…).
+   La palette suit l'entreprise active : « indigo » = couleur principale (bleu marine Beauchemin, rouge Boutique Chaleur). */
+
+.wk {
+  --indigo: var(--accent);
+  --green: #2eb349;
+  --sky: #0a9dff;
+  --amber: #f2a900;
+  --red: #e5484d;
+  --track: color-mix(in srgb, var(--ink) 8%, transparent);
+  --indigo-soft: color-mix(in srgb, var(--indigo) 18%, #fff);
+  --green-soft: color-mix(in srgb, var(--green) 20%, #fff);
+  --sky-soft: color-mix(in srgb, var(--sky) 18%, #fff);
+  --amber-soft: color-mix(in srgb, var(--amber) 24%, #fff);
+  --red-soft: color-mix(in srgb, var(--red) 18%, #fff);
+  --ink-3: var(--muted);
+  --gap: 20px;
+  margin-bottom: 1.25rem;
+  display: grid;
+  gap: var(--gap);
+}
+html[data-marque="bea"] .wk { --green: #5cb03f; --sky: #2db2d1; --amber: #f2a900; }
+html[data-marque="bch"] .wk { --amber: #c9a24d; --red: #ff6a3d; }
+
+.wk, .wk *, .wk *::before, .wk *::after { box-sizing: border-box; }
+.wk h2 { margin: 0; }
+
+/* Grilles */
+.wk .grid { display: grid; gap: var(--gap); }
+.wk .grid--2-1 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.wk .grid--auto { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+@media (max-width: 900px) { .wk .grid--2-1 { grid-template-columns: minmax(0, 1fr); } }
+
+/* Widget */
+.wk .widget { background: var(--surface); border-radius: 26px; padding: 20px; min-width: 0; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--n-out); border: 0; }
+.wk .widget--center { align-items: center; text-align: center; }
+.wk .widget__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.wk .widget__title { font-size: 1.05rem; font-weight: 700; letter-spacing: -.005em; color: var(--ink); }
+.wk .widget__sub { font-size: .78rem; color: var(--muted); margin: 0; }
+.wk .gr-btn { background: var(--surface); border-radius: 8px; padding: 5px 11px; font-size: .72rem; font-weight: 700; color: var(--ink); box-shadow: var(--n-out-sm); text-decoration: none; transition: box-shadow .2s; white-space: nowrap; }
+.wk .gr-btn:hover { color: var(--accent-ink); box-shadow: var(--n-in); text-decoration: none; }
+.wk .gr-valeur { margin: 0; }
+.wk .gr-grand { font-size: 2.1rem; font-weight: 700; color: var(--ink); letter-spacing: -.5px; }
+.wk .gr-unite { font-size: 1.05rem; font-weight: 300; color: var(--muted); margin-left: 6px; }
+
+.wk .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .72rem; font-weight: 600; color: var(--ink-2); }
+.wk .legend__item { display: inline-flex; align-items: center; gap: 5px; }
+.wk .legend__item::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--indigo)); }
+
+/* Barres de progression (remplace le .progress de Bootstrap à l'intérieur du kit) */
+.wk .bar { display: block; position: relative; overflow: hidden; height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--c, var(--indigo)) 16%, transparent); }
+.wk .bar::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--v, 50%); border-radius: inherit; background: var(--c, var(--indigo)); transition: width .9s cubic-bezier(.2, .8, .2, 1); }
+.wk .progress { display: grid; gap: 14px; height: auto; overflow: visible; background: none; border-radius: 0; font-size: inherit; line-height: inherit; box-shadow: none; }
+.wk .progress__row { display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; font-size: .8rem; font-weight: 600; align-items: baseline; }
+.wk .progress__row b { color: var(--c); font-weight: 700; font-variant-numeric: tabular-nums; }
+.wk .progress__row .bar { grid-column: 1 / -1; }
+.wk .hbars { display: grid; gap: 14px; }
+.wk .hbars__row { display: grid; grid-template-columns: 92px 1fr auto; gap: 12px; align-items: center; font-size: .78rem; font-weight: 600; color: var(--ink-2); }
+.wk .hbars__row b { font-variant-numeric: tabular-nums; color: var(--ink); }
+
+/* Graphiques SVG */
+.wk .chart { position: relative; width: 100%; height: 220px; }
+.wk .chart svg { display: block; overflow: visible; position: absolute; left: 0; top: 0; }
+.wk .ch-grid line { stroke: var(--line-strong); stroke-width: 1; shape-rendering: crispEdges; opacity: .6; }
+.wk .ch-label { fill: var(--muted); font: 600 10.5px var(--sans); }
+.wk .ch-value { font-family: var(--sans); font-weight: 700; }
+.wk .ch-bars rect { transform-box: fill-box; transform-origin: 50% 100%; animation: ch-grow .75s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 28ms); }
+.wk .ch-arc { transition: stroke-dasharray 1s cubic-bezier(.2, .8, .2, 1); }
+@keyframes ch-grow { from { transform: scaleY(0); } }
+@media (prefers-reduced-motion: reduce) { .wk .ch-bars rect { animation: none; } .wk .ch-arc, .wk .bar::after { transition: none; } }
+.wk .ring { width: 64px; height: auto; aspect-ratio: 1; flex: none; }
+.wk .ring--lg { width: 160px; }
+.wk .ring--md { width: 112px; }
+
+/* Dernières lectures */
+.wk .gr-lectures { border-top: 1.5px solid var(--line-soft); padding-top: 8px; }
+.wk .gr-lecture { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 8px 0; border-bottom: 1.5px solid var(--line-soft); }
+.wk .gr-lecture:last-child { border-bottom: 0; }
+.wk .gr-temps { font-size: .74rem; color: var(--muted); white-space: nowrap; }
+.wk .gr-val { font-size: .84rem; font-weight: 700; color: var(--ink); text-align: right; }
+
+@media print { .wk .widget { box-shadow: none !important; break-inside: avoid; } .wk .no-print { display: none !important; } }

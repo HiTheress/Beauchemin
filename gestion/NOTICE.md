@@ -14,3 +14,6 @@ logiciel avant d'avoir obtenu l'autorisation de l'auteure ou confirmé sa licenc
 Les bibliothèques incluses conservent leurs propres licences (MIT pour la plupart) : AdminLTE, Bootstrap, jQuery,
 DataTables, Select2, Font Awesome Free, Chart.js, OverlayScrollbars — voir le dossier `plugins/` et `dist/`.
 Les pages, la logique métier, le schéma de base de données et les générateurs de codes-barres (Code 128) ont été réécrits pour ce projet.
+
+Police **Figtree** (The Figtree Project Authors, licence SIL Open Font License 1.1 — voir `assets/fonts/Figtree-OFL.txt`), servie localement.
+Les graphiques et widgets (`assets/js/widgets.js`, `assets/css/widgets.css`) sont adaptés d'un « Widget Kit » fourni par le client pour ce projet.

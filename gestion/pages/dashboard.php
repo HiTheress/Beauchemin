@@ -3,10 +3,12 @@
 // Employé+. Un employé ne voit aucun montant : la valeur d'inventaire et les factures internes sont réservées aux gestionnaires+.
 // Les chiffres sont chargés par assets/js/dashboard.js depuis app/ajax/dashboard_data.php (rafraîchis toutes les deux minutes).
 if (!acces_page('employe')) { return; }
+page_script('assets/js/widgets.js');
 page_script('assets/js/dashboard.js');
 $gest = $Ouser->aRole('gestionnaire');
 $aujourdhui = date('Y-m-d');
 ?>
+<link rel="stylesheet" href="assets/css/widgets.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/widgets.css'); ?>">
 <link rel="stylesheet" href="assets/css/stock.css?v=<?php echo (int) @filemtime(__DIR__ . '/../assets/css/stock.css'); ?>">
 <div class="content-wrapper sk-page" id="ds-racine" data-gest="<?php echo $gest ? '1' : '0'; ?>" data-entreprise="<?php echo (int) entreprise_courante(); ?>">
   <?php page_titre('Tableau de bord'); ?>
@@ -87,23 +89,47 @@ $aujourdhui = date('Y-m-d');
     </div>
     <?php } ?>
 
-    <div class="row">
-      <div class="col-xl-5 col-lg-6">
-        <div class="card gr-carte" aria-labelledby="ds-t-act">
-          <div class="gr-entete">
-            <h2 class="gr-titre" id="ds-t-act">Activité</h2>
+    <div class="wk no-print-graph" id="ds-widgets">
+      <div class="grid grid--2-1">
+        <section class="widget" aria-labelledby="ds-t-act">
+          <div class="widget__head">
+            <h2 class="widget__title" id="ds-t-act">Activité des 7 derniers jours</h2>
             <a class="gr-btn no-print" href="index.php?page=historique">Historique complet</a>
           </div>
           <div class="gr-valeur"><span class="gr-grand" id="gr-total">0</span><span class="gr-unite">mouvements</span></div>
-          <div class="gr-dates" id="gr-dates">&nbsp;</div>
-          <div class="gr-zone" role="img" id="gr-zone" aria-label="Mouvements par jour sur les sept derniers jours">
-            <div class="gr-graph" id="gr-graph"></div>
-            <div class="gr-moy" id="gr-moy" hidden><span class="gr-moy-etiquette" id="gr-moy-txt"></span></div>
-          </div>
+          <div class="widget__sub" id="gr-dates">&nbsp;</div>
+          <div id="gr-graph" aria-label="Mouvements par jour sur les sept derniers jours"></div>
           <div class="gr-lectures" id="gr-lectures"></div>
-        </div>
+        </section>
+        <section class="widget widget--center" aria-labelledby="ds-t-cov">
+          <h2 class="widget__title" id="ds-t-cov" style="align-self:stretch">Couverture du stock</h2>
+          <div class="ring ring--lg" id="gr-ring" aria-label="Part des pièces actives qui ont du stock"></div>
+          <div class="legend"><span class="legend__item" style="--c:var(--indigo)">En stock</span><span class="legend__item" style="--c:var(--indigo-soft)">Sans stock</span></div>
+          <p class="widget__sub" id="gr-ring-txt">&nbsp;</p>
+        </section>
       </div>
-      <div class="col-xl-7 col-lg-6">
+      <div class="grid grid--auto">
+        <section class="widget" aria-labelledby="ds-t-type">
+          <h2 class="widget__title" id="ds-t-type">Mouvements par type</h2>
+          <div id="gr-types"></div>
+          <p class="widget__sub" id="gr-types-vide" hidden>Aucun mouvement ces 7 jours.</p>
+        </section>
+        <?php if ($gest) { ?>
+        <section class="widget" aria-labelledby="ds-t-fact">
+          <h2 class="widget__title" id="ds-t-fact">Factures internes du mois</h2>
+          <div class="legend"><span class="legend__item" style="--c:var(--indigo)">Émis</span><span class="legend__item" style="--c:var(--amber)">Reçu</span></div>
+          <div id="gr-fact"></div>
+        </section>
+        <section class="widget" aria-labelledby="ds-t-val">
+          <h2 class="widget__title" id="ds-t-val">Valeur par entreprise</h2>
+          <div class="progress" id="gr-valeur"></div>
+        </section>
+        <?php } ?>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-xl-5 col-lg-6">
         <div class="card ds-carte" aria-labelledby="ds-t-bas">
           <div class="card-body">
             <h2 class="ds-titre" id="ds-t-bas">Pièces les plus sous le minimum</h2>
@@ -121,10 +147,7 @@ $aujourdhui = date('Y-m-d');
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="row">
-      <div class="col-12">
+      <div class="col-xl-7 col-lg-6">
         <div class="card ds-carte" aria-labelledby="ds-t-docs">
           <div class="card-body">
             <h2 class="ds-titre" id="ds-t-docs">Derniers documents</h2>

@@ -36,36 +36,28 @@
   }
   function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) { e.className = cls; } if (txt !== undefined) { e.textContent = txt; } return e; }
 
-  /** Graphique d'activité : barres en pastille (7 jours), ligne de moyenne, trois dernières lectures. Aucun montant. */
-  function dessinerActivite(a, docs) {
-    var zone = q('gr-graph');
-    if (!zone || !a) { return; }
+  var graphes = {};   // poignées des graphiques (on les met à jour au lieu de les recréer)
+  function graphe(cle, fabrique, options) {
+    if (!w.UI) { return; }
+    if (graphes[cle]) { graphes[cle].update(options); } else { graphes[cle] = fabrique(options); }
+  }
+  function nombre(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }   // affichage seulement : jamais pour calculer un montant
+  function court(nom, max) { nom = String(nom || ''); return nom.length > max ? nom.slice(0, max - 1) + '…' : nom; }
+
+  /** Graphiques du tableau de bord (kit de widgets). Aucun montant pour un employé : la clé `factures` / `valeur` est absente. */
+  function dessinerActivite(a, docs, c, r) {
+    if (!a || !w.UI) { return; }
+    w.UI.sprite();
     var jours = a.jours || [];
-    var max = 1;
-    jours.forEach(function (j) { if (entier(j.n) > max) { max = entier(j.n); } });
-    var HAUT = 64, MIN = 8, BAS = 22;   // px : hauteur utile, barre minimale, bande des libellés
-    zone.textContent = '';
-    jours.forEach(function (j) {
-      var n = entier(j.n);
-      var cell = el('div', 'gr-colonne');
-      var barre = el('div', 'gr-barre' + (n === 0 ? ' gr-vide' : ''));
-      barre.style.height = (MIN + Math.round(HAUT * n / max)) + 'px';
-      barre.title = dateCourte(j.date) + ' : ' + n + (n > 1 ? ' mouvements' : ' mouvement');
-      barre.appendChild(el('span', 'gr-point gr-haut'));
-      barre.appendChild(el('span', 'gr-point gr-bas'));
-      cell.appendChild(barre);
-      cell.appendChild(el('span', 'gr-jour', j.lettre));
-      zone.appendChild(cell);
+    // Barres en pastille : un jour par colonne, le fond (piste) montre l'échelle
+    graphe('act', function (o) { return w.UI.bars('#gr-graph', o); }, {
+      height: 170, mode: 'stacked', style: 'pill', yTicks: 4, grid: 'h', label: 'Mouvements par jour',
+      xLabels: jours.map(function (j) { return j.lettre; }),
+      series: [{ name: 'Mouvements', data: jours.map(function (j) { return entier(j.n); }), color: 'indigo' }]
     });
+    q('gr-graph').setAttribute('aria-label', 'Mouvements par jour : ' + jours.map(function (j) { return j.lettre + ' ' + entier(j.n); }).join(', '));
     q('gr-total').textContent = w.fmtQte(a.total);
-    q('gr-dates').textContent = 'Du ' + dateCourte(a.du) + ' au ' + dateCourte(a.au) + ' · 7 derniers jours';
-    var zoneEl = q('gr-zone');
-    zoneEl.setAttribute('aria-label', 'Mouvements par jour : ' + jours.map(function (j) { return j.lettre + ' ' + entier(j.n); }).join(', '));
-    var moy = parseFloat(a.moyenne) || 0;
-    var ligne = q('gr-moy');
-    ligne.hidden = !(entier(a.total) > 0);
-    ligne.style.bottom = (BAS + MIN + Math.round(HAUT * Math.min(moy, max) / max)) + 'px';
-    q('gr-moy-txt').textContent = 'moy. ' + String(moy).replace('.', ',');
+    q('gr-dates').textContent = 'Du ' + dateCourte(a.du) + ' au ' + dateCourte(a.au) + ' · moyenne ' + String(a.moyenne).replace('.', ',') + ' par jour';
 
     var lect = q('gr-lectures');
     lect.textContent = '';
@@ -77,6 +69,50 @@
       l.appendChild(v);
       lect.appendChild(l);
     });
+
+    // Anneau : part des pièces actives qui ont du stock
+    var actives = entier(c.pieces_actives), enStock = entier(c.pieces_en_stock);
+    var pct = actives > 0 ? Math.round(100 * enStock / actives) : 0;
+    graphe('ring', function (o) { return w.UI.ring('#gr-ring', o); }, { value: pct, color: 'indigo', track: 'indigo-soft', stroke: 12, text: pct + ' %', label: pct + ' % des pièces actives ont du stock' });
+    q('gr-ring-txt').textContent = enStock + ' pièce' + (enStock > 1 ? 's' : '') + ' en stock sur ' + actives + ' actives';
+
+    // Mouvements par type
+    var types = a.par_type || [];
+    var maxT = 1;
+    types.forEach(function (t) { if (entier(t.n) > maxT) { maxT = entier(t.n); } });
+    var zoneT = q('gr-types');
+    q('gr-types-vide').hidden = types.length > 0;
+    zoneT.hidden = types.length === 0;
+    if (types.length) {
+      var couleurs = ['indigo', 'green', 'amber', 'sky', 'red'];
+      w.UI.hbars('#gr-types', { thick: true, max: maxT, rows: types.map(function (t, i) { return { label: t.libelle, value: entier(t.n), color: couleurs[i % couleurs.length] }; }) });
+      // le nombre à droite de chaque barre
+      Array.prototype.forEach.call(zoneT.querySelectorAll('.hbars__row'), function (ligne, i) { var b = el('b', '', String(entier(types[i].n))); ligne.appendChild(b); });
+    }
+
+    if (gest && r) { dessinerFinances(r); }
+  }
+
+  /** Factures du mois (émis / reçu) et valeur par entreprise : gestionnaire+ seulement. */
+  function dessinerFinances(r) {
+    var f = r.factures || { lignes: [] };
+    var lignes = f.lignes || [];
+    if (q('gr-fact') && lignes.length) {
+      graphe('fact', function (o) { return w.UI.bars('#gr-fact', o); }, {
+        height: 170, mode: 'grouped', style: 'solid', yTicks: 4, yAxisWidth: 46, barWidth: 16, label: 'Factures internes émises et reçues',
+        yFormat: function (v) { return v >= 1000 ? (v / 1000) + ' k' : String(v); },
+        xLabels: lignes.map(function (x) { return court(x.nom, 12); }),
+        series: [{ name: 'Émis', data: lignes.map(function (x) { return nombre(x.emis); }), color: 'indigo' }, { name: 'Reçu', data: lignes.map(function (x) { return nombre(x.recu); }), color: 'amber' }]
+      });
+    }
+    var v = r.valeur || [];
+    var maxV = 0;
+    v.forEach(function (x) { if (nombre(x.valeur) > maxV) { maxV = nombre(x.valeur); } });
+    var couleurs = ['indigo', 'amber', 'green', 'sky'];
+    q('gr-valeur').innerHTML = v.length ? v.map(function (x, i) {
+      var pct = maxV > 0 ? Math.round(100 * nombre(x.valeur) / maxV) : 0;
+      return '<div class="progress__row" style="--c:var(--' + couleurs[i % couleurs.length] + ');--v:' + pct + '%"><span>' + w.esc(x.nom) + '</span><b>' + w.esc(w.fmtArgent(x.valeur)) + '</b><i class="bar"></i></div>';
+    }).join('') : '<span class="text-muted">Aucune entreprise.</span>';
   }
 
   var chargement = 0;   // numéro de la dernière demande : une réponse en retard est ignorée
@@ -99,7 +135,7 @@
     var nd = entier(c.documents_jour);
     q('ds-jour-detail').textContent = nd === 0 ? 'Aucun document aujourd\'hui' : (nd === 1 ? 'dans 1 document' : 'dans ' + nd + ' documents');
 
-    dessinerActivite(r.activite, r.derniers_documents);
+    dessinerActivite(r.activite, r.derniers_documents, c, r);
 
     if (gest) {
       var v = r.valeur || [];

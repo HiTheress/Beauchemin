@@ -1,6 +1,7 @@
 <?php
 // Données du tableau de bord (employé+), pour l'entreprise affichée par la page : GET entreprise_id = un numéro, ou 0 pour « toutes mes
 // entreprises » (403 si non permise) ; absent : l'entreprise choisie dans la barre du haut (sinon toutes celles de l'utilisateur). Réponse : {ok:true, portee:{ids, noms, libelle}, montants:bool, aujourdhui:'AAAA-MM-JJ', role,
+//   activite:{du, au, jours:[{date, lettre, n}], total, moyenne, par_type:[{type, libelle, n}]}  (nombre de lignes de mouvement, jamais de montant),
 //   cartes:{pieces_actives, pieces_en_stock, sous_minimum, mouvements_jour, documents_jour},
 //   derniers_documents:[{id, numero, type, type_libelle, statut, date, entreprise, entreprise_dest, emplacement, emplacement_dest, utilisateur[, total]}],
 //   plus_bas:[{entreprise, piece_id, code, nom, unite, minimum, quantite, manque}]  (5 plus grands manques),
@@ -49,6 +50,15 @@ Suivi::executer(function ($ctx) {
 	$st->execute(array(':d0' => $debut . ' 00:00:00'));
 	$parJour = array();
 	foreach ($st->fetchAll() as $x) { $parJour[$x['j']] = (int) $x['n']; }
+	$st = $pdo->prepare(
+		'SELECT d.type AS t, COUNT(*) AS n FROM mouvements m JOIN emplacements e ON e.id = m.emplacement_id JOIN documents d ON d.id = m.document_id
+		  WHERE e.entreprise_id IN (' . $liste . ') AND m.date_mouvement >= :d0 GROUP BY d.type ORDER BY n DESC'
+	);
+	$st->execute(array(':d0' => $debut . ' 00:00:00'));
+	$parType = array();
+	foreach ($st->fetchAll() as $x) {
+		$parType[] = array('type' => $x['t'], 'libelle' => isset(TYPES_DOCUMENT_FR[$x['t']]) ? TYPES_DOCUMENT_FR[$x['t']] : $x['t'], 'n' => (int) $x['n']);
+	}
 	$lettres = array(1 => 'L', 2 => 'M', 3 => 'M', 4 => 'J', 5 => 'V', 6 => 'S', 7 => 'D');
 	$jours = array();
 	$totalAct = 0;
@@ -108,7 +118,7 @@ Suivi::executer(function ($ctx) {
 			'mouvements_jour' => (int) $jour['n'],
 			'documents_jour' => (int) $jour['docs'],
 		),
-		'activite' => array('du' => $debut, 'au' => $aujourdhui, 'jours' => $jours, 'total' => $totalAct, 'moyenne' => round($totalAct / 7, 1)),
+		'activite' => array('du' => $debut, 'au' => $aujourdhui, 'jours' => $jours, 'total' => $totalAct, 'moyenne' => round($totalAct / 7, 1), 'par_type' => $parType),
 		'derniers_documents' => $docs,
 		'plus_bas' => array_slice($sous, 0, 5),
 	);

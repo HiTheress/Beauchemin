@@ -693,6 +693,24 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     const mj = sql("SELECT COUNT(*) FROM mouvements WHERE DATE(date_mouvement) = '" + aujourdhui + "'");
     const dj = sql("SELECT COUNT(DISTINCT document_id) FROM mouvements WHERE DATE(date_mouvement) = '" + aujourdhui + "'");
     verifier((await texte(g, '#ds-jour')) === mj && (await texte(g, '#ds-jour-detail')) === 'dans ' + dj + ' documents', 'mouvements du jour : ' + await texte(g, '#ds-jour') + ' / ' + await texte(g, '#ds-jour-detail') + ' (attendu ' + mj + ' dans ' + dj + ')');
+    // graphiques du kit de widgets : activité (7 jours), anneau de couverture, répartition par type, finances (gestionnaire)
+    await g.waitForFunction(() => document.querySelectorAll('#gr-graph svg').length > 0);
+    const gr = await g.evaluate(() => ({
+      barres: document.querySelectorAll('#gr-graph svg .ch-bars rect').length,
+      jours: Array.from(document.querySelectorAll('#gr-graph svg .ch-label')).map(t => t.textContent).filter(t => /^[LMJVSD]$/.test(t)).length,
+      anneau: document.querySelectorAll('#gr-ring svg circle').length,
+      texteAnneau: (document.querySelector('#gr-ring svg text') || {}).textContent || '',
+      types: document.querySelectorAll('#gr-types .hbars__row').length,
+      finances: document.querySelectorAll('#gr-fact svg .ch-bars rect').length,
+      valeur: document.querySelectorAll('#gr-valeur .progress__row').length,
+    }));
+    const actifs = Number(sql('SELECT COUNT(*) FROM pieces WHERE actif = 1')), enSt = Number(enStock);
+    verifier(gr.barres >= 14 && gr.jours === 7, 'graphique d\'activité : 7 jours (piste + barre) : ' + JSON.stringify(gr));
+    verifier(gr.anneau >= 3 && gr.texteAnneau === Math.round(100 * enSt / actifs) + ' %', 'anneau de couverture du stock : ' + gr.texteAnneau + ' (attendu ' + Math.round(100 * enSt / actifs) + ' %)');
+    verifier(gr.types >= 1 && gr.finances >= 2 && gr.valeur === 2, 'répartition par type, factures et valeur par entreprise tracées : ' + JSON.stringify(gr));
+    const sommeJours = await g.evaluate(() => (document.getElementById('gr-total').textContent || '').replace(/\s/g, ''));
+    const attenduAct = sql("SELECT COUNT(*) FROM mouvements m JOIN emplacements e ON e.id = m.emplacement_id WHERE m.date_mouvement >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)");
+    verifier(sommeJours === attenduAct, 'total d\'activité sur 7 jours : ' + sommeJours + ' (attendu ' + attenduAct + ')');
     // valeur d'inventaire par entreprise
     const val = id => sql('SELECT ROUND(SUM(s.quantite * sc.cout_moyen), 2) FROM stock s JOIN emplacements e ON e.id = s.emplacement_id JOIN stock_couts sc ON sc.entreprise_id = e.entreprise_id AND sc.piece_id = s.piece_id WHERE e.entreprise_id = ' + id);
     const v = await lisible(g, '#ds-valeur');

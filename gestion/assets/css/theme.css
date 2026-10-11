@@ -1,3 +1,10 @@
+/* Polices (Figtree, licence SIL OFL — voir assets/fonts/Figtree-OFL.txt), servies localement */
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/figtree-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 500; font-display: swap; src: url("../fonts/figtree-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 600; font-display: swap; src: url("../fonts/figtree-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 700; font-display: swap; src: url("../fonts/figtree-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 800; font-display: swap; src: url("../fonts/figtree-latin-800-normal.woff2") format("woff2"); }
+
 /* Thème visuel — sobre, chaleureux, aux couleurs de l'entreprise active.
    <html data-marque="bea|bch|neutre"> est posé par le serveur selon l'entreprise choisie en haut à droite.
    Beauchemin : vert + bleu · Boutique Chaleur : rouge + or · « Toutes les entreprises » : neutre terre cuite. */
@@ -16,8 +23,8 @@
   --radius-sm: 14px;
   --ombre: 0 1px 2px rgba(31, 30, 29, .04), 0 10px 28px rgba(31, 30, 29, .07);
   --ombre-douce: 0 1px 2px rgba(31, 30, 29, .05), 0 4px 12px rgba(31, 30, 29, .06);
-  --serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --sans: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: var(--sans);
 
   /* Couleurs de marque (neutre par défaut) */
   --accent: #b5532f;
@@ -65,8 +72,8 @@ html body, html body .content-wrapper, html body .wrapper { background: var(--bg
 html body { font-size: 1rem; -webkit-font-smoothing: antialiased; }
 a { color: var(--accent-ink); }
 a:hover { color: var(--accent-hover); }
-h1, h2, h3, .card-title, .modal-title { font-family: var(--serif); font-weight: 500; letter-spacing: -.01em; color: var(--ink); }
-.content-header h1 { font-size: 2rem; font-weight: 500; }
+h1, h2, h3, .card-title, .modal-title { font-family: var(--sans); font-weight: 700; letter-spacing: -.015em; color: var(--ink); }
+.content-header h1 { font-size: 2rem; font-weight: 800; }
 .content-header .breadcrumb { background: transparent; }
 .text-muted { color: var(--muted) !important; }
 ::selection { background: var(--accent-soft); }
@@ -318,7 +325,7 @@ html body .main-header.navbar { background: transparent; border: 0; box-shadow: 
 .main-header .dropdown-toggle { background: var(--surface); box-shadow: var(--n-out-sm); padding: .45rem 1.1rem; }
 
 /* Titres, pastilles, tableaux, fenêtres */
-.content-header h1 { font-size: 2.1rem; }
+.content-header h1 { font-size: 2.1rem; font-weight: 800; }
 .badge { border: 0; box-shadow: var(--n-out-sm); padding: .45em .95em; }
 .badge-info { color: var(--ink); background-color: var(--accent-2-soft); }
 .badge-primary { background-image: linear-gradient(135deg, color-mix(in srgb, var(--accent) 72%, #fff), var(--accent)); }
@@ -361,36 +368,6 @@ html body.login-page, .connexion-marques { background: var(--bg); }
 .connexion-formulaire form { padding-bottom: .6rem; }
 .connexion-logos .bloc { background: var(--surface); border: 0; border-radius: 28px; box-shadow: var(--n-out); }
 .connexion-logos .bloc.rouge { border-radius: 28px; }
-
-/* Graphique d'activité (d'après le modèle « carte à barres en pastille ») */
-.gr-carte { background: var(--surface); border-radius: 26px; padding: 20px; box-shadow: var(--n-out); margin-bottom: 1rem; }
-.gr-entete { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: 8px; }
-.gr-titre { font-family: var(--sans); font-size: 1.05rem; font-weight: 700; margin: 0; color: var(--ink); }
-.gr-btn { background: var(--surface); border-radius: 8px; padding: 5px 11px; font-size: .72rem; font-weight: 700; color: var(--ink); box-shadow: var(--n-out-sm); text-decoration: none; transition: box-shadow .2s; white-space: nowrap; }
-.gr-btn:hover { color: var(--accent-ink); box-shadow: var(--n-in); text-decoration: none; }
-.gr-valeur { margin-bottom: 4px; }
-.gr-grand { font-size: 2.1rem; font-weight: 700; color: var(--ink); letter-spacing: -.5px; }
-.gr-unite { font-size: 1.1rem; font-weight: 300; color: var(--muted); margin-left: 6px; }
-.gr-dates { font-size: .78rem; color: var(--muted); margin-bottom: 18px; }
-.gr-zone { position: relative; height: 112px; margin-bottom: 14px; }
-.gr-graph { display: flex; align-items: flex-end; justify-content: space-around; height: 100%; position: relative; padding: 0 10px; z-index: 2; }
-.gr-colonne { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; }
-.gr-barre { position: relative; width: 22px; min-height: 8px; border-radius: 11px; background: linear-gradient(to bottom, var(--accent) 0%, color-mix(in srgb, var(--accent) 45%, #fff) 100%); transition: transform .25s ease, box-shadow .25s; box-shadow: 0 6px 12px var(--accent-ring); }
-.gr-barre:hover { transform: scale(1.08); }
-.gr-barre.gr-vide { background: var(--line-strong); box-shadow: none; opacity: .75; }
-.gr-point { position: absolute; left: 50%; width: 8px; height: 8px; border-radius: 50%; background: #fff; border: 1.5px solid var(--accent); transform: translateX(-50%); }
-.gr-vide .gr-point { border-color: var(--muted); }
-.gr-haut { top: -4px; }
-.gr-bas { bottom: -4px; }
-.gr-jour { font-size: .68rem; color: var(--muted); font-weight: 600; line-height: 1; height: 14px; }
-.gr-moy { position: absolute; left: 0; right: 0; height: 0; border-top: 1.5px dashed var(--line-strong); z-index: 1; }
-.gr-moy-etiquette { position: absolute; top: -26px; left: 0; background: var(--ink); color: #fff; padding: 3px 9px; border-radius: 6px; font-size: .7rem; font-weight: 600; }
-.gr-lectures { border-top: 1.5px solid var(--line-soft); padding-top: 10px; }
-.gr-lecture { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 8px 0; border-bottom: 1.5px solid var(--line-soft); }
-.gr-lecture:last-child { border-bottom: 0; }
-.gr-temps { font-size: .7rem; color: var(--muted); white-space: nowrap; }
-.gr-val { font-size: .82rem; font-weight: 700; color: var(--ink); text-align: right; }
-@media print { .gr-carte { box-shadow: none !important; break-inside: avoid; } .gr-barre { box-shadow: none; } }
 
 @media (pointer: coarse) { .btn, .form-control, .custom-select { min-height: 2.9rem; } .btn-sm { min-height: 2.6rem; } }
 @media print {
