@@ -186,7 +186,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   }
   const rp = await appel(e, 'app/ajax/reception_prix.php?piece_id=1&emplacement_id=1', null);
   L.verifier(rp.status === 403 && !/cout"/.test(rp.texte), 'employé : reception_prix refusé, aucun coût dans la réponse');
-  L.verifier(nbDocs() === 6, 'aucun document créé par les tentatives refusées (6 documents de démo)');
+  L.verifier(nbDocs() === 7, 'aucun document créé par les tentatives refusées (7 documents de démo)');
 
   // autre entreprise : l'employé (entreprise 1) ne touche pas aux emplacements 2 et 5 (entreprise 2)
   for (const [u, corps] of [
@@ -261,7 +261,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   await g.click('#btn-enregistrer');
   let err = await erreurSaisie(g);
   L.verifier(/coût unitaire/i.test(err) && /P-0001/.test(err), 'coût manquant : message clair : ' + err);
-  L.verifier((await lignes(g)).length === 2 && nbDocs() === 6, 'coût manquant : lignes conservées, aucun document créé');
+  L.verifier((await lignes(g)).length === 2 && nbDocs() === 7, 'coût manquant : lignes conservées, aucun document créé');
   await g.fill('#lignes tbody tr:nth-child(1) input[aria-label^="Coût"]', '15,20');
   // quantité invalide
   await g.fill('#lignes tbody tr:nth-child(1) input:not([aria-label^="Coût"])', 'abc');
@@ -459,7 +459,7 @@ function demarrageHorsLigne(code) { return execSync('php -r \'echo password_hash
   L.verifier(true, 'quantité > disponible : la cellule « Disponible » est marquée en rouge');
   await g.click('#btn-enregistrer'); err = await erreurSaisie(g);
   L.verifier(/Stock insuffisant pour « P-0001/.test(err) && /disponible/.test(err), 'stock insuffisant : message clair : ' + err);
-  L.verifier((await lignes(g)).length === 2 && (await g.inputValue('#destination')) === '4' && nbDocs("type='transfert'") === 1, 'stock insuffisant : saisie conservée, aucun document créé');
+  L.verifier((await lignes(g)).length === 2 && (await g.inputValue('#destination')) === '4' && nbDocs("type='transfert'") === 2, 'stock insuffisant : saisie conservée, aucun document créé');
   const s1 = num(stock(1, 1)), s1d = num(stock(1, 4));
   await g.fill('#lignes tbody tr:nth-child(1) input', '2');
   await g.fill('#note', 'Plein de cube de test');

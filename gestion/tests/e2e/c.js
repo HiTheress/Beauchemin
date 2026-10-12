@@ -770,7 +770,7 @@ async function texteLignesListe(p) { return p.$$eval('#table-factures tbody tr',
 
   // ---- trois entreprises : un utilisateur étranger aux deux autres, choix de la paire ---------------------------------
   console.log('14. Troisième entreprise');
-  const ids3 = outil('entreprise', 'TRS', 'Entreprise Tierce', 'EMP-000006').split(' ');
+  const ids3 = outil('entreprise', 'TRS', 'Entreprise Tierce', 'EMP-000097').split(' ');
   outil('utilisateur', 'gest_tiers', 'gestionnaire', ids3[0]);
   const gt = await nouvelleSession(b, 'gest_tiers');
   const rv = await gt.goto(L.BASE + '/index.php?page=facture_interne_voir&id=' + id5);

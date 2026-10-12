@@ -744,7 +744,7 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   rows = await lignesTable(a, '#table-emplacements');
   const nbEmp = parseInt(sql('SELECT COUNT(*) FROM emplacements'), 10);
   const nbCube = parseInt(sql("SELECT COUNT(*) FROM emplacements WHERE type='cube'"), 10);
-  L.verifier(rows.length === nbEmp && nbEmp === 7, 'sept emplacements (5 de démo + 2 de test) : ' + rows.length);
+  L.verifier(rows.length === nbEmp && nbEmp === 8, 'huit emplacements (6 de démo + 2 de test) : ' + rows.length);
   const lcube = rows.find(x => x.includes('Cube 12'));
   L.verifier(/Beauchemin/.test(lcube) && /Cube de service/.test(lcube) && /EMP-000003/.test(lcube) && /Actif/.test(lcube), 'ligne du cube 12 : entreprise, type, code, statut (' + lcube + ')');
   L.verifier(/ 4 /.test(' ' + lcube + ' ') || /\s4\s/.test(lcube), 'nombre de pièces en stock du cube 12 (4)');
@@ -762,8 +762,8 @@ function remise() { try { execSync('tools/serveur.sh reset ' + DB, { cwd: RACINE
   rf = await liste(a, 'app/ajax/emplacement_data.php', { draw: '1', start: '0', length: '50', statut: 'inactifs' });
   L.verifier(rf.status === 200 && rf.json.data.length === 0, 'API : filtre « inactifs » : aucun pour l\'instant');
   await a.selectOption('#f-entreprise', '2');
-  await a.waitForFunction(() => document.querySelectorAll('#table-emplacements tbody tr').length === 2);
-  L.verifier(true, 'filtre par entreprise 2 : 2 lignes');
+  await a.waitForFunction(() => document.querySelectorAll('#table-emplacements tbody tr').length === 3);
+  L.verifier(true, 'filtre par entreprise 2 : 3 lignes');
   await a.selectOption('#f-entreprise', '');
   await a.fill('#f-recherche', 'EMP-000004');
   await a.press('#f-recherche', 'Enter');

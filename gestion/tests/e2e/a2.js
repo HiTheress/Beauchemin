@@ -158,7 +158,7 @@ function ecrire(nom) { const f = path.join(TMP, nom + '.csv'); fs.writeFileSync(
   ok(await p.$eval('#et-imprimer', e => e.disabled), 'Imprimer désactivé sans étiquette');
   ok(await p.$eval('#et-scan', e => e === document.activeElement), 'le curseur est dans le champ de scan');
   ok((await p.$$('#et-categorie option')).length >= 6, 'catégories listées');
-  ok((await p.$$('#et-emplacements option')).length === 5, 'les 5 emplacements actifs sont proposés');
+  ok((await p.$$('#et-emplacements option')).length === 6, 'les 6 emplacements actifs sont proposés');
   ok(await p.$eval('#et-page-style', e => e.textContent.includes('215.9mm 279.4mm') && e.textContent.includes('margin: 0')), '@page : Lettre, marges nulles');
 
   section('Étiquettes : préremplissage par l\'URL');

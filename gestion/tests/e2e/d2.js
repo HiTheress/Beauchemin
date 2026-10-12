@@ -257,7 +257,7 @@ const sousMin = () => sqlLignes('SELECT p.code, se.entreprise_id, se.minimum, CO
     let rows = await lignes(a, '#table-stock');
     verifier(rows.length === parseInt(NB_STOCK('2'), 10) && rows.every(r => r.cells[2] === 'Boutique Chaleur'), 'filtre entreprise 2 : ' + rows.length + ' lignes, toutes Boutique Chaleur');
     const opts = await a.$$eval('#f-emplacement option', os => os.map(o => o.textContent));
-    verifier(opts.length === 3 && opts[0] === 'Tous les emplacements' && opts.every(o => !/Cube 1[24]|Ancien/.test(o)), 'la liste des emplacements suit l\'entreprise : ' + opts.join(' | '));
+    verifier(opts.length === 4 && opts[0] === 'Tous les emplacements' && opts.every(o => !/Cube 1[24]|Ancien/.test(o)), 'la liste des emplacements suit l\'entreprise : ' + opts.join(' | '));
     // emplacement
     await redessine(a, '#table-stock', () => a.selectOption('#f-emplacement', '5'));
     rows = await lignes(a, '#table-stock');
