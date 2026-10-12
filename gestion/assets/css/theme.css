@@ -427,11 +427,6 @@ html body.login-page .connexion-formulaire { display: flex; flex-direction: colu
 .connexion-formulaire .carte h1 { font-size: 1.9rem; font-weight: 800; margin: 0 0 1.2rem; }
 .connexion-formulaire .carte .form-group { margin-bottom: 1.1rem; }
 .connexion-formulaire .btn-block { position: static; width: 100%; min-height: 3.2rem; margin-top: .6rem; font-size: 1.05rem; }
-.connexion-coin { right: 36px; }
-.connexion-coin .mc-tank { animation: none; }
-.connexion-coin .mc-yeux { animation: mc-cligne 3.6s 1s infinite; transform-origin: 50% 50%; }
-.connexion-coin .mc-echec .mc-yeux { animation: none; }
-.connexion-coin .mc-echec .mc-tank { animation: mc-tank-secoue .7s .4s ease-in-out both; }
 .connexion.en-cours .carte { opacity: .75; pointer-events: none; }
 @media (max-width: 860px) {
   html body.login-page .connexion { grid-template-columns: 1fr; min-height: 0; }

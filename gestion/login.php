@@ -27,10 +27,9 @@ unset($_SESSION['login_error']);
   </section>
   <section class="connexion-formulaire">
     <div class="carte">
-      <?php if ($erreur) { ?><div class="mc-coin connexion-coin" aria-hidden="true"><div class="mc-coin-glisse mc-echec"><?php mascotte_reservoir(false); ?></div></div><?php } ?>
       <h1>Connexion</h1>
       <?php if ($erreur) { ?>
-        <div class="alert alert-danger text-center" role="alert" data-sans-mascotte><?php echo e($erreur); ?></div>
+        <div class="alert alert-danger text-center" role="alert"><?php echo e($erreur); ?></div>
       <?php } ?>
       <form action="app/action/login.php" method="post" autocomplete="on" id="form-connexion">
         <input type="hidden" name="csrf_token" value="<?php echo e($_SESSION['csrf_token']); ?>">

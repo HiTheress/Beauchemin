@@ -58,17 +58,20 @@
 .mc-echec .mc-yeux::before { left: -5px; }
 .mc-echec .mc-yeux::after { left: 31px; }
 
-/* ---- Le réservoir jette un coup d'œil par le coin d'une case ---- */
-.mc-coup { position: fixed; z-index: 1065; width: 84px; height: 50px; overflow: hidden; pointer-events: none; display: none; }
-.mc-coup.visible { display: block; }
-.mc-coup-glisse { position: absolute; inset: 0; animation: mc-sort .45s cubic-bezier(.34, 1.56, .64, 1) both; }
-.mc-coup .mc-reservoir, .mc-coin .mc-reservoir { left: calc(50% - 95px); bottom: auto; transform-origin: 50% 0; }
-.mc-coup .mc-reservoir { top: 3px; transform: scale(.38) rotate(-7deg); }
-.mc-coup .mc-tank, .mc-coin .mc-tank { animation: none; }
-.mc-coup .mc-yeux { animation: mc-cligne 3.6s 1s infinite; transform-origin: 50% 50%; }
-.mc-coup .mc-yeux::before { left: calc(9px + var(--oeil, 0) * 3.5px); transition: left .12s; }
-@keyframes mc-sort { from { transform: translateY(54px) rotate(10deg); } to { transform: none; } }
-@keyframes mc-cligne { 0%, 93%, 100% { transform: scaleY(1); } 96.5% { transform: scaleY(.1); } }
+/* ---- Le réservoir jette un coup d'œil par le coin d'une case (dessin et mouvement de « Hamster Peek Animation ») ---- */
+.mc-coup { position: fixed; z-index: 1065; width: 88px; height: 85px; overflow: hidden; pointer-events: none; }
+.mc-pk { position: absolute; left: 0; bottom: 0; width: 88px; height: 85px; transform: translateY(100%); transition: transform 620ms cubic-bezier(.34, 1.5, .5, 1); }
+.mc-coup.visible .mc-pk { transform: translateY(18%); }
+.mc-coup.sans-transition .mc-pk { transition: none; }
+.mc-pk-yeux { transform-box: fill-box; transform-origin: center; }
+.mc-coup.visible .mc-pk-yeux { animation: mc-cligne 5s 1.4s infinite; }
+.mc-pk-eclat { transform: translateX(calc(var(--oeil, 0) * 2px)); transition: transform .12s; }
+.mc-pk-visage { fill: none; stroke: #333; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transition: opacity 160ms; }
+.mc-coup[data-etat="erreur"] .mc-pk-yeux { opacity: 0; animation: none; }
+.mc-coup[data-etat="erreur"] .mc-pk-visage { opacity: 1; }
+.mc-coup[data-etat="erreur"].visible .mc-pk { transform: translateY(14%); animation: mc-pk-secoue 600ms cubic-bezier(.36, .07, .19, .97); }
+@keyframes mc-pk-secoue { 0%, 100% { transform: translateY(18%); } 15% { transform: translateY(14%) translateX(-8px) rotate(-2deg); } 35% { transform: translateY(14%) translateX(7px) rotate(2deg); } 55% { transform: translateY(14%) translateX(-5px) rotate(-1.5deg); } 75% { transform: translateY(14%) translateX(4px) rotate(1deg); } }
+@keyframes mc-cligne { 0%, 43%, 47%, 100% { transform: scaleY(1); } 45% { transform: scaleY(.1); } }
 
 /* ---- Succès : grande coche verte et réservoir content ---- */
 .mc-retour { position: fixed; inset: 0; z-index: 2500; display: flex; align-items: center; justify-content: center; pointer-events: none; animation: mc-retour-sort 1.95s ease both; }
@@ -80,7 +83,7 @@
 .mc-retour-badge { position: absolute; right: -2px; top: 4px; z-index: 2; width: 66px; height: 66px; border-radius: 50%; background: linear-gradient(145deg, #62d36b, #249a3f); box-shadow: 0 10px 22px rgba(36, 154, 63, .45); animation: mc-badge .5s cubic-bezier(.34, 1.8, .64, 1) .25s both; }
 .mc-retour-badge svg { display: block; width: 100%; height: 100%; }
 .mc-retour-cercle { fill: none; stroke: rgba(255, 255, 255, .35); stroke-width: 2; }
-.mc-retour-coche { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 40; stroke-dashoffset: 40; animation: mc-trace .35s ease-out .55s forwards; }
+.mc-retour-trait { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 40; stroke-dashoffset: 40; animation: mc-trace .35s ease-out .55s forwards; }
 .mc-retour-titre { margin-top: 4px; font-size: 1.3rem; font-weight: 800; color: var(--ink, #1d2531); letter-spacing: -.01em; }
 .mc-conf { position: absolute; left: 50%; top: 50%; z-index: 0; width: 9px; height: 9px; margin: -4px; border-radius: 3px; background: var(--c, #46b64a); opacity: 0; animation: mc-conf .95s ease-out .45s both; }
 @keyframes mc-retour-sort { 0% { opacity: 0; } 8% { opacity: 1; } 82% { opacity: 1; } 100% { opacity: 0; } }
@@ -100,19 +103,38 @@
   100% { opacity: 0; transform: rotate(var(--a)) translateY(-118px) rotate(220deg) scale(.5); }
 }
 
-/* ---- Échec : le réservoir, yeux en croix, se fait secouer sur le bord du message ---- */
-.mc-coin { position: absolute; right: 44px; top: -38px; z-index: 1; width: 60px; height: 40px; overflow: hidden; pointer-events: none; }
-.mc-coin-glisse { position: absolute; inset: 0; animation: mc-sort .45s cubic-bezier(.34, 1.56, .64, 1) both; }
-.mc-coin .mc-reservoir { top: 3px; transform: scale(.28) rotate(-8deg); }
-.mc-coin .mc-tank { animation: mc-tank-secoue .7s .4s ease-in-out both; }
-.mc-secoue { animation: mc-secousse .55s ease-in-out; }
-#toasts .alert-danger { margin-top: 2.4rem; }   /* la place du réservoir qui dépasse au-dessus du message */
-@keyframes mc-secousse { 0%, 100% { transform: translateX(0); } 15% { transform: translateX(-7px); } 35% { transform: translateX(6px); } 55% { transform: translateX(-4px); } 75% { transform: translateX(2px); } }
-@keyframes mc-tank-secoue { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-12deg); } 45% { transform: rotate(10deg); } 70% { transform: rotate(-6deg); } }
+/* ---- Échec : grande croix rouge, réservoir secoué (même carte que le succès) ---- */
+.mc-retour-echec .mc-retour-badge { background: linear-gradient(145deg, #ff8080, #d93a3a); box-shadow: 0 10px 22px rgba(217, 58, 58, .45); }
+.mc-retour-echec .mc-retour-trait { stroke-dasharray: 26; stroke-dashoffset: 26; animation: mc-trace .22s ease-out .55s forwards; }
+.mc-retour-echec .mc-retour-trait2 { animation-delay: .72s; }
+.mc-retour-echec .mc-tank { animation: mc-aie 1.1s cubic-bezier(.36, .07, .19, .97) .2s both; }
+.mc-retour-echec .mc-retour-titre { color: #c92f2f; }
+.mc-etoile { position: absolute; top: 4px; width: 16px; height: 16px; background: #f2b705; clip-path: polygon(50% 0, 62% 36%, 100% 38%, 70% 60%, 80% 100%, 50% 76%, 20% 100%, 30% 60%, 0 38%, 38% 36%); opacity: 0; animation: mc-etourdi 1.3s ease-in-out .45s both; }
+.mc-etoile1 { left: 38px; }
+.mc-etoile2 { left: 77px; top: -4px; width: 20px; height: 20px; animation-delay: .6s; }
+.mc-etoile3 { left: 118px; animation-delay: .75s; }
+@keyframes mc-aie {
+  0% { transform: scale(1, 1) translateY(0); }
+  12% { transform: scale(1.12, .88) translateY(0); }
+  22% { transform: scale(.94, 1.06) translateX(-14px) rotate(-7deg); }
+  36% { transform: translateX(13px) rotate(6deg); }
+  50% { transform: translateX(-9px) rotate(-4deg); }
+  64% { transform: translateX(6px) rotate(3deg); }
+  78% { transform: translateX(-3px) rotate(-1.5deg); }
+  100% { transform: scale(1, 1) translateX(0) rotate(0); }
+}
+@keyframes mc-etourdi { 0% { opacity: 0; transform: translateY(10px) scale(.4) rotate(0); } 25% { opacity: 1; transform: translateY(0) scale(1) rotate(40deg); } 75% { opacity: 1; transform: translateY(-4px) scale(1) rotate(150deg); } 100% { opacity: 0; transform: translateY(-10px) scale(.6) rotate(240deg); } }
+
+/* ---- Bouches : sourire (succès) et moue (échec), sur le grand réservoir ---- */
+.mc-content .mc-corps::before, .mc-echec .mc-corps::before { content: ""; position: absolute; left: 63px; width: 24px; height: 10px; border: 4px solid #333; z-index: 2; }
+.mc-content .mc-corps::before { top: 69px; border-top: 0; border-radius: 0 0 24px 24px; }
+.mc-echec .mc-corps::before { top: 73px; border-bottom: 0; border-radius: 24px 24px 0 0; }
+.mc-content .mc-etiquette, .mc-echec .mc-etiquette { top: 90px; }        /* la bouche a besoin de place entre les yeux et le logo */
 
 @media (prefers-reduced-motion: reduce) {
-  .mc-coup-glisse, .mc-coin-glisse, .mc-coup .mc-yeux, .mc-coin .mc-tank, .mc-secoue, .mc-retour-carte, .mc-retour-badge, .mc-retour .mc-tank { animation: none; }
-  .mc-retour-coche { animation: none; stroke-dashoffset: 0; }
-  .mc-conf { display: none; }
+  .mc-pk, .mc-coup.visible .mc-pk-yeux, .mc-retour-carte, .mc-retour-badge, .mc-retour .mc-tank { animation: none; transition-duration: .01ms; }
+  .mc-coup[data-etat="erreur"].visible .mc-pk { animation: none; }
+  .mc-retour-trait { animation: none; stroke-dashoffset: 0; }
+  .mc-conf, .mc-etoile { display: none; }
 }
-@media print { .mc-coup, .mc-retour, .mc-coin { display: none !important; } }
+@media print { .mc-coup, .mc-retour { display: none !important; } }
