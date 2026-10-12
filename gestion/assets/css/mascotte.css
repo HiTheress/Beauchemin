@@ -59,8 +59,8 @@
 .mc-echec .mc-yeux::after { left: 31px; }
 
 /* ---- Le réservoir jette un coup d'œil par le coin d'une case (dessin et mouvement de « Hamster Peek Animation ») ---- */
-.mc-coup { position: fixed; z-index: 1065; width: 88px; height: 85px; overflow: hidden; pointer-events: none; }
-.mc-pk { position: absolute; left: 0; bottom: 0; width: 88px; height: 85px; transform: translateY(100%); transition: transform 620ms cubic-bezier(.34, 1.5, .5, 1); }
+.mc-coup { position: fixed; z-index: 1065; width: 60px; height: 58px; overflow: hidden; pointer-events: none; }
+.mc-pk { position: absolute; left: 0; bottom: 0; width: 60px; height: 58px; transform: translateY(100%); transition: transform 620ms cubic-bezier(.34, 1.5, .5, 1); }
 .mc-coup.visible .mc-pk { transform: translateY(18%); }
 .mc-coup.sans-transition .mc-pk { transition: none; }
 .mc-pk-yeux { transform-box: fill-box; transform-origin: center; }
@@ -70,7 +70,7 @@
 .mc-coup[data-etat="erreur"] .mc-pk-yeux { opacity: 0; animation: none; }
 .mc-coup[data-etat="erreur"] .mc-pk-visage { opacity: 1; }
 .mc-coup[data-etat="erreur"].visible .mc-pk { transform: translateY(14%); animation: mc-pk-secoue 600ms cubic-bezier(.36, .07, .19, .97); }
-@keyframes mc-pk-secoue { 0%, 100% { transform: translateY(18%); } 15% { transform: translateY(14%) translateX(-8px) rotate(-2deg); } 35% { transform: translateY(14%) translateX(7px) rotate(2deg); } 55% { transform: translateY(14%) translateX(-5px) rotate(-1.5deg); } 75% { transform: translateY(14%) translateX(4px) rotate(1deg); } }
+@keyframes mc-pk-secoue { 0%, 100% { transform: translateY(18%); } 15% { transform: translateY(14%) translateX(-5px) rotate(-2deg); } 35% { transform: translateY(14%) translateX(5px) rotate(2deg); } 55% { transform: translateY(14%) translateX(-3px) rotate(-1.5deg); } 75% { transform: translateY(14%) translateX(3px) rotate(1deg); } }
 @keyframes mc-cligne { 0%, 43%, 47%, 100% { transform: scaleY(1); } 45% { transform: scaleY(.1); } }
 
 /* ---- Succès : grande coche verte et réservoir content ---- */

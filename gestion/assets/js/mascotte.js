@@ -1,5 +1,5 @@
 /* Mascotte : le réservoir de propane
- *  - jette un coup d'œil par le coin d'une case quand on la survole (dessin et mouvement du projet « Hamster Peek Animation » du client) ;
+ *  - jette un coup d'œil au milieu du bord supérieur d'une case quand on la survole (dessin et mouvement du projet « Hamster Peek Animation » du client) ;
  *    sur une case en erreur il fait les yeux en croix et se secoue ;
  *  - grande coche verte quand une opération réussit ; grande croix rouge et réservoir secoué quand elle échoue.
  * Tout est décoratif : aria-hidden, aucun clic intercepté, aucun texte ajouté aux messages (leur textContent reste intact). */
@@ -22,7 +22,7 @@
   function mascotte() { return modele.content.firstElementChild.cloneNode(true); }
 
   // ---- Coup d'œil au coin d'une case ---------------------------------------------------------------
-  var LARGEUR = 88, HAUTEUR = 85;          // le dessin (132 × 128) à l'échelle 2/3
+  var LARGEUR = 60, HAUTEUR = 58;          // le dessin (132 × 128) à l'échelle 0,45 : petit, centré sur la case
   var DEGRADE_COUVERCLE = '<linearGradient id="mc-pk-couvercle" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#14806f"/><stop offset=".35" stop-color="#46cdb8"/><stop offset=".65" stop-color="#2fb8a3"/><stop offset="1" stop-color="#12705f"/></linearGradient>';
   var DEGRADE_METAL = '<linearGradient id="mc-pk-metal" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#cfd5da"/><stop offset=".32" stop-color="#ffffff"/><stop offset=".62" stop-color="#f1f3f5"/><stop offset="1" stop-color="#c3cad0"/></linearGradient>';
   var CORPS = 'M12 128V70q0-30 28-30h52q28 0 28 30v58Z';
@@ -76,8 +76,7 @@
     clearTimeout(minuteurCoup);
     if (!coup) { creer(); }
     var r = c.getBoundingClientRect();
-    var decalage = Math.min(40, Math.max(10, r.width * 0.1));
-    coup.style.left = Math.round(r.right - decalage - LARGEUR) + 'px';
+    coup.style.left = Math.round(r.left + (r.width - LARGEUR) / 2) + 'px';
     coup.style.top = Math.round(r.top - HAUTEUR) + 'px';
     var meme = (courant === c && coup.classList.contains('visible'));
     courant = c;

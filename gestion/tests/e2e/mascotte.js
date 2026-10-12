@@ -16,10 +16,10 @@ const attendre = ms => new Promise(r => setTimeout(r, ms));
   await p.hover('#champ-nom'); await p.waitForSelector('.mc-coup.visible'); await attendre(900);
   const surv = await p.evaluate(() => {
     const el = document.querySelector('.mc-coup'), c = el.getBoundingClientRect(), f = document.getElementById('champ-nom').getBoundingClientRect(), t = document.querySelector('.mc-pk').getBoundingClientRect();
-    return { dessous: Math.abs(c.bottom - f.top), dansX: c.left >= f.left && c.right <= f.right + 1, clics: getComputedStyle(el).pointerEvents, aria: el.getAttribute('aria-hidden'), texte: el.textContent, etat: el.getAttribute('data-etat'),
-             sorti: t.top < f.top - 40 };   // le réservoir dépasse bien de derrière la case (au moins 40 px)
+    return { dessous: Math.abs(c.bottom - f.top), dansX: c.left >= f.left && c.right <= f.right + 1, centre: Math.abs((c.left + c.width / 2) - (f.left + f.width / 2)) <= 2, petit: c.width <= 64 && c.height <= 64, clics: getComputedStyle(el).pointerEvents, aria: el.getAttribute('aria-hidden'), texte: el.textContent, etat: el.getAttribute('data-etat'),
+             sorti: t.top < f.top - 35 };   // le réservoir dépasse bien de derrière la case (au moins 35 px)
   });
-  L.verifier(surv.dessous <= 3 && surv.dansX && surv.clics === 'none' && surv.aria === 'true' && surv.texte === '' && !surv.etat && surv.sorti, 'survol d\'une case : le réservoir sort de derrière le bord supérieur, dans le coin, sans clic ni texte : ' + JSON.stringify(surv));
+  L.verifier(surv.dessous <= 3 && surv.dansX && surv.centre && surv.petit && surv.clics === 'none' && surv.aria === 'true' && surv.texte === '' && !surv.etat && surv.sorti, 'survol d\'une case : le réservoir (petit) sort de derrière le bord supérieur, au milieu de la case, sans clic ni texte : ' + JSON.stringify(surv));
   await p.mouse.move(5, 5); await attendre(300);
   L.verifier(!(await p.$('.mc-coup.visible')), 'quand le curseur quitte la case, le réservoir se cache');
   await p.hover('#champ-mdp'); await p.waitForSelector('.mc-coup.visible');
@@ -53,7 +53,7 @@ const attendre = ms => new Promise(r => setTimeout(r, ms));
   await L.connecter(g, 'gestionnaire');
   await L.aller(g, 'piece_edit');
   await g.hover('#f-nom'); await g.waitForSelector('.mc-coup.visible');
-  L.verifier(await g.evaluate(() => { const c = document.querySelector('.mc-coup').getBoundingClientRect(), f = document.getElementById('f-nom').getBoundingClientRect(); return Math.abs(c.bottom - f.top) <= 3 && c.right <= f.right + 1; }), 'formulaire : le réservoir jette un coup d\'œil au coin de la case survolée');
+  L.verifier(await g.evaluate(() => { const c = document.querySelector('.mc-coup').getBoundingClientRect(), f = document.getElementById('f-nom').getBoundingClientRect(); return Math.abs(c.bottom - f.top) <= 3 && Math.abs((c.left + c.width / 2) - (f.left + f.width / 2)) <= 2; }), 'formulaire : le réservoir jette un coup d\'œil au milieu de la case survolée');
   // case refusée : yeux en croix, réservoir secoué, puis il s'en va tout seul
   await g.evaluate(() => document.getElementById('f-nom').classList.add('is-invalid'));
   await g.waitForFunction(() => document.querySelector('.mc-coup').getAttribute('data-etat') === 'erreur', null, { timeout: 2000 });
