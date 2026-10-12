@@ -199,7 +199,7 @@ export class Interieur {
     const r1 = L.rows[0];
     for (const r of L.rows) { for (const sz of [-1, 1]) { S.cyl(0.11, 0.11, 0.8, r.x0 + L.rowW + 0.7, 0.4, r.z + sz * (L.rd / 2 + 0.1), 0xf2c230, 10); S.cyl(0.115, 0.115, 0.12, r.x0 + L.rowW + 0.7, 0.55, r.z + sz * (L.rd / 2 + 0.1), 0x222733, 10); } }
     S.cyl(0.1, 0.1, 0.55, -L.W / 2 + 0.45, 1.1, -L.D / 2 + 0.5, 0xd32f2f, 10); S.boite(0.24, 0.24, 0.05, -L.W / 2 + 0.45, 1.6, -L.D / 2 + 0.32, 0xf4f4f4);   // extincteur
-    chariot(S, -L.W / 2 + 3.2, r1.z + L.rd / 2 + 1.1, Math.PI * 0.9);
+    if (type !== 'boutique') { chariot(S, -L.W / 2 + 3.2, r1.z + L.rd / 2 + 1.1, Math.PI * 0.9); }   // pas de chariot élévateur dans une boutique
     for (let k = 0; k < 3; k++) { S.boite(1.2, 0.1, 1.0, -L.W / 2 + 1.0, 0.05 + k * 0.1, L.zStore - 1.6, 0xa5784a); }
     if (type === 'boutique') {                       // cloison du showroom avec ouverture, comptoir et caisse
       const zp = L.zStore + 0.2;
