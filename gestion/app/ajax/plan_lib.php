@@ -1,6 +1,6 @@
 <?php
 /**
- * Outils communs des endpoints du plan de l'entrepôt (plan_data, plan_version, plan_emplacement, plan_save).
+ * Outils communs des endpoints du plan de l'entrepôt (plan_data, plan_version, plan_emplacement, plan_save, plan_rangement_save, plan_rangement_auto, plan_geometrie_save).
  * Ce fichier n'est pas un endpoint : il est inclus (require_once) par eux. Appelé directement, il répond 404 (après les gardes de init.php : connexion).
  * Refus de droit ou d'accès => 403 ; entrée invalide => 400 (message français) ; autre erreur => 500 générique (journal PHP).
  */

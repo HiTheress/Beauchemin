@@ -37,6 +37,9 @@ final class JournalFr
 		'emplacement.desactive' => 'Emplacement désactivé',
 		'emplacement.reactive' => 'Emplacement réactivé',
 		'plan.disposition' => 'Plan de l\'entrepôt modifié',
+		'plan.rangement' => 'Rangement modifié',
+		'plan.rangement_auto' => 'Rangement automatique',
+		'plan.geometrie' => 'Rayonnages modifiés',
 		'sauvegarde.telechargee' => 'Sauvegarde téléchargée',
 		'journal.export' => 'Export du journal',
 		'piece.cree' => 'Pièce créée',
@@ -100,6 +103,7 @@ final class JournalFr
 		'reference' => 'Référence', 'quantite' => 'Quantité', 'unite' => 'Unité', 'categorie' => 'Catégorie',
 		'description' => 'Description', 'telephone' => 'Téléphone', 'courriel' => 'Courriel', 'contact' => 'Contact',
 		'nb_emplacements' => 'Nombre d\'emplacements', 'emplacements' => 'Emplacements',
+		'avant' => 'Avant', 'apres' => 'Après', 'nb_pieces' => 'Pièces rangées', 'restantes' => 'Pièces restant à ranger', 'retirees' => 'Pièces à ranger de nouveau',
 	);
 
 	/** Clés dont la valeur est un montant (affichée « 27,30 $ »). */

@@ -10,7 +10,7 @@ const _m = new Matrix4(), _q = new Quaternion(), _e = new Euler(), _p = new Vect
 // ---------------------------------------------------------------------------------------------------------------------------
 //  Décor
 // ---------------------------------------------------------------------------------------------------------------------------
-function chariot(P, x, z, ry) {
+export function chariot(P, x, z, ry) {
   // repère local : fourches vers +X ; on assemble puis on tourne l'ensemble en posant chaque pièce
   const c = Math.cos(ry), s = Math.sin(ry);
   const pos = (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c];
@@ -45,6 +45,25 @@ function cage(P, x, z) {
       P.cyl(0.1, 0.1, 0.12, bx, 1.24, bz, 0x22c3c0, 10);           // bouchon turquoise
     }
   }
+}
+
+/** Gros réservoirs de propane blancs couchés, empilés en pyramide derrière une clôture grillagée (comme au site de Beauchemin). Axe des cylindres selon Z. */
+function reservoirs(P, x, z) {
+  const R = 0.56, L = 3.6;
+  [[4, 0], [3, 1], [2, 2]].forEach(([n, couche]) => {
+    for (let i = 0; i < n; i++) {
+      const cx = x + (i - (n - 1) / 2) * (2 * R + 0.04), cy = R + couche * (R * 1.74);
+      P.cyl(R, R, L, cx, cy, z, 0xf3f5f9, 16, Math.PI / 2);
+      P.sphere(R, cx, cy, z - L / 2, 0xf3f5f9, 1, 1, 0.42, 10); P.sphere(R, cx, cy, z + L / 2, 0xf3f5f9, 1, 1, 0.42, 10);
+      P.cyl(R + 0.01, R + 0.01, 0.1, cx, cy, z - L * 0.28, 0xc9d1de, 16, Math.PI / 2); P.cyl(R + 0.01, R + 0.01, 0.1, cx, cy, z + L * 0.28, 0xc9d1de, 16, Math.PI / 2);
+    }
+  });
+  P.boite(4 * (2 * R + 0.04) + 0.4, 0.12, L + 0.4, x, 0.06, z, 0xaeb6c4);                      // dalle
+  const fx = 2 * (2 * R + 0.04) + 0.9, fz = L / 2 + 0.8;
+  for (const sx of [-1, 1]) for (let k = 0; k <= 5; k++) { P.boite(0.07, 2.0, 0.07, x + sx * fx, 1.0, z - fz + k * (2 * fz / 5), 0x39414f); }
+  for (let k = 1; k < 5; k++) { P.boite(0.07, 2.0, 0.07, x - fx + k * (2 * fx / 5), 1.0, z + fz, 0x39414f); }
+  for (const y of [0.25, 1.0, 1.95]) { P.boite(0.05, 0.05, 2 * fz, x - fx, y, z, 0x39414f); P.boite(0.05, 0.05, 2 * fz, x + fx, y, z, 0x39414f); P.boite(2 * fx, 0.05, 0.05, x, y, z + fz, 0x39414f); }
+  P.boite(0.04, 1.6, 2 * fz, x + fx, 1.1, z, 0x56627a); P.boite(2 * fx, 1.6, 0.04, x, 1.1, z + fz, 0x56627a);   // grillage (panneaux pleins pour rester léger)
 }
 
 function cone(P, x, z) {
@@ -94,6 +113,13 @@ function decor(items, B, X0, X1, Z0, Z1) {
     // près de l'angle de façade (là où le camion ou le chariot ne cachent rien, et où la vue d'ensemble le montre)
     const c = [[r.x1 + 2.4, r.z1 - 1.7], [r.x0 + 2.2, r.z1 + 2.1], [r.x0 - 2.4, r.z1 - 1.7], [bea.cx, r.z0 - 2.0]].map(([x, z]) => ({ x, z })).find(c => libre(c.x, c.z, 1.3));
     if (c) { cage(P, c.x, c.z); cone(P, c.x + 1.8, c.z + 0.9); }
+  }
+  // réservoirs couchés derrière une clôture, au bord de la cour, près d'un site Beauchemin (le plus à droite d'abord : c'est le côté qu'on voit)
+  const sites = items.filter(t => t.m.cle === 'bea').sort((a, b) => (b.cx + b.cz) - (a.cx + a.cz));
+  for (const t of sites) {
+    const r = { x1: t.cx + t.w / 2, z1: t.cz + t.d / 2 };
+    const c = [[r.x1 + 4.2, t.cz], [t.cx, r.z1 + 4.2]].map(([x, z]) => ({ x, z })).find(c => libre(c.x, c.z, 3.2) && c.x + 3.2 < X1 && c.z + 3.2 < Z1);
+    if (c) { reservoirs(P, c.x, c.z); break; }
   }
   return P.fin();
 }

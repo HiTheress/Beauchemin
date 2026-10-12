@@ -683,14 +683,14 @@ $pdo->exec("DELETE FROM seuils WHERE piece_id = {$PL['PL1']}");
 
 // où est cette pièce ?
 $r = $plan->donnees($gA, $PL['PL1'])['recherche'];
-egal(array(array('emplacement_id' => $E['A1'], 'quantite' => '2.000'), array('emplacement_id' => $E['CUBE'], 'quantite' => '9.000')), $r['emplacements'], 'plan : où est la pièce : quantité exacte dans chaque emplacement');
+egal(array(array('emplacement_id' => $E['A1'], 'quantite' => '2.000', 'rangement' => null), array('emplacement_id' => $E['CUBE'], 'quantite' => '9.000', 'rangement' => null)), $r['emplacements'], 'plan : où est la pièce : quantité exacte dans chaque emplacement (et rangement : null tant qu\'aucune position n\'est posée)');
 egal('11.000', $r['somme'], 'plan : somme des quantités');
 ok($r['piece']['code'] === 'PL1' && $r['piece']['nom'] === 'Abeille de plan' && $r['piece']['unite'] === 'unité', 'plan : la recherche nomme la pièce');
 egal(array(), $plan->donnees($gA, $P['T4'])['recherche']['emplacements'], 'plan : pièce nulle part : aucun emplacement');
 egal('0.000', $plan->donnees($gA, $P['T4'])['recherche']['somme'], 'plan : pièce nulle part : somme à zéro');
 $inv->recevoir($gB, array('emplacement_id' => $E['B1'], 'lignes' => array(L($PL['PL3'], '7,5', '2.00'))));
 egal(array(), $plan->donnees($emp, $PL['PL3'])['recherche']['emplacements'], 'plan : le stock de l\'autre entreprise est invisible dans la recherche d\'un employé');
-egal(array(array('emplacement_id' => $E['B1'], 'quantite' => '7.500')), $plan->donnees($gB, $PL['PL3'])['recherche']['emplacements'], 'plan : l\'entreprise 2 voit son stock décimal');
+egal(array(array('emplacement_id' => $E['B1'], 'quantite' => '7.500', 'rangement' => null)), $plan->donnees($gB, $PL['PL3'])['recherche']['emplacements'], 'plan : l\'entreprise 2 voit son stock décimal');
 egal('7.500', $plan->donnees($adm, $PL['PL3'])['recherche']['somme'], 'plan : l\'administrateur voit la somme');
 refuse(function () use ($plan, $gA) { $plan->donnees($gA, 999999); }, 'introuvable', 'plan : pièce inconnue refusée');
 egal(null, $plan->donnees($gA)['recherche'], 'plan : sans pièce demandée, pas de recherche');
@@ -814,6 +814,305 @@ $pdo->exec("DELETE FROM emplacements WHERE id = $eph");
 egal(0, (int) val('SELECT COUNT(*) FROM plan_emplacements WHERE emplacement_id = ?', array($eph)), 'plan : la place d\'un emplacement supprimé disparaît avec lui (clé étrangère en cascade)');
 $pdo->exec('DELETE FROM plan_emplacements');
 
+// ---- Rangements : où, dans un emplacement, se trouve chaque pièce ----------------------------------------------------
+groupe('Plan : rangements, géométrie par défaut et réglée, validation');
+require_once __DIR__ . '/../app/ajax/journal_lib.php';
+egal(array('allees' => 4, 'etageres' => 6, 'niveaux' => 4), Plan::GEOMETRIE_DEFAUT['entrepot'], 'rangements : entrepôt par défaut 4 allées x 6 étagères x 4 niveaux');
+egal(array('allees' => 2, 'etageres' => 4, 'niveaux' => 3), Plan::GEOMETRIE_DEFAUT['boutique'], 'rangements : boutique par défaut 2 x 4 x 3');
+egal(array('allees' => 2, 'etageres' => 3, 'niveaux' => 3), Plan::GEOMETRIE_DEFAUT['cube'], 'rangements : cube de service par défaut 2 x 3 x 3');
+$pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type, code_barres) VALUES
+	(1, 'Rang entrepôt', 'entrepot', 'EMP-RG-1'), (1, 'Rang boutique', 'boutique', 'EMP-RG-2'), (1, 'Rang cube', 'cube', 'EMP-RG-3'), (2, 'Rang BCH', 'entrepot', 'EMP-RG-4'), (1, 'Rang cube 2', 'cube', 'EMP-RG-5')");
+$R = array(); foreach (q("SELECT id, code_barres FROM emplacements WHERE code_barres LIKE 'EMP-RG-%'") as $r) { $R[$r['code_barres']] = (int) $r['id']; }
+$rwE = $R['EMP-RG-1']; $rwB = $R['EMP-RG-2']; $rwC = $R['EMP-RG-3']; $rwX = $R['EMP-RG-4']; $rwC2 = $R['EMP-RG-5'];
+$pdo->exec("INSERT INTO pieces (code, nom, unite) VALUES ('RG01', 'Rang un', 'unité'), ('RG02', 'Rang deux', 'unité'), ('RG03', 'Rang trois', 'unité'), ('RG04', 'Rang quatre', 'unité'), ('RG05', 'Rang cinq', 'unité'), ('RG06', 'Rang six', 'unité'), ('RG07', 'Rang sept', 'unité'), ('RG08', 'Rang huit', 'm'), ('RGOFF', 'Rang désactivée', 'unité')");
+$RG = array(); foreach (q("SELECT id, code FROM pieces WHERE code LIKE 'RG%'") as $r) { $RG[$r['code']] = (int) $r['id']; }
+$inv->recevoir($gA, array('emplacement_id' => $rwE, 'lignes' => array(L($RG['RG01'], '5', '1.00'), L($RG['RG02'], '4', '1.00'), L($RG['RG03'], '3', '1.00'), L($RG['RG04'], '2', '1.00'), L($RG['RGOFF'], '1', '1.00'))));
+$inv->recevoir($gA, array('emplacement_id' => $rwC, 'lignes' => array(L($RG['RG01'], '2', '1.00'), L($RG['RG05'], '6', '1.00'))));
+$inv->recevoir($gA, array('emplacement_id' => $rwB, 'lignes' => array(L($RG['RG06'], '2', '1.00'))));
+$inv->recevoir($gB, array('emplacement_id' => $rwX, 'lignes' => array(L($RG['RG01'], '9', '1.00'), L($RG['RG07'], '1', '1.00'))));
+$pdo->exec("UPDATE pieces SET actif = 0 WHERE code = 'RGOFF'");
+$rang = function ($u, $emplacement, $piece, $a, $e, $n) use ($plan) { return $plan->enregistrerRangement($u, array('emplacement_id' => $emplacement, 'piece_id' => $piece, 'allee' => $a, 'etagere' => $e, 'niveau' => $n)); };
+$retire = function ($u, $emplacement, $piece) use ($plan) { return $plan->enregistrerRangement($u, array('emplacement_id' => $emplacement, 'piece_id' => $piece, 'retirer' => true)); };
+$ligne = function ($contenu, $piece) { foreach ($contenu['lignes'] as $l) { if ($l['piece_id'] === $piece) { return $l; } } return null; };
+$nbRang = function ($emplacement = null) { return (int) ($emplacement === null ? val('SELECT COUNT(*) FROM rangements') : val('SELECT COUNT(*) FROM rangements WHERE emplacement_id = ?', array($emplacement))); };
+$nbJ = function ($action) { return (int) val('SELECT COUNT(*) FROM journal WHERE action = ?', array($action)); };
+
+// géométrie par défaut selon le type, et réponse du tiroir
+foreach (array(array($rwE, 'entrepot'), array($rwB, 'boutique'), array($rwC, 'cube')) as $t) {
+	$c = $plan->contenu($gA, $t[0]);
+	egal(Plan::GEOMETRIE_DEFAUT[$t[1]], $c['geometrie'], 'rangements : le tiroir donne la géométrie par défaut du type « ' . $t[1] . ' »');
+	ok($c['geometrie_personnalisee'] === false && $c['geometrie_defaut'] === Plan::GEOMETRIE_DEFAUT[$t[1]], 'rangements : ' . $t[1] . ' : ni personnalisée, ni autre que le défaut');
+}
+egal(array('allees' => 12, 'etageres' => 30, 'niveaux' => 10), Plan::geometrieLimites('entrepot'), 'rangements : bornes du réglage 12 allées, 30 étagères, 10 niveaux');
+egal(array('allees' => 2, 'etageres' => 30, 'niveaux' => 10), Plan::geometrieLimites('cube'), 'rangements : un cube n\'a que deux côtés (2 allées au plus)');
+$c = $plan->contenu($gA, $rwE);
+ok(count($c['lignes']) === 5 && array_reduce($c['lignes'], function ($ok, $l) { return $ok && array_key_exists('rangement', $l) && $l['rangement'] === null && is_int($l['piece_id']); }, true), 'rangements : sans position, chaque ligne du tiroir porte rangement = null et piece_id');
+ok($c['peut_ranger'] === true && $plan->contenu($emp, $rwE)['peut_ranger'] === false && $plan->contenu($adm, $rwE)['peut_ranger'] === true, 'rangements : peut_ranger vrai pour un gestionnaire et l\'administrateur, faux pour un employé');
+egal(4, $c['nb_a_ranger'], 'rangements : 4 pièces actives en stock à ranger (la pièce désactivée n\'est pas comptée)');
+
+// poser, modifier, une position par pièce et par emplacement
+$r = $rang($gA, $rwE, $RG['RG01'], 2, 3, 1);
+egal(array('rangement' => array('allee' => 2, 'etagere' => 3, 'niveau' => 1)), $r, 'rangements : poser une position renvoie {rangement:{allee, etagere, niveau}} (entiers)');
+egal(array('allee' => 2, 'etagere' => 3, 'niveau' => 1), $ligne($plan->contenu($gA, $rwE), $RG['RG01'])['rangement'], 'rangements : la position revient dans la ligne du tiroir');
+egal(array('allee' => 2, 'etagere' => 3, 'niveau' => 1), $ligne($plan->contenu($emp, $rwE), $RG['RG01'])['rangement'], 'rangements : un employé voit les positions');
+egal(3, $plan->contenu($gA, $rwE)['nb_a_ranger'], 'rangements : nb_a_ranger baisse d\'une pièce');
+$rang($gA, $rwE, $RG['RG01'], 4, 6, 4);
+egal(1, $nbRang($rwE), 'rangements : une seule position par pièce et par emplacement (la nouvelle remplace l\'ancienne)');
+egal(array('allee' => 4, 'etagere' => 6, 'niveau' => 4), $ligne($plan->contenu($gA, $rwE), $RG['RG01'])['rangement'], 'rangements : la position modifiée remplace l\'ancienne (coin extrême 4 / 6 / 4 accepté)');
+$rang($gA, $rwE, $RG['RG02'], 4, 6, 4);
+$rang($gA, $rwE, $RG['RG03'], 4, 6, 4);
+$c = $plan->contenu($gA, $rwE);
+ok($ligne($c, $RG['RG01'])['rangement'] === $ligne($c, $RG['RG02'])['rangement'] && $ligne($c, $RG['RG02'])['rangement'] === $ligne($c, $RG['RG03'])['rangement'] && $nbRang($rwE) === 3, 'rangements : plusieurs pièces peuvent partager la même position');
+$rang($gA, $rwC, $RG['RG01'], 1, 2, 3);
+egal(array('allee' => 1, 'etagere' => 2, 'niveau' => 3), $ligne($plan->contenu($gA, $rwC), $RG['RG01'])['rangement'], 'rangements : la même pièce a sa propre position dans chaque emplacement (cube)');
+egal(array('allee' => 4, 'etagere' => 6, 'niveau' => 4), $ligne($plan->contenu($gA, $rwE), $RG['RG01'])['rangement'], 'rangements : la position de l\'entrepôt n\'a pas bougé');
+$r = $rang($adm, $rwX, $RG['RG01'], 1, 1, 1);
+ok($r['rangement'] === array('allee' => 1, 'etagere' => 1, 'niveau' => 1), 'rangements : l\'administrateur range aussi chez l\'autre entreprise');
+egal(array('allee' => 1, 'etagere' => 1, 'niveau' => 1), $ligne($plan->contenu($gB, $rwX), $RG['RG01'])['rangement'], 'rangements : le gestionnaire de l\'entreprise 2 voit la position posée dans son emplacement');
+$r = $plan->enregistrerRangement($gA, array('emplacement_id' => (string) $rwE, 'piece_id' => (string) $RG['RG04'], 'allee' => '1', 'etagere' => '2', 'niveau' => '3'));
+egal(array('allee' => 1, 'etagere' => 2, 'niveau' => 3), $r['rangement'], 'rangements : des nombres écrits en chiffres (formulaire) sont acceptés');
+$n0 = $nbRang();
+$j0 = $nbJ('plan.rangement');
+$rang($gA, $rwE, $RG['RG04'], 1, 2, 3);
+ok($nbJ('plan.rangement') === $j0 && $nbRang() === $n0, 'rangements : poser la position déjà enregistrée ne change rien et n\'est pas journalisé');
+
+// validation stricte
+$avantR = q('SELECT * FROM rangements ORDER BY emplacement_id, piece_id');
+$invalides = array(
+	array('Allée invalide', array(0, 1, 1), 'allée 0'), array('Allée invalide', array(5, 1, 1), 'allée 5 (l\'entrepôt en a 4)'), array('', array(-1, 1, 1), 'allée négative'),
+	array('Étagère invalide', array(1, 0, 1), 'étagère 0'), array('Étagère invalide', array(1, 7, 1), 'étagère 7 (il y en a 6)'),
+	array('Niveau invalide', array(1, 1, 0), 'niveau 0'), array('Niveau invalide', array(1, 1, 5), 'niveau 5 (il y en a 4)'),
+	array('Choisissez', array(null, 1, 1), 'allée absente'), array('Choisissez', array(1, null, 1), 'étagère absente'), array('Choisissez', array(1, 1, null), 'niveau absent'),
+	array('Choisissez', array('A', 1, 1), 'lettre au lieu d\'un nombre'), array('Choisissez', array(1.5, 1, 1), 'nombre décimal'), array('Choisissez', array(true, 1, 1), 'booléen'),
+	array('Choisissez', array(array(1), 1, 1), 'tableau'), array('Choisissez', array('1e1', 1, 1), 'notation scientifique'), array('Choisissez', array('', 1, 1), 'chaîne vide'),
+	array('Choisissez', array('1 OR 1=1', 1, 1), 'texte piégé'), array('Étagère invalide', array(1, 999999999, 1), 'nombre énorme'),
+);
+$tousRefuses = true;
+foreach ($invalides as $cas) {
+	try { $rang($gA, $rwE, $RG['RG02'], $cas[1][0], $cas[1][1], $cas[1][2]); $tousRefuses = false; echo "  non refusé : {$cas[2]}\n"; }
+	catch (InventaireException $ex) { if ($cas[0] !== '' && mb_stripos($ex->getMessage(), $cas[0]) === false) { $tousRefuses = false; echo "  message inattendu pour {$cas[2]} : " . $ex->getMessage() . "\n"; } }
+}
+ok($tousRefuses, 'rangements : ' . count($invalides) . ' positions invalides refusées avec un message en français');
+egal($avantR, q('SELECT * FROM rangements ORDER BY emplacement_id, piece_id'), 'rangements : les positions refusées n\'ont rien écrit');
+refuse(function () use ($rang, $gA, $rwC, $RG) { $rang($gA, $rwC, $RG['RG05'], 3, 1, 1); }, 'Côté invalide', 'rangements : un cube n\'a que deux côtés (allée 3 refusée)');
+refuse(function () use ($rang, $gA, $rwC, $RG) { $rang($gA, $rwC, $RG['RG05'], 1, 4, 1); }, 'Étagère invalide', 'rangements : cube : 3 étagères au plus');
+refuse(function () use ($rang, $gA, $rwB, $RG) { $rang($gA, $rwB, $RG['RG06'], 1, 1, 4); }, 'Niveau invalide', 'rangements : boutique : 3 niveaux au plus');
+refuse(function () use ($rang, $gA, $rwB, $RG) { $rang($gA, $rwB, $RG['RG06'], 3, 1, 1); }, 'Allée invalide', 'rangements : boutique : 2 allées au plus');
+refuse(function () use ($rang, $gA, $rwE) { $rang($gA, $rwE, 999999, 1, 1, 1); }, 'introuvable', 'rangements : pièce inconnue refusée');
+refuse(function () use ($rang, $gA, $rwE, $RG) { $rang($gA, $rwE, $RG['RGOFF'], 1, 1, 1); }, 'désactivée', 'rangements : une pièce désactivée ne se range plus');
+foreach (array(array('abc', 'x'), array(0, 'zéro'), array(-3, 'négatif'), array(array(1), 'tableau'), array(null, 'absent'), array(1.5, 'décimal')) as $cas) {
+	try { $plan->enregistrerRangement($gA, array('emplacement_id' => $cas[0], 'piece_id' => $RG['RG01'], 'allee' => 1, 'etagere' => 1, 'niveau' => 1)); ok(false, 'rangements : emplacement ' . $cas[1] . ' aurait dû être refusé'); }
+	catch (InventaireException $ex) { ok(!($ex instanceof PlanRefus) && mb_stripos($ex->getMessage(), 'invalide') !== false, 'rangements : emplacement « ' . $cas[1] . ' » : 400 « invalide » (' . $ex->getMessage() . ')'); }
+}
+foreach (array(array('abc', 'x'), array(0, 'zéro'), array(array(1), 'tableau'), array(null, 'absent')) as $cas) {
+	try { $plan->enregistrerRangement($gA, array('emplacement_id' => $rwE, 'piece_id' => $cas[0], 'allee' => 1, 'etagere' => 1, 'niveau' => 1)); ok(false, 'rangements : pièce ' . $cas[1] . ' aurait dû être refusée'); }
+	catch (InventaireException $ex) { ok(!($ex instanceof PlanRefus) && mb_stripos($ex->getMessage(), 'invalide') !== false, 'rangements : pièce « ' . $cas[1] . ' » : 400 « invalide »'); }
+}
+
+// droits : employé, autre entreprise, emplacement inconnu ou désactivé, utilisateur désactivé
+groupe('Plan : rangements, droits (employé, autre entreprise)');
+$avantR = q('SELECT * FROM rangements ORDER BY emplacement_id, piece_id');
+$refus403 = function ($fn, $fragment, $msg) { try { $fn(); ok(false, $msg . ' — aurait dû être refusé'); } catch (PlanRefus $ex) { ok($fragment === '' || mb_stripos($ex->getMessage(), $fragment) !== false, $msg . ' — message : ' . $ex->getMessage()); } catch (Throwable $ex) { ok(false, $msg . ' — pas un PlanRefus (403) : ' . get_class($ex) . ' ' . $ex->getMessage()); } };
+$refus403(function () use ($rang, $emp, $rwE, $RG) { $rang($emp, $rwE, $RG['RG02'], 1, 1, 1); }, 'permission', 'rangements : un employé ne peut pas poser de position (403)');
+$refus403(function () use ($retire, $emp, $rwE, $RG) { $retire($emp, $rwE, $RG['RG01']); }, 'permission', 'rangements : un employé ne peut pas retirer une position (403)');
+$refus403(function () use ($plan, $emp, $rwE) { $plan->rangerAuto($emp, $rwE); }, 'permission', 'rangements : un employé ne peut pas lancer le rangement automatique (403)');
+$refus403(function () use ($plan, $emp, $rwE) { $plan->enregistrerGeometrie($emp, array('emplacement_id' => $rwE, 'allees' => 3, 'etageres' => 3, 'niveaux' => 3)); }, 'permission', 'rangements : un employé ne règle pas les rayonnages (403)');
+$refus403(function () use ($plan, $gA, $rwE) { $plan->enregistrerGeometrie($gA, array('emplacement_id' => $rwE, 'allees' => 3, 'etageres' => 3, 'niveaux' => 3)); }, 'permission', 'rangements : un gestionnaire ne règle pas les rayonnages (administrateur seulement, 403)');
+$refus403(function () use ($rang, $gB, $rwE, $RG) { $rang($gB, $rwE, $RG['RG02'], 1, 1, 1); }, 'n\'existe pas', 'rangements : le gestionnaire de l\'entreprise 2 ne range pas chez l\'entreprise 1 (403, même message qu\'un emplacement inconnu)');
+$refus403(function () use ($retire, $gB, $rwE, $RG) { $retire($gB, $rwE, $RG['RG01']); }, 'n\'existe pas', 'rangements : ni ne retire une position de l\'entreprise 1');
+$refus403(function () use ($plan, $gB, $rwE) { $plan->rangerAuto($gB, $rwE); }, 'n\'existe pas', 'rangements : ni ne lance le rangement automatique de l\'entreprise 1');
+$refus403(function () use ($rang, $gA, $rwX, $RG) { $rang($gA, $rwX, $RG['RG01'], 2, 2, 2); }, 'n\'existe pas', 'rangements : le gestionnaire de l\'entreprise 1 ne range pas chez l\'entreprise 2');
+$refus403(function () use ($rang, $gA, $RG) { $rang($gA, 999999, $RG['RG01'], 1, 1, 1); }, 'n\'existe pas', 'rangements : emplacement inconnu : le même refus (on ne révèle pas son existence)');
+$pdo->exec("UPDATE emplacements SET actif = 0 WHERE id = $rwC2");
+$refus403(function () use ($rang, $gA, $rwC2, $RG) { $rang($gA, $rwC2, $RG['RG01'], 1, 1, 1); }, 'n\'existe pas', 'rangements : un emplacement désactivé ne reçoit plus de position');
+$refus403(function () use ($rang, $adm, $rwC2, $RG) { $rang($adm, $rwC2, $RG['RG01'], 1, 1, 1); }, 'n\'existe pas', 'rangements : même pour l\'administrateur');
+$pdo->exec("UPDATE emplacements SET actif = 1 WHERE id = $rwC2");
+$pdo->exec('UPDATE entreprises SET actif = 0 WHERE id = 2');
+$refus403(function () use ($rang, $gB, $rwX, $RG) { $rang($gB, $rwX, $RG['RG01'], 2, 2, 2); }, 'n\'existe pas', 'rangements : une entreprise désactivée n\'accepte plus d\'écriture (comme toute autre écriture)');
+ok(is_array($plan->contenu($gB, $rwX)['lignes']) && $plan->contenu($gB, $rwX)['peut_ranger'] === false, 'rangements : ... mais ses utilisateurs consultent encore le tiroir (peut_ranger faux)');
+$pdo->exec('UPDATE entreprises SET actif = 1 WHERE id = 2');
+refuse(function () use ($rang, $U, $rwE, $RG) { $rang($U['off'], $rwE, $RG['RG01'], 1, 1, 1); }, 'désactivé', 'rangements : un utilisateur désactivé est refusé');
+egal($avantR, q('SELECT * FROM rangements ORDER BY emplacement_id, piece_id'), 'rangements : aucun refus n\'a rien écrit');
+
+// retirer
+groupe('Plan : rangements, retirer, stock à zéro, recherche, aucun prix, journal');
+$j0 = $nbJ('plan.rangement');
+$r = $retire($gA, $rwE, $RG['RG03']);
+egal(array('rangement' => null), $r, 'rangements : retirer renvoie {rangement:null}');
+egal(null, $ligne($plan->contenu($gA, $rwE), $RG['RG03'])['rangement'], 'rangements : retirée, la pièce est de nouveau « à ranger »');
+egal(0, (int) val('SELECT COUNT(*) FROM rangements WHERE emplacement_id = ? AND piece_id = ?', array($rwE, $RG['RG03'])), 'rangements : la ligne est supprimée de la base');
+egal($j0 + 1, $nbJ('plan.rangement'), 'rangements : retirer est journalisé');
+$retire($gA, $rwE, $RG['RG03']);
+egal($j0 + 1, $nbJ('plan.rangement'), 'rangements : retirer une position qui n\'existe pas ne change rien et n\'est pas journalisé');
+egal(array('rangement' => null), $plan->enregistrerRangement($gA, array('emplacement_id' => $rwE, 'piece_id' => $RG['RG03'], 'retirer' => '1')), 'rangements : retirer = « 1 » (formulaire) est accepté');
+$rang($gA, $rwE, $RG['RG03'], 3, 3, 3);
+
+// stock à zéro : la position reste en base mais n'est plus affichée ; elle revient avec le stock
+$inv->sortir($emp, array('emplacement_id' => $rwE, 'motif' => 'service', 'lignes' => array(L($RG['RG03'], '3'))));
+egal(null, $ligne($plan->contenu($gA, $rwE), $RG['RG03']), 'rangements : à stock zéro la pièce n\'est plus dans le tiroir, donc aucune position affichée');
+egal(1, (int) val('SELECT COUNT(*) FROM rangements WHERE emplacement_id = ? AND piece_id = ?', array($rwE, $RG['RG03'])), 'rangements : ... mais sa position est conservée (utile au réapprovisionnement)');
+egal(array(), array_column($plan->donnees($gA, $RG['RG03'])['recherche']['emplacements'], 'emplacement_id'), 'rangements : à stock zéro, la recherche ne la montre dans aucun emplacement (donc aucune position)');
+egal(0, $plan->contenu($gA, $rwE)['nb_a_ranger'], 'rangements : plus rien à ranger dans l\'entrepôt (la pièce à stock zéro ne compte pas)');
+$inv->recevoir($gA, array('emplacement_id' => $rwE, 'lignes' => array(L($RG['RG03'], '2', '1.00'))));
+egal(array('allee' => 3, 'etagere' => 3, 'niveau' => 3), $ligne($plan->contenu($gA, $rwE), $RG['RG03'])['rangement'], 'rangements : réapprovisionnée, la pièce retrouve sa position');
+
+// recherche « où est cette pièce » : un rangement (ou null) par emplacement
+$rech = $plan->donnees($gA, $RG['RG01'])['recherche'];
+egal(array($rwE, $rwC), array_column($rech['emplacements'], 'emplacement_id'), 'rangements : la recherche liste les emplacements de l\'entreprise 1 qui ont la pièce');
+egal(array('emplacement_id' => $rwE, 'quantite' => '5.000', 'rangement' => array('allee' => 4, 'etagere' => 6, 'niveau' => 4)), $rech['emplacements'][0], 'rangements : recherche : emplacement_id, quantite et rangement ensemble (entrepôt)');
+egal(array('emplacement_id' => $rwC, 'quantite' => '2.000', 'rangement' => array('allee' => 1, 'etagere' => 2, 'niveau' => 3)), $rech['emplacements'][1], 'rangements : recherche : chaque emplacement a son propre rangement (cube)');
+$rech = $plan->donnees($gA, $RG['RG05'])['recherche'];
+egal(array(array('emplacement_id' => $rwC, 'quantite' => '6.000', 'rangement' => null)), $rech['emplacements'], 'rangements : recherche : une pièce non rangée donne rangement = null');
+$rechB = $plan->donnees($gB, $RG['RG01'])['recherche'];
+egal(array(array('emplacement_id' => $rwX, 'quantite' => '9.000', 'rangement' => array('allee' => 1, 'etagere' => 1, 'niveau' => 1))), $rechB['emplacements'], 'rangements : recherche : l\'entreprise 2 ne voit que son propre emplacement et son rangement');
+egal(array('emplacement_id', 'quantite', 'rangement'), array_keys($rechB['emplacements'][0]), 'rangements : recherche : les clés actuelles sont conservées, rangement s\'y ajoute');
+
+// jamais de prix, pour personne
+$json = json_encode($plan->donnees($emp, $RG['RG01'])) . json_encode($plan->contenu($emp, $rwE)) . json_encode($plan->contenu($gA, $rwC)) . json_encode($plan->contenu($adm, $rwX));
+ok(!preg_match($motsCout, $json) && strpos($json, 'cout') === false && strpos($json, 'prix') === false && strpos($json, 'valeur') === false, 'rangements : aucune clé de coût, prix ou valeur dans le tiroir ni dans la recherche');
+egal(array_keys($plan->contenu($emp, $rwE)), array_keys($plan->contenu($gA, $rwE)), 'rangements : un employé et un gestionnaire reçoivent les mêmes clés');
+ok(array_keys($plan->contenu($gA, $rwE)['lignes'][0]) === array('piece_id', 'code', 'nom', 'unite', 'actif', 'quantite', 'bas', 'rangement'), 'rangements : les clés des lignes du tiroir sont conservées, rangement s\'ajoute à la fin');
+
+// journal
+$jd = q("SELECT * FROM journal WHERE action = 'plan.rangement' ORDER BY id DESC LIMIT 1")[0];
+$det = json_decode($jd['details'], true);
+ok($jd['entite'] === 'emplacements' && (int) $jd['entite_id'] === $rwE && (int) $jd['utilisateur_id'] === $gA && $det['piece_id'] === $RG['RG03'] && $det['avant'] === '(aucun)' && $det['apres'] === 'Allée C, étagère 3, niveau 3', 'rangements : le journal dit qui, quel emplacement, quelle pièce, avant et après : ' . $jd['details']);
+egal('Rangement modifié', JournalFr::action('plan.rangement'), 'rangements : libellé du journal « Rangement modifié »');
+ok(strpos(JournalFr::detailsTexte($jd['details'], 'plan.rangement', $jd['entite_id']), 'Allée C, étagère 3, niveau 3') !== false, 'rangements : le détail du journal se lit en français');
+egal('Rangement automatique', JournalFr::action('plan.rangement_auto'), 'rangements : libellé du journal « Rangement automatique »');
+egal('Rayonnages modifiés', JournalFr::action('plan.geometrie'), 'rangements : libellé du journal « Rayonnages modifiés »');
+$rang($gA, $rwC, $RG['RG05'], 2, 1, 1);
+$det = json_decode(val("SELECT details FROM journal WHERE action = 'plan.rangement' ORDER BY id DESC LIMIT 1"), true);
+egal('Côté droit, étagère 1, niveau 1', $det['apres'], 'rangements : journal d\'un cube : « Côté droit, étagère 1, niveau 1 »');
+egal(array('A', 'B', 'L'), array(Plan::libelleAllee(1, 'entrepot'), Plan::libelleAllee(2, 'boutique'), Plan::libelleAllee(12, 'entrepot')), 'rangements : allées nommées par des lettres (A, B… L)');
+egal(array('Allée B, étagère 3, niveau 2', 'Côté gauche, étagère 3, niveau 2'), array(Plan::libellePosition(array('allee' => 2, 'etagere' => 3, 'niveau' => 2), 'entrepot'), Plan::libellePosition(array('allee' => 1, 'etagere' => 3, 'niveau' => 2), 'cube')), 'rangements : libellé de position, entrepôt et cube');
+egal(array('Côté gauche', 'Côté droit'), array(Plan::libelleAllee(1, 'cube'), Plan::libelleAllee(2, 'cube')), 'rangements : cube : Côté gauche / Côté droit');
+
+// rangement automatique
+groupe('Plan : rangement automatique (déterministe, trois pièces au plus par position)');
+$pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type, code_barres) VALUES (1, 'Rang auto', 'entrepot', 'EMP-RG-6')");
+$ra = (int) $pdo->lastInsertId();
+$lg = array(); $ins = $pdo->prepare("INSERT INTO pieces (code, nom) VALUES (?, ?)");
+foreach (array('RA09', 'RA03', 'RA07', 'RA01', 'RA05', 'RA02', 'RA08', 'RA04', 'RA06', 'RA10') as $code) { $ins->execute(array($code, 'Auto ' . $code)); $lg[$code] = (int) $pdo->lastInsertId(); }
+$ins->execute(array('RA00', 'Auto sans stock')); $ins->execute(array('RAOFF', 'Auto désactivée')); $offA = (int) $pdo->lastInsertId();
+$tousA = array(); foreach ($lg as $id) { $tousA[] = L($id, '2', '1.00'); } $tousA[] = L($offA, '1', '1.00');
+$inv->recevoir($gA, array('emplacement_id' => $ra, 'lignes' => $tousA));
+$pdo->exec("UPDATE pieces SET actif = 0 WHERE id = $offA");
+$rang($gA, $ra, $lg['RA02'], 1, 1, 1);                                   // une pièce déjà rangée : elle compte dans la position
+egal(9, $plan->contenu($gA, $ra)['nb_a_ranger'], 'rangements : 9 pièces à ranger (10 en stock - 1 déjà rangée ; la désactivée n\'est pas comptée)');
+$jA = $nbJ('plan.rangement_auto');
+$r = $plan->rangerAuto($gA, $ra);
+egal(array('nb' => 9, 'restantes' => 0), $r, 'rangements : le rangement automatique range les 9 pièces (nb, restantes)');
+$posA = array(); foreach (q('SELECT p.code, r.allee, r.etagere, r.niveau FROM rangements r JOIN pieces p ON p.id = r.piece_id WHERE r.emplacement_id = ? ORDER BY p.code', array($ra)) as $x) { $posA[$x['code']] = (int) $x['allee'] . '-' . (int) $x['etagere'] . '-' . (int) $x['niveau']; }
+egal(array('RA01' => '1-1-1', 'RA02' => '1-1-1', 'RA03' => '1-1-1', 'RA04' => '1-1-2', 'RA05' => '1-1-2', 'RA06' => '1-1-2', 'RA07' => '1-1-3', 'RA08' => '1-1-3', 'RA09' => '1-1-3', 'RA10' => '1-1-4'), $posA, 'rangements : ordre des codes, positions remplies allée puis étagère puis niveau, trois pièces au plus (RA02 était déjà en 1-1-1)');
+egal(3, (int) val('SELECT MAX(c) FROM (SELECT COUNT(*) c FROM rangements WHERE emplacement_id = ? GROUP BY allee, etagere, niveau) x', array($ra)), 'rangements : jamais plus de trois pièces par position');
+egal(0, $plan->contenu($gA, $ra)['nb_a_ranger'], 'rangements : plus rien à ranger');
+egal($jA + 1, $nbJ('plan.rangement_auto'), 'rangements : le rangement automatique est journalisé');
+$det = json_decode(val("SELECT details FROM journal WHERE action = 'plan.rangement_auto' ORDER BY id DESC LIMIT 1"), true);
+ok($det['nb_pieces'] === 9 && $det['restantes'] === 0, 'rangements : le journal du rangement automatique donne le nombre de pièces');
+$avant = q('SELECT * FROM rangements WHERE emplacement_id = ? ORDER BY piece_id', array($ra));
+egal(array('nb' => 0, 'restantes' => 0), $plan->rangerAuto($gA, $ra), 'rangements : relancé, il ne fait rien');
+egal($avant, q('SELECT * FROM rangements WHERE emplacement_id = ? ORDER BY piece_id', array($ra)), 'rangements : ... et ne déplace aucune pièce déjà rangée');
+egal($jA + 1, $nbJ('plan.rangement_auto'), 'rangements : ... et n\'écrit rien au journal');
+ok(!isset($posA['RA00']) && !isset($posA['RAOFF']), 'rangements : ni la pièce sans stock ni la pièce désactivée ne sont rangées');
+// déterminisme : la même situation donne les mêmes positions
+$pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type, code_barres) VALUES (1, 'Rang auto 2', 'entrepot', 'EMP-RG-7')");
+$ra2 = (int) $pdo->lastInsertId();
+$tousA = array(); foreach ($lg as $id) { $tousA[] = L($id, '1', '1.00'); }
+$inv->recevoir($gA, array('emplacement_id' => $ra2, 'lignes' => $tousA));
+$rang($gA, $ra2, $lg['RA02'], 1, 1, 1);
+$plan->rangerAuto($gA, $ra2);
+$posA2 = array(); foreach (q('SELECT p.code, r.allee, r.etagere, r.niveau FROM rangements r JOIN pieces p ON p.id = r.piece_id WHERE r.emplacement_id = ? ORDER BY p.code', array($ra2)) as $x) { $posA2[$x['code']] = (int) $x['allee'] . '-' . (int) $x['etagere'] . '-' . (int) $x['niveau']; }
+egal($posA, $posA2, 'rangements : déterministe : deux emplacements dans la même situation reçoivent les mêmes positions');
+// rayonnages pleins : les pièces restantes restent « à ranger »
+$pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type, code_barres) VALUES (1, 'Rang plein', 'cube', 'EMP-RG-8')");
+$rp = (int) $pdo->lastInsertId();
+$inv->recevoir($gA, array('emplacement_id' => $rp, 'lignes' => $tousA));
+$plan->enregistrerGeometrie($adm, array('emplacement_id' => $rp, 'allees' => 1, 'etageres' => 1, 'niveaux' => 2));          // 2 positions = 6 pièces au plus
+egal(array('nb' => 6, 'restantes' => 4), $plan->rangerAuto($gA, $rp), 'rangements : 2 positions de 3 pièces : 6 pièces rangées, 4 restent à ranger');
+$c = $plan->contenu($gA, $rp);
+egal(array(6, 4), array(count(array_filter($c['lignes'], function ($l) { return $l['rangement'] !== null; })), $c['nb_a_ranger']), 'rangements : le tiroir montre 6 pièces rangées et 4 « à ranger »');
+egal(array('nb' => 0, 'restantes' => 4), $plan->rangerAuto($gA, $rp), 'rangements : toutes les positions sont pleines : rien de plus n\'est rangé');
+$plan->enregistrerGeometrie($adm, array('emplacement_id' => $rp, 'allees' => 1, 'etageres' => 2, 'niveaux' => 2));
+egal(array('nb' => 4, 'restantes' => 0), $plan->rangerAuto($gA, $rp), 'rangements : des rayonnages agrandis accueillent les 4 pièces restantes');
+egal(array('RA01' => '1-1-1', 'RA02' => '1-1-1', 'RA03' => '1-1-1', 'RA04' => '1-1-2', 'RA05' => '1-1-2', 'RA06' => '1-1-2', 'RA07' => '1-2-1', 'RA08' => '1-2-1', 'RA09' => '1-2-1', 'RA10' => '1-2-2'),
+	(function () use ($rp) { $o = array(); foreach (q('SELECT p.code, r.allee, r.etagere, r.niveau FROM rangements r JOIN pieces p ON p.id = r.piece_id WHERE r.emplacement_id = ? ORDER BY p.code', array($rp)) as $x) { $o[$x['code']] = (int) $x['allee'] . '-' . (int) $x['etagere'] . '-' . (int) $x['niveau']; } return $o; })(),
+	'rangements : les 4 dernières pièces vont à l\'étagère suivante, dans l\'ordre des codes');
+
+// ---- Rayonnages réglés par l'administrateur -----------------------------------------------------------------------------
+groupe('Plan : rayonnages réglés par l\'administrateur (bornes, journal, pièces hors des nouvelles dimensions)');
+$rang($gA, $rwE, $RG['RG03'], 3, 3, 2);
+$rang($gA, $rwE, $RG['RG01'], 4, 6, 4);
+$jG = $nbJ('plan.geometrie');
+$vA0 = $plan->version($gA); $vB0 = $plan->version($gB);
+$r = $plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwE, 'allees' => 3, 'etageres' => 5, 'niveaux' => 2));
+egal(array('geometrie' => array('allees' => 3, 'etageres' => 5, 'niveaux' => 2), 'personnalisee' => true, 'retires' => 3), $r, 'rangements : géométrie réglée (3 x 5 x 2) : trois pièces rangées au-delà redeviennent à ranger');
+egal(array('allees' => 3, 'etageres' => 5, 'niveaux' => 2), $plan->contenu($emp, $rwE)['geometrie'], 'rangements : le tiroir (même pour un employé) donne la nouvelle géométrie');
+ok($plan->contenu($gA, $rwE)['geometrie_personnalisee'] === true && $plan->contenu($gA, $rwE)['geometrie_defaut'] === Plan::GEOMETRIE_DEFAUT['entrepot'], 'rangements : géométrie_personnalisee vrai, le défaut du type reste indiqué');
+egal(Plan::GEOMETRIE_DEFAUT['entrepot'], $plan->contenu($gB, $rwX)['geometrie'], 'rangements : un autre emplacement garde la géométrie par défaut');
+$l = q('SELECT x, rayon_allees, rayon_etageres, rayon_niveaux FROM plan_emplacements WHERE emplacement_id = ?', array($rwE));
+ok(count($l) === 1 && $l[0]['x'] === null && (int) $l[0]['rayon_allees'] === 3 && (int) $l[0]['rayon_etageres'] === 5 && (int) $l[0]['rayon_niveaux'] === 2, 'rangements : la géométrie est dans plan_emplacements (rayon_allees, rayon_etageres, rayon_niveaux), sans place enregistrée');
+egal(null, $tuile($plan->donnees($adm), $rwE)['pos'], 'rangements : une ligne qui ne porte que les rayonnages ne donne aucune place à la tuile (rangement automatique)');
+egal(array(1, 3), array(count(array_filter($plan->contenu($gA, $rwE)['lignes'], function ($l) { return $l['rangement'] !== null; })), $plan->contenu($gA, $rwE)['nb_a_ranger']), 'rangements : seule la pièce encore dans les nouveaux rayonnages (3-3-2) garde sa position, les 3 autres sont à ranger');
+$j = json_decode(val("SELECT details FROM journal WHERE action = 'plan.geometrie' ORDER BY id DESC LIMIT 1"), true);
+ok($nbJ('plan.geometrie') === $jG + 1 && $j['avant'] === '4 allées, 6 étagères, 4 niveaux' && $j['apres'] === '3 allées, 5 étagères, 2 niveaux' && $j['retirees'] === 3, 'rangements : le journal dit les dimensions avant et après et les pièces à ranger de nouveau : ' . json_encode($j, JSON_UNESCAPED_UNICODE));
+ok($plan->version($gA) !== $vA0 && $plan->version($gB) === $vB0, 'rangements : régler les rayonnages change le jeton de version de l\'entreprise concernée seulement');
+$r = $plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwE, 'allees' => '3', 'etageres' => '5', 'niveaux' => '2'));
+ok($r['retires'] === 0 && $nbJ('plan.geometrie') === $jG + 1, 'rangements : les mêmes dimensions de nouveau : rien ne change, rien n\'est journalisé');
+refuse(function () use ($rang, $gA, $rwE, $RG) { $rang($gA, $rwE, $RG['RG02'], 4, 1, 1); }, 'Allée invalide', 'rangements : les bornes d\'une position suivent les rayonnages réglés (allée 4 refusée)');
+refuse(function () use ($rang, $gA, $rwE, $RG) { $rang($gA, $rwE, $RG['RG02'], 1, 1, 3); }, 'Niveau invalide', 'rangements : ... (niveau 3 refusé, il y en a 2)');
+egal(array('rangement' => array('allee' => 3, 'etagere' => 5, 'niveau' => 2)), $rang($gA, $rwE, $RG['RG02'], 3, 5, 2), 'rangements : ... et le dernier emplacement permis est accepté');
+// une position hors des rayonnages (écrite à la main dans la base) est ignorée
+$pdo->exec("INSERT INTO rangements (emplacement_id, piece_id, allee, etagere, niveau) VALUES ($rwE, {$RG['RG04']}, 4, 1, 1)");
+egal(null, $ligne($plan->contenu($gA, $rwE), $RG['RG04'])['rangement'], 'rangements : une position hors des rayonnages n\'est pas affichée (pièce à ranger)');
+$rech = $plan->donnees($gA, $RG['RG04'])['recherche']['emplacements'];
+egal(null, $rech[0]['rangement'], 'rangements : ... ni dans la recherche');
+egal(array('nb' => 2, 'restantes' => 0), $plan->rangerAuto($gA, $rwE), 'rangements : le rangement automatique reprend les deux pièces à ranger (dont celle à la position hors rayonnages, qu\'il remplace)');
+// bornes du réglage
+$avantG = q('SELECT * FROM plan_emplacements ORDER BY emplacement_id');
+$mauvais = array(
+	array(0, 3, 3, 'allées 0'), array(13, 3, 3, 'allées 13'), array(3, 0, 3, 'étagères 0'), array(3, 31, 3, 'étagères 31'), array(3, 3, 0, 'niveaux 0'), array(3, 3, 11, 'niveaux 11'),
+	array(-1, 3, 3, 'négatif'), array('x', 3, 3, 'texte'), array(2.5, 3, 3, 'décimal'), array(true, 3, 3, 'booléen'), array(null, 3, 3, 'absent'), array(array(3), 3, 3, 'tableau'),
+);
+$tousRefuses = true;
+foreach ($mauvais as $cas) {
+	try { $plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwE, 'allees' => $cas[0], 'etageres' => $cas[1], 'niveaux' => $cas[2])); $tousRefuses = false; echo "  non refusé : {$cas[3]}\n"; }
+	catch (PlanRefus $ex) { $tousRefuses = false; echo "  403 au lieu de 400 : {$cas[3]}\n"; }
+	catch (InventaireException $ex) { /* attendu */ }
+}
+ok($tousRefuses, 'rangements : ' . count($mauvais) . ' dimensions invalides refusées (400) avec un message en français');
+refuse(function () use ($plan, $adm, $rwC) { $plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwC, 'allees' => 3, 'etageres' => 3, 'niveaux' => 3)); }, 'Allées', 'rangements : un cube a deux allées au plus');
+refuse(function () use ($plan, $adm) { $plan->enregistrerGeometrie($adm, array('emplacement_id' => 999999, 'allees' => 1, 'etageres' => 1, 'niveaux' => 1)); }, 'n\'existe pas', 'rangements : réglage d\'un emplacement inconnu refusé');
+egal($avantG, q('SELECT * FROM plan_emplacements ORDER BY emplacement_id'), 'rangements : les refus n\'ont rien écrit');
+ok($plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwB, 'allees' => 12, 'etageres' => 30, 'niveaux' => 10))['geometrie'] === array('allees' => 12, 'etageres' => 30, 'niveaux' => 10), 'rangements : les bornes extrêmes 12 x 30 x 10 sont acceptées');
+egal(array('allees' => 1, 'etageres' => 1, 'niveaux' => 1), $plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwB, 'allees' => 1, 'etageres' => 1, 'niveaux' => 1))['geometrie'], 'rangements : ... et le minimum 1 x 1 x 1');
+// retour au défaut ; la place de la tuile est conservée
+$plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwB, 'defaut' => true));
+egal(0, (int) val('SELECT COUNT(*) FROM plan_emplacements WHERE emplacement_id = ?', array($rwB)), 'rangements : « défaut » sans place enregistrée : la ligne disparaît');
+$plan->enregistrer($adm, array($pos($rwB, 40, 40)));
+$plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwB, 'allees' => 2, 'etageres' => 2, 'niveaux' => 2));
+egal(array('x' => 40, 'y' => 40, 'largeur' => 240, 'hauteur' => 160), $tuile($plan->donnees($gA), $rwB)['pos'], 'rangements : régler les rayonnages garde la place de la tuile');
+$r = $plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwB, 'defaut' => true));
+ok($r['geometrie'] === Plan::GEOMETRIE_DEFAUT['boutique'] && $r['personnalisee'] === false && (int) val('SELECT COUNT(*) FROM plan_emplacements WHERE emplacement_id = ? AND x = 40', array($rwB)) === 1, 'rangements : « défaut » rend la géométrie du type et garde la place de la tuile');
+$plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwC2, 'allees' => 2, 'etageres' => 2, 'niveaux' => 2));
+ok($plan->enregistrer($adm, array($pos($rwC2, 100, 100)))['modifies'] === 1 && $plan->contenu($gA, $rwC2)['geometrie']['etageres'] === 2, 'rangements : placer une tuile qui n\'avait que des rayonnages garde ses dimensions');
+$plan->enregistrerGeometrie($adm, array('emplacement_id' => $rwE, 'defaut' => true));
+egal(Plan::GEOMETRIE_DEFAUT['entrepot'], $plan->contenu($gA, $rwE)['geometrie'], 'rangements : retour au défaut du type');
+$pdo->exec('DELETE FROM plan_emplacements');
+
+// jeton de version : un rangement posé, modifié ou retiré le change (pour l'entreprise concernée seulement)
+groupe('Plan : rangements et jeton de version');
+$v0 = $plan->version($gA); $vB0 = $plan->version($gB);
+$rang($gA, $rwE, $RG['RG01'], 2, 2, 2);
+$v1 = $plan->version($gA); ok($v1 !== $v0 && preg_match('/^\d+-\d+-\d+$/', $v1) === 1, 'rangements : poser une position change le jeton (même forme)');
+$rang($gA, $rwE, $RG['RG01'], 2, 2, 3);
+$v2 = $plan->version($gA); ok($v2 !== $v1, 'rangements : modifier une position change le jeton');
+$retire($gA, $rwE, $RG['RG01']);
+$v3 = $plan->version($gA); ok($v3 !== $v2, 'rangements : retirer une position change le jeton');
+$plan->rangerAuto($gA, $rwE);
+ok($plan->version($gA) !== $v3, 'rangements : le rangement automatique change le jeton');
+egal($vB0, $plan->version($gB), 'rangements : le jeton de l\'entreprise 2 ne bouge pas (pas de fuite entre entreprises)');
+
 groupe('Plan : jeton de version (temps réel)');
 $jVersion = $nbJournal();
 $vA = $plan->version($gA); $vB = $plan->version($gB);
@@ -863,7 +1162,7 @@ require_once __DIR__ . '/../database/migrer.php';
 egal(array('SET @a = 1', 'CREATE TABLE t (x INT)', 'SELECT 2'), migration_instructions("-- commentaire\nSET @a = 1;\n\n-- autre\nCREATE TABLE t (x INT);   \nSELECT 2;"), 'migration : les instructions sont séparées, les commentaires retirés');
 $faits1 = migrer($pdo, __DIR__ . '/../database/migrations');
 $faits2 = migrer($pdo, __DIR__ . '/../database/migrations');
-ok(in_array('2026-10-12-plan.sql', $faits1, true) && $faits1 === $faits2, 'migration : rejouée deux fois sans erreur : ' . implode(', ', $faits1));
+ok(in_array('2026-10-12-plan.sql', $faits1, true) && in_array('2026-10-13-rangements.sql', $faits1, true) && $faits1 === $faits2, 'migration : rejouée deux fois sans erreur : ' . implode(', ', $faits1));
 egal(2, (int) val("SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mouvements' AND index_name = 'ix_mouv_emplacement_id'"), 'migration : l\'index (emplacement_id, id) existe une seule fois (deux colonnes)');
 egal(1, (int) val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'plan_emplacements'"), 'migration : la table plan_emplacements existe');
 $pdo->exec('DROP TABLE plan_emplacements');
@@ -871,6 +1170,42 @@ $pdo->exec("ALTER TABLE mouvements DROP INDEX ix_mouv_emplacement_id");
 migrer($pdo, __DIR__ . '/../database/migrations');
 egal(1, (int) val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'plan_emplacements'") + (int) val("SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mouvements' AND index_name = 'ix_mouv_emplacement_id'") - 2, 'migration : sur une base de l\'ancien schéma (sans table ni index), elle crée les deux');
 egal(2, (int) val("SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mouvements' AND index_name = 'ix_mouv_emplacement_id'"), 'migration : index recréé avec ses deux colonnes');
+
+// rangements : colonnes de rayonnages, places NULL-ables, table rangements ; sur la base de l'ancien schéma (HEAD), puis rejouée
+$colonne = function ($c) { return q("SELECT is_nullable, data_type FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'plan_emplacements' AND column_name = ?", array($c)); };
+$tousPresents = function () use ($colonne) {
+	foreach (array('rayon_allees', 'rayon_etageres', 'rayon_niveaux') as $c) { $r = $colonne($c); if (!$r || $r[0]['is_nullable'] !== 'YES') { return false; } }
+	foreach (array('x', 'y', 'largeur', 'hauteur') as $c) { $r = $colonne($c); if (!$r || $r[0]['is_nullable'] !== 'YES') { return false; } }
+	return (int) val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'rangements'") === 1;
+};
+ok($tousPresents(), 'migration : rayon_allees, rayon_etageres, rayon_niveaux et places NULL-ables dans plan_emplacements, table rangements présente');
+// ancien schéma : sans rayonnages, places NOT NULL, sans table rangements — avec une place enregistrée qui doit survivre
+$pdo->exec('DROP TABLE rangements');
+$pdo->exec('DELETE FROM plan_emplacements');
+$pdo->exec('ALTER TABLE plan_emplacements DROP COLUMN rayon_allees, DROP COLUMN rayon_etageres, DROP COLUMN rayon_niveaux, MODIFY x SMALLINT UNSIGNED NOT NULL, MODIFY y SMALLINT UNSIGNED NOT NULL, MODIFY largeur SMALLINT UNSIGNED NOT NULL, MODIFY hauteur SMALLINT UNSIGNED NOT NULL');
+$pdo->exec("INSERT INTO plan_emplacements (emplacement_id, x, y, largeur, hauteur) VALUES ({$E['A1']}, 40, 60, 300, 200)");
+ok(!$tousPresents(), 'migration : l\'ancien schéma simulé n\'a ni rayonnages, ni table rangements');
+$f1 = migrer($pdo, __DIR__ . '/../database/migrations');
+ok($tousPresents(), 'migration : sur l\'ancien schéma, elle ajoute les trois colonnes, rend les places NULL-ables et crée la table rangements');
+egal(array('x' => 40, 'y' => 60, 'largeur' => 300, 'hauteur' => 200), q('SELECT x, y, largeur, hauteur FROM plan_emplacements WHERE emplacement_id = ?', array($E['A1']))[0], 'migration : la place déjà enregistrée est conservée');
+$f2 = migrer($pdo, __DIR__ . '/../database/migrations');
+$f3 = migrer($pdo, __DIR__ . '/../database/migrations');
+ok($f1 === $f2 && $f2 === $f3 && $tousPresents(), 'migration : rejouée deux fois de plus (3 passages), sans erreur ni changement');
+egal(1, (int) val("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'plan_emplacements' AND column_name = 'rayon_allees'"), 'migration : chaque colonne n\'existe qu\'une fois');
+$pdo->exec("INSERT INTO rangements (emplacement_id, piece_id, allee, etagere, niveau) VALUES ({$E['A1']}, {$P['T1']}, 1, 1, 1)");
+refuse(function () use ($pdo, $E, $P) { try { $pdo->exec("INSERT INTO rangements (emplacement_id, piece_id, allee, etagere, niveau) VALUES ({$E['A1']}, {$P['T1']}, 2, 2, 2)"); } catch (PDOException $e) { throw new InventaireException('doublon refusé par la base'); } }, 'doublon', 'migration : la base elle-même interdit deux positions pour la même pièce dans un emplacement (clé primaire)');
+refuse(function () use ($pdo, $E, $P) { try { $pdo->exec("INSERT INTO rangements (emplacement_id, piece_id, allee, etagere, niveau) VALUES ({$E['A1']}, {$P['T2']}, 0, 1, 1)"); } catch (PDOException $e) { throw new InventaireException('zéro refusé par la base'); } }, 'zéro', 'migration : la base refuse une allée 0');
+$pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type) VALUES (1, 'Rang éphémère', 'cube')");
+$ephR = (int) $pdo->lastInsertId();
+$pdo->exec("INSERT INTO pieces (code, nom) VALUES ('RG-EPH', 'Rang éphémère')");
+$ephP = (int) $pdo->lastInsertId();
+$pdo->exec("INSERT INTO rangements (emplacement_id, piece_id, allee, etagere, niveau) VALUES ($ephR, {$P['T1']}, 1, 1, 1), ($ephR, $ephP, 1, 1, 2), ({$E['A1']}, $ephP, 1, 1, 3)");
+$pdo->exec("DELETE FROM pieces WHERE id = $ephP");
+egal(1, (int) val('SELECT COUNT(*) FROM rangements WHERE emplacement_id = ?', array($ephR)), 'migration : supprimer une pièce supprime ses positions (clé étrangère en cascade)');
+$pdo->exec("DELETE FROM emplacements WHERE id = $ephR");
+egal(0, (int) val('SELECT COUNT(*) FROM rangements WHERE emplacement_id = ?', array($ephR)), 'migration : supprimer un emplacement supprime ses positions (clé étrangère en cascade)');
+$pdo->exec("DELETE FROM rangements WHERE emplacement_id = {$E['A1']}");
+$pdo->exec('DELETE FROM plan_emplacements');
 
 invariants('fin des scénarios');
 

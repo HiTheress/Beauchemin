@@ -14,7 +14,7 @@ export class Vue {
   constructor(el, o) {
     this.el = el; this.o = o;
     this.cam = new OrthographicCamera(-10, 10, 10, -10, 1, 900);
-    this.e = { x: 0, z: 0, az: AZ0, ech: 12, ox: 0, oy: 0 };
+    this.e = { x: 0, z: 0, az: AZ0, ech: 12, ox: 0, oy: 0, el: EL };
     this.W = 1; this.H = 1; this.t = null; this.ptrs = new Map(); this.mode = null; this.g = null; this.utilisee = false;
     this.R = new Vector3(); this.U = new Vector3(); this.F = new Vector3();
     this.liaison();
@@ -24,7 +24,7 @@ export class Vue {
   // ---- Géométrie --------------------------------------------------------------------------------------------------------------
   taille(w, h) { this.W = Math.max(1, w); this.H = Math.max(1, h); this.appliquer(); }
   appliquer() {
-    const e = this.e, c = this.cam, ce = Math.cos(EL), se = Math.sin(EL), sa = Math.sin(e.az), ca = Math.cos(e.az);
+    const e = this.e, c = this.cam, ce = Math.cos(e.el), se = Math.sin(e.el), sa = Math.sin(e.az), ca = Math.cos(e.az);
     this.R.set(ca, 0, -sa);
     this.F.set(-sa * ce, -se, -ca * ce);                                  // direction du regard
     this.U.crossVectors(this.R, this.F);                                  // « haut » à l'écran
@@ -36,7 +36,7 @@ export class Vue {
   }
   /** Point du sol (y = 0) sous un pixel de l'écran. */
   sol(px, py, out) {
-    const e = this.e, u = (px - this.W / 2 - e.ox) / e.ech, v = -(py - this.H / 2 - e.oy) / e.ech, b = v / Math.sin(EL), sa = Math.sin(e.az), ca = Math.cos(e.az);
+    const e = this.e, u = (px - this.W / 2 - e.ox) / e.ech, v = -(py - this.H / 2 - e.oy) / e.ech, b = v / Math.sin(e.el), sa = Math.sin(e.az), ca = Math.cos(e.az);
     return (out || new Vector3()).set(e.x + ca * u - sa * b, 0, e.z - sa * u - ca * b);
   }
   /** Projection d'un point du monde : { x, y } en pixels, z = profondeur (plus grand = plus loin). */
@@ -47,8 +47,9 @@ export class Vue {
     return out;
   }
   /** Étendue à l'écran (en mètres par pixel de zoom 1) d'un ensemble de points : sert à cadrer. */
-  etendue(points, az) {
-    const sa = Math.sin(az), ca = Math.cos(az), ce = Math.cos(EL), se = Math.sin(EL);
+  etendue(points, az, el) {
+    el = el === undefined ? this.e.el : el;
+    const sa = Math.sin(az), ca = Math.cos(az), ce = Math.cos(el), se = Math.sin(el);
     let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9, mu = 0, mv = 0;
     points.forEach(p => {
       const u = p.x * ca - p.z * sa, v = (p.x * sa + p.z * ca) * -se + p.y * ce;         // « haut » = (−sinEL·avant) + cosEL·Y avec l'avant au sol = (−sa, −ca)·(−1)
@@ -57,7 +58,7 @@ export class Vue {
     return { u0, u1, v0, v1, w: u1 - u0, h: v1 - v0, cu: (u0 + u1) / 2, cv: (v0 + v1) / 2 };
   }
   /** Point du sol dont la projection est (u, v) mètres du centre de l'écran, pour un azimut donné. */
-  centre(u, v, az) { const sa = Math.sin(az), ca = Math.cos(az), b = v / Math.sin(EL); return { x: ca * u - sa * b, z: -sa * u - ca * b }; }
+  centre(u, v, az, el) { el = el === undefined ? this.e.el : el; const sa = Math.sin(az), ca = Math.cos(az), b = v / Math.sin(el); return { x: ca * u - sa * b, z: -sa * u - ca * b }; }
   contraindre() {
     const L = this.o.limites && this.o.limites(), e = this.e;
     if (!L) { return; }
@@ -71,8 +72,8 @@ export class Vue {
   /** Glisse en douceur vers { x, z, az, ech, ox, oy } (valeurs absentes = inchangées). */
   aller(c, dur) {
     this.arreter();
-    const d = this.e, a = { x: d.x, z: d.z, az: d.az, ech: d.ech, ox: d.ox, oy: d.oy };
-    const b = { x: c.x !== undefined ? c.x : a.x, z: c.z !== undefined ? c.z : a.z, az: c.az !== undefined ? c.az : a.az, ech: c.ech !== undefined ? c.ech : a.ech, ox: c.ox !== undefined ? c.ox : a.ox, oy: c.oy !== undefined ? c.oy : a.oy };
+    const d = this.e, a = { x: d.x, z: d.z, az: d.az, ech: d.ech, ox: d.ox, oy: d.oy, el: d.el };
+    const b = { el: c.el !== undefined ? c.el : a.el, x: c.x !== undefined ? c.x : a.x, z: c.z !== undefined ? c.z : a.z, az: c.az !== undefined ? c.az : a.az, ech: c.ech !== undefined ? c.ech : a.ech, ox: c.ox !== undefined ? c.ox : a.ox, oy: c.oy !== undefined ? c.oy : a.oy };
     const L = this.o.limites && this.o.limites();
     if (L) { b.ech = clamp(b.ech, L.echMin, L.echMax); b.x = clamp(b.x, L.x0, L.x1); b.z = clamp(b.z, L.z0, L.z1); }
     this.vers = b;
@@ -82,7 +83,7 @@ export class Vue {
       dur, courbe: ease.entreeSortie, toujours: false,
       f: k => {
         const e = this.e;
-        e.x = a.x + (b.x - a.x) * k; e.z = a.z + (b.z - a.z) * k; e.az = a.az + (b.az - a.az) * k; e.ox = a.ox + (b.ox - a.ox) * k; e.oy = a.oy + (b.oy - a.oy) * k;
+        e.el = a.el + (b.el - a.el) * k; e.x = a.x + (b.x - a.x) * k; e.z = a.z + (b.z - a.z) * k; e.az = a.az + (b.az - a.az) * k; e.ox = a.ox + (b.ox - a.ox) * k; e.oy = a.oy + (b.oy - a.oy) * k;
         e.ech = a.ech * Math.pow(b.ech / a.ech, k);
         this.appliquer(); this.o.surChange();
       },
@@ -127,7 +128,10 @@ export class Vue {
       if (this.ptrs.size === 1) {
         this.mode = (ev.pointerType === 'mouse' && ev.button === 2) ? 'rot' : 'pan';
         this.depart = { x, y, bouge: false, bouton: ev.button, az0: this.e.az };
+        // l'intérieur peut prendre le glisser (déplacer une caisse) : il rend un { move(x, y), fin(x, y, annule) } ou rien
+        this.externe = this.mode === 'pan' && this.o.debutGlisse ? (this.o.debutGlisse(x, y, ev) || null) : null;
       } else if (this.ptrs.size === 2) {
+        if (this.externe) { this.externe.fin(x, y, 'annule'); this.externe = null; }
         this.mode = 'geste'; this.depart.bouge = true; this.utilisee = true;
         const [a, b] = Array.from(this.ptrs.values());
         this.g = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, a: Math.atan2(b.y - a.y, b.x - a.x), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
@@ -143,7 +147,7 @@ export class Vue {
       if (this.mode === 'pan') {
         if (!this.depart.bouge && Math.hypot(x - this.depart.x, y - this.depart.y) > 5) { this.depart.bouge = true; this.utilisee = true; if (this.o.surSurvol) { this.o.surSurvol(-1, -1); } }
         if (this.depart.bouge) {
-          this.pan(dx, dy);
+          if (this.externe) { this.externe.move(x, y); } else { this.pan(dx, dy); }
         }
       } else if (this.mode === 'rot') {
         this.depart.bouge = true; e.az += dx * 0.0075; this.changer();
@@ -167,6 +171,7 @@ export class Vue {
       try { el.releasePointerCapture(ev.pointerId); } catch (e2) { /* déjà relâchée */ }
       if (this.ptrs.size === 0) {
         const mode = this.mode; this.mode = null;
+        if (this.externe) { const ex = this.externe; this.externe = null; const etat = ev.type !== 'pointerup' ? 'annule' : d.bouge ? 'glisse' : 'clic'; ex.fin(x, y, etat); if (etat === 'clic' && d.bouton <= 1 && this.o.surClic) { this.o.surClic(x, y, ev); } return; }
         if (mode === 'pan' && !d.bouge && ev.type === 'pointerup' && d.bouton <= 1 && this.o.surClic) { this.o.surClic(x, y, ev); }
         else if (mode === 'rot' || mode === 'geste') { this.caler(); }
       } else if (this.ptrs.size === 1) { this.mode = 'pan'; const r = Array.from(this.ptrs.values())[0]; this.depart = { x: r.x, y: r.y, bouge: true, bouton: 0, az0: this.e.az }; this.caler(); }
@@ -199,7 +204,7 @@ export class Vue {
     this.zoom(Math.exp(-ev.deltaY * k * (ev.ctrlKey ? 0.01 : 0.0017)), ev.clientX - r.left, ev.clientY - r.top);
   }
   pan(dx, dy) {
-    const e = this.e, sa = Math.sin(e.az), ca = Math.cos(e.az), k = dy / (e.ech * Math.sin(EL));
+    const e = this.e, sa = Math.sin(e.az), ca = Math.cos(e.az), k = dy / (e.ech * Math.sin(e.el));
     e.x -= ca * dx / e.ech; e.z += sa * dx / e.ech;                     // vers la gauche quand on tire vers la droite
     e.x += -sa * k; e.z += -ca * k;                                      // tirer vers le bas = regarder plus loin
     this.changer();

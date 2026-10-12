@@ -112,7 +112,7 @@ sudo systemctl reload php8.3-fpm
 * `php database/migrer.php` (depuis `gestion/`) : applique **tous** les fichiers, par ordre de date, avec les identifiants de `config.local.php` ; il faut alors que ce compte ait les droits `CREATE` et `ALTER`.
 
 Le démarrage de l'environnement d'essai Docker exécute `php database/migrer.php` à chaque fois (`docker/docker-entrypoint.sh`) : un volume créé avec une ancienne version reçoit les nouveautés tout seul.
-Migration actuelle : `2026-10-12-plan.sql` (page **Plan** : table `plan_emplacements` et index `ix_mouv_emplacement_id` sur `mouvements`). Sans elle, la page Plan affiche « Erreur inattendue » (le détail est dans le journal de PHP).
+Migrations actuelles : `2026-10-12-plan.sql` (page **Plan** : table `plan_emplacements` et index `ix_mouv_emplacement_id` sur `mouvements`) puis `2026-10-13-rangements.sql` (**rangements** : table `rangements` et colonnes `rayon_*` de `plan_emplacements`). Sans elles, la page Plan affiche « Erreur inattendue » (le détail est dans le journal de PHP).
 
 **Toujours faire une sauvegarde manuelle avant une mise à jour.** Avant de la déployer, la suite de tests peut être lancée sur une base jetable : `TEST_DB=beauchemin_test tests/run.sh`.
 
@@ -138,7 +138,7 @@ Puis committer le bundle (pas `node_modules/`). Détails : `tools/plan3d/README.
 | Déconnexions fréquentes | `session.gc_maxlifetime` (voir `php-production.ini`), et HTTPS bien configuré (cookie « secure ») |
 | Connexion refusée (mot de passe correct) | 5 échecs depuis une même adresse sur un compte → cette adresse est refusée 15 min ; 20 échecs au total → compte verrouillé 15 min. Un administrateur le lève dans *Utilisateurs*. Si l'unique administrateur est bloqué : `tools/deverrouiller.sh <nom_utilisateur> [nouveau_mot_de_passe]` sur le serveur. |
 | Caméra refusée | la page doit être en **HTTPS** et l'accès à la caméra autorisé dans le navigateur |
-| La page Plan affiche « Erreur inattendue » | La migration `2026-10-12-plan.sql` n'a pas été appliquée (table `plan_emplacements` absente) : voir « Migrations de la base » (étape 9) |
+| La page Plan affiche « Erreur inattendue » | Une migration (`2026-10-12-plan.sql` ou `2026-10-13-rangements.sql`) n'a pas été appliquée (table `plan_emplacements` ou `rangements` absente) : voir « Migrations de la base » (étape 9) |
 | La page Plan reste en vue Tuiles, sans bouton « 3D » | Le navigateur n'a pas WebGL (accélération graphique désactivée, très vieux poste) : c'est le repli prévu, rien à réparer ; la vue Tuiles est complète |
 | Le Plan affiche « Connexion perdue » | Le navigateur n'atteint plus le serveur (réseau, serveur arrêté) : la page reprend toute seule dès que la connexion revient |
 | Heures décalées | `date.timezone = America/Toronto` (php-production.ini) et heure du serveur à jour (`timedatectl`) |

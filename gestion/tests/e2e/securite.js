@@ -30,7 +30,8 @@ const ROLE_MIN_ECRITURE = {
   import_apercu: 'gestionnaire', import_confirmer: 'gestionnaire', import_appliquer: 'gestionnaire',
   utilisateur_save: 'admin', utilisateur_activer: 'admin', utilisateur_mdp: 'admin', utilisateur_deverrouiller: 'admin',
   entreprise_save: 'admin', entreprise_activer: 'admin', emplacement_save: 'admin', emplacement_activer: 'admin',
-  plan_save: 'admin',
+  plan_save: 'admin', plan_geometrie_save: 'admin',
+  plan_rangement_save: 'gestionnaire', plan_rangement_auto: 'gestionnaire',
 };
 const MOTS_COUT = /"(cout_unitaire|cout_moyen|prix|prix_fournisseurs|valeur|total|total_ligne)"\s*:/;
 
@@ -99,7 +100,7 @@ const CHARGES = [
   const noter = (cond, msg) => { L.verifier(cond, msg); if (!cond) anomalies.push(msg); };
 
   // Dossiers et fichiers internes : jamais servis par le web (même connecté), ni le code, ni la bibliothèque PDF (app/lib), ni ses polices
-  const INTERDITS = ['/app/lib/', '/app/lib/fpdf/fpdf.php', '/app/lib/fpdf/license.txt', '/app/lib/fpdf/font/helvetica.json', '/app/classes/PdfDocument.php', '/app/classes/DocumentVue.php', '/app/classes/DocumentsPdf.php', '/app/classes/Marque.php', '/app/classes/Plan.php', '/database/migrer.php', '/database/migrations/2026-10-12-plan.sql',
+  const INTERDITS = ['/app/lib/', '/app/lib/fpdf/fpdf.php', '/app/lib/fpdf/license.txt', '/app/lib/fpdf/font/helvetica.json', '/app/classes/PdfDocument.php', '/app/classes/DocumentVue.php', '/app/classes/DocumentsPdf.php', '/app/classes/Marque.php', '/app/classes/Plan.php', '/database/migrer.php', '/database/migrations/2026-10-12-plan.sql', '/database/migrations/2026-10-13-rangements.sql', '/database/demo.php',
     '/app/config/config.php', '/app/init.php', '/app/functions.php', '/pages/document_voir.php', '/inc/header.php', '/tests/run.php', '/tools/router.php', '/docs/UX.md', '/database/schema.sql', '/deploy/nginx.conf', '/.htaccess'];
   for (const [libelle, session] of [['sans connexion', null], ['connecté', sessions.gestionnaire]]) {
     const refuses = [];

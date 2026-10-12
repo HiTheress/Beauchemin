@@ -6,6 +6,8 @@
 // et la remet à zéro à la fin. Toutes les valeurs attendues viennent de requêtes SQL écrites ici, indépendantes du code testé.
 // PLAN_CAPTURES=/dossier : enregistre aussi des captures d'écran (bureau avec et sans recherche, tiroir, modification, téléphone).
 // La vue 3D (commutateur, scène, étiquettes, temps réel animé, repli sans WebGL) est testée par tests/e2e/plan3d.js.
+// La section « 4 bis » couvre les rangements : pastilles de position du tiroir, éditeur (gestionnaire), rangement automatique, rayonnages (administrateur),
+// employé et autre entreprise refusés par le serveur, valeurs invalides, mise à jour en direct, téléphone.
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -294,6 +296,267 @@ async function contraste(p, selecteur, fond) {
   verifier(await a.$eval('#f-emplacement', x => x.value) === '1', 'la page Stock s\'ouvre filtrée sur l\'emplacement (lien « Voir dans Stock »)');
 
   // ===================================================================================================================
+  section('4 bis. Rangements : pastilles de position, éditeur, rangement automatique, rayonnages, droits');
+  // ===================================================================================================================
+  const erreursRang = [];
+  const LETTRES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lettre = n => LETTRES[n - 1];
+  const txtPos = (p, cube) => (cube ? (p[0] === 1 ? 'G' : 'D') : lettre(p[0])) + ' · ' + p[1] + ' · ' + p[2];
+  const libPos = (p, cube) => (cube ? (p[0] === 1 ? 'Côté gauche' : 'Côté droit') : 'Allée ' + lettre(p[0])) + ', étagère ' + p[1] + ', niveau ' + p[2];
+  const posSql = id => Object.fromEntries(lignes(`SELECT p.code, r.allee, r.etagere, r.niveau FROM rangements r JOIN pieces p ON p.id = r.piece_id WHERE r.emplacement_id = ${id}`).map(r => [r[0], [+r[1], +r[2], +r[3]]]));
+  const toutesPos = () => sql('SELECT emplacement_id, piece_id, allee, etagere, niveau FROM rangements ORDER BY emplacement_id, piece_id');
+  const nbJournal = action => +sql(`SELECT COUNT(*) FROM journal WHERE action = '${action}'`);
+  const lignesTiroir = p => p.$$eval('#pl-lignes .pl-ligne', ls => ls.map(l => { const b = l.querySelector('.pl-pos'); return { code: l.querySelector('.code').textContent, pos: b ? b.textContent : null, aria: b ? b.getAttribute('aria-label') : null, balise: b ? b.tagName : null, aranger: !!(b && b.classList.contains('pl-pos-aranger')) }; }));
+  async function ouvrirTiroirR(p, id) { if (await p.getAttribute('.pl-tuile[data-id="' + id + '"]', 'aria-expanded') !== 'true') { await p.click('.pl-tuile[data-id="' + id + '"]'); } await p.waitForFunction(i => document.getElementById('pl-tiroir-titre').textContent && document.getElementById('pl-tiroir').classList.contains('pl-ouvert') && document.querySelector('#pl-lignes .pl-ligne'), id); await attendre(400); }
+  const idPiece = code => +sql(`SELECT id FROM pieces WHERE code = '${code}'`);
+  const enregistrerPos = async (p, corps) => appel(p, 'app/action/plan_rangement_save.php', corps);
+
+  await aller(a);
+  await ouvrirTiroirR(a, 1);
+  let tl = await lignesTiroir(a);
+  let sRang = posSql(1);
+  verifier(tl.length === 14 && tl.every(l => sRang[l.code] ? (l.pos === txtPos(sRang[l.code], false) && l.aria === libPos(sRang[l.code], false) && l.balise === 'BUTTON' && !l.aranger) : (l.pos === 'À ranger' && l.aranger && l.balise === 'BUTTON')),
+    'rangements : chaque pièce du tiroir porte sa pastille « B · 3 · 2 » (aria-label « Allée B, étagère 3, niveau 2 ») ou « À ranger », d\'après la base : ' + JSON.stringify(tl.slice(0, 3)));
+  verifier(tl.filter(l => l.aranger).map(l => l.code).sort().join() === 'P-0006,P-0014', 'rangements : démonstration : deux pièces de l\'entrepôt de Beauchemin restent « À ranger » (' + tl.filter(l => l.aranger).map(l => l.code).join(', ') + ')');
+  verifier(new Set(Object.values(sRang).map(p => p.join('-'))).size < Object.keys(sRang).length, 'rangements : démonstration : des pièces partagent une même tablette');
+  verifier(!(await a.isHidden('#pl-ranger-auto')) && norm(await a.textContent('#pl-ranger-auto')) === 'Ranger automatiquement', 'rangements : « Ranger automatiquement » visible, car il reste des pièces sans position');
+  verifier((await a.$$('#pl-tiroir .form-text, #pl-tiroir p.text-muted, #pl-tiroir .alert-info, #pl-tiroir p')).length === 0, 'rangements : aucun texte explicatif dans le tiroir');
+  const contrPos = { pos: await contraste(a, '#pl-lignes .pl-pos:not(.pl-pos-aranger)'), aranger: await contraste(a, '#pl-lignes .pl-pos-aranger') };
+  verifier(contrPos.pos >= 4.5 && contrPos.aranger >= 4.5, 'rangements : contraste AA des pastilles (≥ 4,5:1) : ' + JSON.stringify(contrPos));
+  const zone = await a.$eval('#pl-lignes .pl-pos', b => ({ h: b.getBoundingClientRect().height, avant: getComputedStyle(b, '::before').top }));
+  verifier(zone.h + 24 >= 44 && zone.avant === '-12px', 'rangements : la zone cliquable d\'une pastille fait au moins 44 px de haut (pastille ' + Math.round(zone.h) + ' px + marge invisible)');
+  await capture(a, '7-tiroir-rangements');
+
+  // contrat JSON du tiroir et de la recherche
+  const brutR = await appel(a, 'app/ajax/plan_emplacement.php?emplacement_id=1', null);
+  verifier(brutR.status === 200 && JSON.stringify(brutR.json.geometrie) === '{"allees":4,"etageres":6,"niveaux":4}' && brutR.json.peut_ranger === true && brutR.json.nb_a_ranger === 2
+    && brutR.json.lignes.every(l => Number.isInteger(l.piece_id) && (l.rangement === null || ['allee', 'etagere', 'niveau'].every(k => Number.isInteger(l.rangement[k])) && Object.keys(l.rangement).join() === 'allee,etagere,niveau')),
+    'rangements : plan_emplacement donne geometrie {allees, etageres, niveaux} et, par pièce, piece_id et rangement {allee, etagere, niveau} (entiers) ou null : ' + brutR.texte.slice(0, 120));
+  const brutC = await appel(a, 'app/ajax/plan_emplacement.php?emplacement_id=3', null);
+  verifier(JSON.stringify(brutC.json.geometrie) === '{"allees":2,"etageres":3,"niveaux":3}', 'rangements : un cube de service : 2 allées (côtés) x 3 étagères x 3 niveaux : ' + JSON.stringify(brutC.json.geometrie));
+  const brutB = await appel(a, 'app/ajax/plan_emplacement.php?emplacement_id=5', null);
+  verifier(JSON.stringify(brutB.json.geometrie) === '{"allees":2,"etageres":4,"niveaux":3}', 'rangements : une boutique : 2 x 4 x 3 : ' + JSON.stringify(brutB.json.geometrie));
+  const rechR = await appel(a, 'app/ajax/plan_data.php?piece_id=' + idPiece('P-0009'), null);
+  const attRech = lignes(`SELECT s.emplacement_id, s.quantite, r.allee, r.etagere, r.niveau FROM stock s JOIN emplacements e ON e.id = s.emplacement_id LEFT JOIN rangements r ON r.emplacement_id = s.emplacement_id AND r.piece_id = s.piece_id WHERE s.piece_id = ${idPiece('P-0009')} AND s.quantite > 0 AND e.actif = 1 ORDER BY s.emplacement_id`);
+  verifier(rechR.status === 200 && rechR.json.recherche.emplacements.length === attRech.length && attRech.length >= 3 && rechR.json.recherche.emplacements.every((x, i) => x.emplacement_id === +attRech[i][0] && x.quantite === (+attRech[i][1]).toFixed(3) && JSON.stringify(x.rangement) === (attRech[i][2] === 'NULL' ? 'null' : JSON.stringify({ allee: +attRech[i][2], etagere: +attRech[i][3], niveau: +attRech[i][4] }))),
+    'rangements : « où est cette pièce » : chaque emplacement donne emplacement_id, quantite et rangement (comme en base) : ' + JSON.stringify(rechR.json.recherche.emplacements));
+
+  // éditeur : trois listes, enregistrer
+  const pid2 = idPiece('P-0002');
+  await a.click('#pl-lignes .pl-ligne[data-piece="' + pid2 + '"] .pl-pos');
+  await a.waitForSelector('#pl-lignes .pl-edit');
+  const ed = await a.evaluate(() => { const e = document.querySelector('#pl-lignes .pl-edit'); return { labels: Array.from(e.querySelectorAll('label > span')).map(x => x.textContent), listes: Array.from(e.querySelectorAll('select')).map(s => ({ champ: s.getAttribute('data-champ'), n: s.options.length, val: s.value, texte: Array.from(s.options).map(o => o.textContent).join(',') })), boutons: Array.from(e.querySelectorAll('button')).map(x => x.textContent.trim()), focus: document.activeElement.getAttribute('data-champ'), aria: document.querySelector('#pl-lignes .pl-pos[aria-expanded="true"]') !== null }; });
+  verifier(JSON.stringify(ed.labels) === '["Allée","Étagère","Niveau"]' && ed.listes[0].texte === 'A,B,C,D' && ed.listes[1].n === 6 && ed.listes[2].n === 4 && ed.listes.map(l => l.val).join() === sRang['P-0002'].join() && JSON.stringify(ed.boutons) === '["Retirer","Enregistrer"]' && ed.focus === 'allee' && ed.aria,
+    'rangements : l\'éditeur a trois listes « Allée » (A à D), « Étagère » (1 à 6), « Niveau » (1 à 4) à la position actuelle, « Retirer » et « Enregistrer », le focus dans la première : ' + JSON.stringify(ed));
+  await capture(a, '8-tiroir-editeur');
+  await a.selectOption('#pl-lignes .pl-edit select[data-champ="allee"]', '3');
+  await a.selectOption('#pl-lignes .pl-edit select[data-champ="etagere"]', '4');
+  await a.selectOption('#pl-lignes .pl-edit select[data-champ="niveau"]', '3');
+  const j0 = nbJournal('plan.rangement');
+  await viderToasts(a);
+  await a.click('#pl-lignes .pl-edit [data-act="enregistrer"]');
+  verifier(/Position enregistrée/.test(await toastTexte(a)), 'rangements : « Enregistrer » : notification « Position enregistrée. »');
+  await a.waitForFunction(() => !document.querySelector('#pl-lignes .pl-edit'));
+  verifier(sql(`SELECT CONCAT(allee, '-', etagere, '-', niveau) FROM rangements WHERE emplacement_id = 1 AND piece_id = ${pid2}`) === '3-4-3', 'rangements : la nouvelle position (C · 4 · 3) est en base, une seule ligne pour la pièce dans l\'emplacement : ' + sql(`SELECT COUNT(*) FROM rangements WHERE emplacement_id = 1 AND piece_id = ${pid2}`));
+  tl = await lignesTiroir(a);
+  const l2 = tl.find(l => l.code === 'P-0002');
+  verifier(l2.pos === 'C · 4 · 3' && l2.aria === 'Allée C, étagère 4, niveau 3' && await a.evaluate(() => document.activeElement.classList.contains('pl-pos')), 'rangements : la pastille montre « C · 4 · 3 » et reprend le focus : ' + JSON.stringify(l2));
+  verifier(nbJournal('plan.rangement') === j0 + 1 && JSON.parse(sql("SELECT details FROM journal WHERE action = 'plan.rangement' ORDER BY id DESC LIMIT 1")).apres === 'Allée C, étagère 4, niveau 3', 'rangements : le journal garde le changement (« Rangement modifié ») : ' + sql("SELECT details FROM journal WHERE action = 'plan.rangement' ORDER BY id DESC LIMIT 1"));
+  // retirer
+  await a.click('#pl-lignes .pl-ligne[data-piece="' + pid2 + '"] .pl-pos');
+  await a.waitForSelector('#pl-lignes .pl-edit');
+  await viderToasts(a);
+  await a.click('#pl-lignes .pl-edit [data-act="retirer"]');
+  verifier(/Position retirée/.test(await toastTexte(a)), 'rangements : « Retirer » : notification « Position retirée. »');
+  await a.waitForFunction(() => !document.querySelector('#pl-lignes .pl-edit'));
+  verifier(sql(`SELECT COUNT(*) FROM rangements WHERE emplacement_id = 1 AND piece_id = ${pid2}`) === '0' && (await lignesTiroir(a)).find(l => l.code === 'P-0002').pos === 'À ranger', 'rangements : retirée, la pièce redevient « À ranger » (rien en base)');
+  // une pièce « À ranger » : l'éditeur n'a pas de « Retirer » ; Échap ferme l'éditeur sans fermer le tiroir
+  await a.click('#pl-lignes .pl-ligne[data-piece="' + pid2 + '"] .pl-pos');
+  await a.waitForSelector('#pl-lignes .pl-edit');
+  verifier(JSON.stringify(await a.$$eval('#pl-lignes .pl-edit button', bs => bs.map(x => x.textContent.trim()))) === '["Enregistrer"]' && await a.$eval('#pl-lignes .pl-edit select[data-champ="allee"]', s => s.value + '-' + s.closest('.pl-edit').querySelector('[data-champ="etagere"]').value) === '1-1', 'rangements : une pièce « À ranger » : seulement « Enregistrer », la liste commence en A · 1 · 1');
+  await a.keyboard.press('Escape');
+  verifier(!(await a.$('#pl-lignes .pl-edit')) && await a.evaluate(() => document.getElementById('pl-tiroir').classList.contains('pl-ouvert') && document.activeElement.classList.contains('pl-pos')), 'rangements : Échap ferme l\'éditeur (le tiroir reste ouvert, le focus revient à la pastille)');
+  await a.click('#pl-lignes .pl-ligne[data-piece="' + pid2 + '"] .pl-pos');
+  await a.selectOption('#pl-lignes .pl-edit select[data-champ="allee"]', '1'); await a.selectOption('#pl-lignes .pl-edit select[data-champ="etagere"]', '2'); await a.selectOption('#pl-lignes .pl-edit select[data-champ="niveau"]', '2');
+  await a.click('#pl-lignes .pl-edit [data-act="enregistrer"]');
+  await a.waitForFunction(() => !document.querySelector('#pl-lignes .pl-edit'));
+  verifier(posSql(1)['P-0002'].join() === '1,2,2', 'rangements : la pièce est remise à sa place de démonstration (A · 2 · 2)');
+
+  // rangement automatique
+  const aRanger = Object.keys(sRang).length;                            // positions de démonstration restantes
+  const jAuto = nbJournal('plan.rangement_auto');
+  await viderToasts(a);
+  await a.click('#pl-ranger-auto');
+  const tAuto = await toastTexte(a);
+  verifier(/2 pièces rangées/.test(tAuto), 'rangements : « Ranger automatiquement » : notification « ' + tAuto + ' »');
+  await a.waitForFunction(() => document.getElementById('pl-ranger-auto').hidden === true);
+  sRang = posSql(1);
+  verifier(sRang['P-0006'].join() === '1,1,1' && sRang['P-0014'].join() === '1,1,1' && Object.keys(sRang).length === 14 && (await lignesTiroir(a)).every(l => !l.aranger) && nbJournal('plan.rangement_auto') === jAuto + 1,
+    'rangements : les deux pièces vont à la première position libre (A · 1 · 1), par ordre de codes ; plus aucune « À ranger », le bouton disparaît, journal : ' + JSON.stringify([sRang['P-0006'], sRang['P-0014']]));
+
+  // valeurs invalides refusées par le serveur : rien n'est écrit
+  const avantInv = toutesPos();
+  const corps = (o) => ({ emplacement_id: 1, piece_id: pid2, allee: 1, etagere: 1, niveau: 1, ...o });
+  const invalides = [[{ allee: 5 }, 'Allée invalide'], [{ allee: 0 }, 'Allée invalide'], [{ etagere: 7 }, 'Étagère invalide'], [{ etagere: 0 }, 'Étagère invalide'], [{ niveau: 5 }, 'Niveau invalide'], [{ niveau: -1 }, 'Niveau invalide'],
+    [{ allee: 1.5 }, 'Choisissez'], [{ etagere: 'abc' }, 'Choisissez'], [{ niveau: null }, 'Choisissez'], [{ allee: true }, 'Choisissez'], [{ etagere: [1] }, 'Choisissez'], [{ allee: '1e0' }, 'Choisissez'],
+    [{ piece_id: 999999 }, 'introuvable'], [{ piece_id: 'x' }, 'Pièce invalide'], [{ emplacement_id: 'x' }, 'Emplacement invalide'], [{ emplacement_id: 0 }, 'Emplacement invalide']];
+  const refusInv = [];
+  for (const [o, mot] of invalides) {
+    const r = await enregistrerPos(a, corps(o));
+    if (!(r.status === 400 && r.json && r.json.ok === false && r.json.erreur.includes(mot))) { refusInv.push(JSON.stringify(o) + ' → ' + r.status + ' ' + r.texte.slice(0, 90)); }
+  }
+  verifier(refusInv.length === 0 && toutesPos() === avantInv, 'rangements : ' + invalides.length + ' valeurs invalides refusées par le serveur (400, message en français), rien d\'écrit : ' + refusInv.join(' ; '));
+  const sansJeton = await enregistrerPos(a, corps({}));
+  const sansJeton2 = await appel(a, 'app/action/plan_rangement_save.php', corps({}), { csrf: false });
+  verifier(sansJeton.status === 200 && sansJeton2.status === 403, 'rangements : sans jeton de sécurité : refusé (403)');
+  verifier(await a.evaluate(async () => (await fetch('app/action/plan_rangement_save.php', { credentials: 'same-origin' })).status) === 405 && await a.evaluate(async () => (await fetch('app/action/plan_rangement_auto.php', { credentials: 'same-origin' })).status) === 405 && await a.evaluate(async () => (await fetch('app/action/plan_geometrie_save.php', { credentials: 'same-origin' })).status) === 405, 'rangements : les trois endpoints d\'écriture n\'acceptent que POST (405 en GET)');
+  sql(`DELETE FROM rangements WHERE emplacement_id = 1 AND piece_id = ${pid2}`);
+  sql(`INSERT INTO rangements (emplacement_id, piece_id, allee, etagere, niveau) VALUES (1, ${pid2}, 1, 2, 2)`);
+
+  // cube de service : côté gauche / côté droit
+  await ouvrirTiroirR(a, 3);
+  tl = await lignesTiroir(a); sRang = posSql(3);
+  verifier(tl.length === 4 && tl.every(l => l.pos === txtPos(sRang[l.code], true) && l.aria === libPos(sRang[l.code], true)), 'rangements : cube de service : « G · 1 · 2 » (aria-label « Côté gauche, étagère 1, niveau 2 ») : ' + JSON.stringify(tl.map(l => l.pos + ' / ' + l.aria)));
+  await a.click('#pl-lignes .pl-pos >> nth=0');
+  await a.waitForSelector('#pl-lignes .pl-edit');
+  const edC = await a.evaluate(() => ({ label: document.querySelector('#pl-lignes .pl-edit label > span').textContent, texte: Array.from(document.querySelector('#pl-lignes .pl-edit select').options).map(o => o.textContent).join(','), n: document.querySelectorAll('#pl-lignes .pl-edit select').length, etageres: document.querySelectorAll('#pl-lignes .pl-edit select')[1].options.length, niveaux: document.querySelectorAll('#pl-lignes .pl-edit select')[2].options.length }));
+  verifier(edC.label === 'Côté' && edC.texte === 'Côté gauche,Côté droit' && edC.n === 3 && edC.etageres === 3 && edC.niveaux === 3, 'rangements : l\'éditeur d\'un cube : « Côté » (gauche, droit), 3 étagères, 3 niveaux : ' + JSON.stringify(edC));
+  await a.keyboard.press('Escape');
+  // Cube 21 de Boutique Chaleur (démonstration) : rempli, avec ses positions (sa tuile est sous le tiroir : on le ferme d'abord)
+  await a.keyboard.press('Escape'); await a.waitForFunction(() => document.getElementById('pl-tiroir').hidden === true);
+  await ouvrirTiroirR(a, 6);
+  tl = await lignesTiroir(a); sRang = posSql(6);
+  verifier(norm(await a.textContent('#pl-tiroir-titre')) === 'Cube 21 — Sophie' && tl.length === 5 && tl.every(l => l.pos === txtPos(sRang[l.code], true)) && await a.getAttribute('#pl-tiroir', 'data-marque') === 'bch', 'rangements : démonstration : « Cube 21 — Sophie » (Boutique Chaleur), 5 pièces avec leurs positions');
+  await a.keyboard.press('Escape'); await a.waitForFunction(() => document.getElementById('pl-tiroir').hidden === true);
+
+  // employé : voit les positions, ne peut rien modifier (le serveur refuse : 403)
+  const eR = await nouvellePage(b, { width: 1366, height: 800 });
+  await L.connecter(eR, 'employe');
+  await aller(eR);
+  await ouvrirTiroirR(eR, 1);
+  const tlE = await lignesTiroir(eR); sRang = posSql(1);
+  verifier(tlE.length === 14 && tlE.every(l => l.pos === (sRang[l.code] ? txtPos(sRang[l.code], false) : 'À ranger') && l.balise === 'SPAN' && l.aria === (sRang[l.code] ? libPos(sRang[l.code], false) : null)), 'rangements : employé : il voit les pastilles (B · 3 · 2, « À ranger ») mais ce ne sont pas des boutons : ' + JSON.stringify(tlE.slice(0, 2)));
+  await eR.click('#pl-lignes .pl-pos >> nth=0', { force: true, timeout: 1500 }).catch(() => {});
+  verifier(!(await eR.$('#pl-lignes .pl-edit')) && await eR.isHidden('#pl-ranger-auto') && !(await eR.$('#pl-rayons')) && !(await eR.$('#pl-rayons-panneau')), 'rangements : employé : ni éditeur, ni « Ranger automatiquement », ni réglage des rayonnages');
+  const brutE = await appel(eR, 'app/ajax/plan_emplacement.php?emplacement_id=1', null);
+  verifier(brutE.json.peut_ranger === false && brutE.json.nb_a_ranger === 0 && !/cout|prix|valeur|"total"/.test(brutE.texte) && Object.keys(brutE.json).join() === Object.keys(brutR.json).join(), 'rangements : employé : peut_ranger faux, mêmes clés que les autres rôles, aucun prix : ' + Object.keys(brutE.json).join());
+  const avantE = toutesPos();
+  const eSave = await enregistrerPos(eR, { emplacement_id: 1, piece_id: pid2, allee: 2, etagere: 2, niveau: 2 });
+  const eRet = await enregistrerPos(eR, { emplacement_id: 1, piece_id: pid2, retirer: true });
+  const eAuto = await appel(eR, 'app/action/plan_rangement_auto.php', { emplacement_id: 1 });
+  const eGeo = await appel(eR, 'app/action/plan_geometrie_save.php', { emplacement_id: 1, allees: 2, etageres: 2, niveaux: 2 });
+  verifier([eSave, eRet, eAuto, eGeo].every(r => r.status === 403 && r.json.ok === false) && toutesPos() === avantE && sql('SELECT COUNT(*) FROM plan_emplacements WHERE rayon_allees IS NOT NULL') === '0', 'rangements : employé : poser, retirer, ranger automatiquement et régler les rayonnages sont refusés par le serveur (403) et n\'écrivent rien : ' + [eSave, eRet, eAuto, eGeo].map(r => r.status));
+
+  // gestionnaire : peut ranger, pas régler les rayonnages
+  const gR = await nouvellePage(b, { width: 1366, height: 800 });
+  await L.connecter(gR, 'gestionnaire');
+  await aller(gR);
+  await ouvrirTiroirR(gR, 3);
+  verifier((await lignesTiroir(gR)).every(l => l.balise === 'BUTTON') && !(await gR.$('#pl-rayons')), 'rangements : gestionnaire : pastilles cliquables, pas de réglage des rayonnages (administrateur seulement)');
+  const gGeo = await appel(gR, 'app/action/plan_geometrie_save.php', { emplacement_id: 1, allees: 2, etageres: 2, niveaux: 2 });
+  verifier(gGeo.status === 403 && sql('SELECT COUNT(*) FROM plan_emplacements WHERE rayon_allees IS NOT NULL') === '0', 'rangements : gestionnaire : régler les rayonnages est refusé par le serveur (403)');
+  const gOk = await enregistrerPos(gR, { emplacement_id: 1, piece_id: idPiece('P-0003'), allee: 4, etagere: 6, niveau: 4 });
+  verifier(gOk.status === 200 && JSON.stringify(gOk.json.rangement) === '{"allee":4,"etagere":6,"niveau":4}' && gOk.json.ok === true, 'rangements : gestionnaire : poser une position réussit : ' + gOk.texte);
+  // mise à jour en direct : l'administrateur qui a l'emplacement 1 ouvert voit la nouvelle position sans rien faire
+  await ouvrirTiroirR(a, 1);
+  const pid3 = idPiece('P-0003');
+  const jetonAvant = (await appel(a, 'app/ajax/plan_version.php', null)).json.version;
+  await enregistrerPos(gR, { emplacement_id: 1, piece_id: pid3, allee: 1, etagere: 6, niveau: 4 });
+  verifier((await appel(a, 'app/ajax/plan_version.php', null)).json.version !== jetonAvant, 'rangements : un rangement change le jeton de version (temps réel)');
+  await a.waitForFunction(id => { const b = document.querySelector('#pl-lignes .pl-ligne[data-piece="' + id + '"] .pl-pos'); return b && b.textContent === 'A · 6 · 4'; }, pid3, { timeout: 9000, polling: 100 });
+  verifier(true, 'rangements : le tiroir ouvert chez l\'administrateur affiche en direct la position posée depuis un autre poste (A · 6 · 4)');
+  await enregistrerPos(gR, { emplacement_id: 1, piece_id: pid3, allee: 2, etagere: 1, niveau: 2 });
+  // l'éditeur ouvert survit à une mise à jour en direct (les valeurs saisies ne sont pas perdues)
+  await a.click('#pl-lignes .pl-ligne[data-piece="' + pid2 + '"] .pl-pos');
+  await a.selectOption('#pl-lignes .pl-edit select[data-champ="etagere"]', '5');
+  await enregistrerPos(gR, { emplacement_id: 1, piece_id: pid3, allee: 3, etagere: 1, niveau: 1 });
+  await a.waitForFunction(id => { const b = document.querySelector('#pl-lignes .pl-ligne[data-piece="' + id + '"] .pl-pos'); return b && b.textContent === 'C · 1 · 1'; }, pid3, { timeout: 9000, polling: 100 });
+  verifier(await a.$eval('#pl-lignes .pl-edit select[data-champ="etagere"]', s => s.value) === '5', 'rangements : l\'éditeur ouvert garde ce qui était choisi quand le tiroir se met à jour en direct');
+  await a.keyboard.press('Escape');
+
+  // gestionnaire de Boutique Chaleur seulement : cloisonnement des écritures
+  const hashR = execFileSync('php', ['-r', 'echo password_hash("Test-Beauchemin-1", PASSWORD_DEFAULT);'], { encoding: 'utf8' });
+  sql("INSERT INTO utilisateurs (nom_utilisateur, nom_complet, mot_de_passe, role) VALUES ('gest_rang', 'Gestionnaire BCH rangements', '" + hashR + "', 'gestionnaire')");
+  sql("INSERT INTO utilisateur_entreprises (utilisateur_id, entreprise_id) SELECT id, 2 FROM utilisateurs WHERE nom_utilisateur = 'gest_rang'");
+  const hRang = await nouvellePage(b, { width: 1366, height: 800 });
+  await hRang.goto(L.BASE + '/login.php');
+  await hRang.fill('input[name=username]', 'gest_rang'); await hRang.fill('input[name=password]', 'Test-Beauchemin-1');
+  await Promise.all([hRang.waitForNavigation(), hRang.click('button[type=submit]')]);
+  await aller(hRang);
+  const avantH = toutesPos();
+  const hAutre = await enregistrerPos(hRang, { emplacement_id: 1, piece_id: pid2, allee: 2, etagere: 2, niveau: 2 });
+  const hInex = await enregistrerPos(hRang, { emplacement_id: 99999, piece_id: pid2, allee: 2, etagere: 2, niveau: 2 });
+  const hAuto = await appel(hRang, 'app/action/plan_rangement_auto.php', { emplacement_id: 1 });
+  const hRet = await enregistrerPos(hRang, { emplacement_id: 1, piece_id: pid2, retirer: true });
+  verifier([hAutre, hInex, hAuto, hRet].every(r => r.status === 403 && r.json.erreur === hInex.json.erreur) && toutesPos() === avantH, 'rangements : le gestionnaire de Boutique Chaleur ne range pas chez Beauchemin (403, même réponse qu\'un emplacement inconnu), rien d\'écrit : ' + [hAutre, hInex, hAuto, hRet].map(r => r.status));
+  const hChez = await enregistrerPos(hRang, { emplacement_id: 2, piece_id: idPiece('P-0012'), allee: 4, etagere: 6, niveau: 4 });
+  verifier(hChez.status === 200 && sql(`SELECT CONCAT(allee, '-', etagere, '-', niveau) FROM rangements WHERE emplacement_id = 2 AND piece_id = ${idPiece('P-0012')}`) === '4-6-4', 'rangements : ... mais range chez Boutique Chaleur (4-6-4)');
+  sql(`UPDATE rangements SET allee = 2, etagere = 1, niveau = 2 WHERE emplacement_id = 2 AND piece_id = ${idPiece('P-0012')}`);
+  await hRang.context().close();
+
+  // administrateur : rayonnages (dimensions) de l'emplacement
+  await ouvrirTiroirR(a, 1);
+  verifier(!(await a.isHidden('#pl-rayons')) && await a.getAttribute('#pl-rayons', 'aria-label') === 'Rayonnages' && await a.isHidden('#pl-rayons-panneau'), 'rangements : administrateur : un petit bouton « Rayonnages » dans l\'en-tête du tiroir ; le réglage reste caché');
+  await a.click('#pl-rayons');
+  const pan = await a.evaluate(() => ({ labels: Array.from(document.querySelectorAll('#pl-rayons-panneau label')).map(x => x.textContent), valeurs: ['allees', 'etageres', 'niveaux'].map(k => document.getElementById('pl-rayons-' + k).value), max: ['allees', 'etageres', 'niveaux'].map(k => document.getElementById('pl-rayons-' + k).max), defaut: document.getElementById('pl-rayons-defaut').disabled, ouvert: document.getElementById('pl-rayons').getAttribute('aria-expanded'), focus: document.activeElement.id }));
+  verifier(JSON.stringify(pan.labels) === '["Allées","Étagères","Niveaux"]' && pan.valeurs.join() === '4,6,4' && pan.max.join() === '12,30,10' && pan.defaut === true && pan.ouvert === 'true' && pan.focus === 'pl-rayons-allees', 'rangements : le réglage montre « Allées », « Étagères », « Niveaux » (4, 6, 4 ; bornes 12, 30, 10), « Par défaut » inactif : ' + JSON.stringify(pan));
+  await capture(a, '9-tiroir-rayons');
+  await a.fill('#pl-rayons-allees', '13');
+  await viderToasts(a);
+  await a.click('#pl-rayons-enregistrer');
+  const tGeoMal = await toastTexte(a);
+  verifier(/Allées : choisissez de 1 à 12/.test(tGeoMal) && await a.$eval('#pl-rayons-allees', x => x.classList.contains('is-invalid')) && sql('SELECT COUNT(*) FROM plan_emplacements WHERE rayon_allees IS NOT NULL') === '0', 'rangements : 13 allées : refusé avec un message en français, rien d\'écrit : « ' + tGeoMal + ' »');
+  const aRetirer = lignes('SELECT COUNT(*) FROM rangements WHERE emplacement_id = 1 AND niveau > 2')[0][0];
+  await a.fill('#pl-rayons-allees', '4'); await a.fill('#pl-rayons-niveaux', '2');
+  await viderToasts(a);
+  await a.click('#pl-rayons-enregistrer');
+  const tGeo = await toastTexte(a);
+  verifier(/Rayonnages enregistrés/.test(tGeo) && new RegExp(aRetirer + ' pièces? à ranger').test(tGeo) && sql('SELECT CONCAT(rayon_allees, rayon_etageres, rayon_niveaux) FROM plan_emplacements WHERE emplacement_id = 1') === '462' && await a.isHidden('#pl-rayons-panneau'),
+    'rangements : 4 allées, 6 étagères, 2 niveaux : enregistré, le réglage se referme, les pièces rangées trop haut (' + aRetirer + ') sont « À ranger » : « ' + tGeo + ' »');
+  await a.waitForFunction(() => !document.getElementById('pl-ranger-auto').hidden);
+  verifier((await lignesTiroir(a)).filter(l => l.aranger).length === +aRetirer && sql('SELECT COUNT(*) FROM rangements WHERE emplacement_id = 1 AND niveau > 2') === '0' && JSON.parse(sql("SELECT details FROM journal WHERE action = 'plan.geometrie' ORDER BY id DESC LIMIT 1")).retirees === +aRetirer, 'rangements : la liste montre ces pièces « À ranger », « Ranger automatiquement » réapparaît, le journal « Rayonnages modifiés » le dit');
+  await a.click('#pl-lignes .pl-pos >> nth=0');
+  verifier(await a.$$eval('#pl-lignes .pl-edit select[data-champ="niveau"] option', os => os.length) === 2, 'rangements : l\'éditeur ne propose plus que 2 niveaux');
+  await a.keyboard.press('Escape');
+  await viderToasts(a);
+  await a.click('#pl-ranger-auto');
+  await toastTexte(a);
+  await a.waitForFunction(() => document.getElementById('pl-ranger-auto').hidden === true);
+  verifier(sql('SELECT COUNT(*) FROM rangements WHERE emplacement_id = 1 AND niveau > 2') === '0' && Object.keys(posSql(1)).length === 14, 'rangements : le rangement automatique respecte les nouvelles dimensions (aucun niveau 3 ni 4)');
+  await a.click('#pl-rayons');
+  verifier(await a.$eval('#pl-rayons-defaut', x => !x.disabled), 'rangements : « Par défaut » est actif quand les dimensions sont réglées');
+  await viderToasts(a);
+  await a.click('#pl-rayons-defaut');
+  await toastTexte(a);
+  await a.waitForFunction(() => document.getElementById('pl-rayons-panneau').hidden === true);
+  verifier(sql('SELECT CONCAT(COALESCE(rayon_allees, 0), COALESCE(rayon_etageres, 0), COALESCE(rayon_niveaux, 0)) FROM plan_emplacements WHERE emplacement_id = 1') === '000', 'rangements : « Par défaut » remet les valeurs du type (colonnes à NULL)');
+  await a.click('#pl-lignes .pl-pos >> nth=0');
+  verifier(await a.$$eval('#pl-lignes .pl-edit select[data-champ="niveau"] option', os => os.length) === 4, 'rangements : l\'éditeur propose de nouveau 4 niveaux');
+  await a.keyboard.press('Escape');
+  await ouvrirTiroirR(a, 3);
+  await a.click('#pl-rayons');
+  verifier(await a.$eval('#pl-rayons-allees', x => x.max + '/' + x.value) === '2/2', 'rangements : cube de service : au plus 2 allées (côtés) dans le réglage');
+  await a.keyboard.press('Escape');
+  await a.keyboard.press('Escape');
+  const seuil = await appel(a, 'app/action/plan_geometrie_save.php', { emplacement_id: 3, allees: 3, etageres: 3, niveaux: 3 });
+  verifier(seuil.status === 400 && /Allées : choisissez de 1 à 2/.test(seuil.json.erreur), 'rangements : le serveur refuse aussi 3 allées pour un cube (400) : ' + seuil.texte);
+
+  // téléphone : l'éditeur tient dans l'écran
+  const tR = await nouvellePage(b, { width: 390, height: 844 });
+  await L.connecter(tR, 'gestionnaire');
+  await aller(tR);
+  await tR.click('.pl-tuile[data-id="1"]'); await tR.waitForSelector('#pl-tiroir.pl-ouvert .pl-ligne'); await attendre(400);
+  await tR.click('#pl-lignes .pl-pos >> nth=0');
+  await tR.waitForSelector('#pl-lignes .pl-edit');
+  const tel4 = await tR.evaluate(() => ({ debord: document.documentElement.scrollWidth > innerWidth + 1, liste: document.getElementById('pl-lignes').scrollWidth > document.getElementById('pl-lignes').clientWidth + 1, hauteurs: Array.from(document.querySelectorAll('#pl-lignes .pl-edit select, #pl-lignes .pl-edit button')).map(e => Math.round(e.getBoundingClientRect().height)), croix: Math.round(document.getElementById('pl-tiroir-fermer').getBoundingClientRect().width) }));
+  verifier(!tel4.debord && !tel4.liste && tel4.hauteurs.every(h => h >= 44) && tel4.croix >= 44, 'rangements : téléphone 390 px : l\'éditeur tient dans le tiroir, sans défilement horizontal, cibles ≥ 44 px : ' + JSON.stringify(tel4));
+  await capture(tR, '10-telephone-editeur');
+  erreursRang.push(...tR.erreurs, ...eR.erreurs, ...gR.erreurs, ...hRang.erreurs);
+  await tR.context().close(); await eR.context().close(); await gR.context().close();
+  await a.keyboard.press('Escape');
+  await aller(a);
+
+  // ===================================================================================================================
   section('5. Temps réel : un autre poste fait un mouvement, le plan se met à jour tout seul');
   // ===================================================================================================================
   await aller(a);
@@ -539,9 +802,10 @@ async function contraste(p, selecteur, fond) {
   }
   const t4 = depart[4];
   const largeurSurface = await a.$eval('#pl-surface', x => parseInt(x.style.width, 10));
-  const pend = await glisser(a, 4, 457, 63);                      // pas multiples de 20 : l'accrochage les ramène à la grille
+  const dy4 = Math.max(...Object.values(depart).map(t => t.y + t.h)) - t4.y + 63;     // sous toutes les tuiles (le cube 21 de la démonstration occupe la place à droite)
+  const pend = await glisser(a, 4, 457, dy4);                     // pas multiples de 20 : l'accrochage les ramène à la grille
   let apr = Object.fromEntries((await tuiles(a)).map(t => [t.id, t]));
-  const attX = Math.min(Math.round((t4.x + 457) / 20) * 20, Math.floor(largeurSurface / 20) * 20 - t4.l), attY = Math.round((t4.y + 63) / 20) * 20;
+  const attX = Math.min(Math.round((t4.x + 457) / 20) * 20, Math.floor(largeurSurface / 20) * 20 - t4.l), attY = Math.round((t4.y + dy4) / 20) * 20;
   verifier(/pl-deplace/.test(pend) && apr[4].x === attX && apr[4].y === attY && apr[4].x % 20 === 0 && apr[4].y % 20 === 0, 'glisser à la souris : la tuile suit et s\'accroche à la grille de 20 px (' + t4.x + ',' + t4.y + ' → ' + apr[4].x + ',' + apr[4].y + ', attendu ' + attX + ',' + attY + ')');
   verifier(Object.keys(apr).every(i => i === '4' || (apr[i].x === depart[i].x && apr[i].y === depart[i].y)), 'les autres tuiles n\'ont pas bougé');
   // recouvrement : refusé, la tuile revient à sa place
@@ -583,7 +847,7 @@ async function contraste(p, selecteur, fond) {
   verifier(Object.keys(depart).every(i => apresAnnul[i].x === depart[i].x && apresAnnul[i].y === depart[i].y && apresAnnul[i].l === depart[i].l && apresAnnul[i].h === depart[i].h) && !(await a.isHidden('#pl-modifier')) && positionsSql().length === 0, '« Annuler » rétablit le plan d\'avant la modification ; rien n\'est écrit');
   // modifier de nouveau, enregistrer, recharger
   await a.click('#pl-modifier');
-  await glisser(a, 4, 457, 63);
+  await glisser(a, 4, 457, dy4);
   await glisser(a, 5, 83, 45, true);
   const voulu = Object.fromEntries((await tuiles(a)).map(t => [t.id, t]));
   await viderToasts(a);
@@ -659,12 +923,12 @@ async function contraste(p, selecteur, fond) {
   // près du bas de l'écran, la page défile toute seule pendant le glisser (une tablette ne montre pas tout le plan)
   await tt.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
   await attendre(200);
-  const bb6 = await (await tt.$('.pl-tuile[data-id="6"]')).boundingBox();
-  const x6 = bb6.x + 40, y6 = bb6.y + 40, bas = tt.viewportSize().height - 12, top6 = parseInt(await tt.$eval('.pl-tuile[data-id="6"]', x => x.style.top), 10);
+  const bb6 = await (await tt.$('.pl-tuile[data-id="' + idVide + '"]')).boundingBox();
+  const x6 = bb6.x + 40, y6 = bb6.y + 40, bas = tt.viewportSize().height - 12, top6 = parseInt(await tt.$eval('.pl-tuile[data-id="' + idVide + '"]', x => x.style.top), 10);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x6, y: y6 }] });
   for (let i = 1; i <= 6; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x6, y: y6 + (bas - y6) * i / 6 }] }); await attendre(20); }
   await attendre(1500);                                                                 // le doigt reste en bas de l'écran
-  const defile = await tt.evaluate(() => ({ y: Math.round(window.scrollY), top: parseInt(document.querySelector('.pl-tuile[data-id="6"]').style.top, 10) }));
+  const defile = await tt.evaluate(id => ({ y: Math.round(window.scrollY), top: parseInt(document.querySelector('.pl-tuile[data-id="' + id + '"]').style.top, 10) }), idVide);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   verifier(defile.y > 150 && defile.top > top6 + 300, 'au doigt, près du bas de l\'écran : la page défile toute seule et la tuile suit (défilement ' + defile.y + ' px, tuile ' + top6 + ' → ' + defile.top + ')');
   await tt.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
@@ -727,7 +991,7 @@ async function contraste(p, selecteur, fond) {
   await a.waitForSelector('#table-journal tbody tr');
   const jtxt = norm(await a.textContent('#table-journal'));
   verifier(/Plan de l'entrepôt modifié/.test(jtxt), 'le Journal affiche l\'enregistrement du plan en français : « Plan de l\'entrepôt modifié »');
-  const erreursAll = [].concat(a.erreurs, e.erreurs, g.erreurs, h.erreurs, t.erreurs, tel2.erreurs).filter(x => !/Failed to load resource: (net::ERR_|the server responded with a status of 40[0-9])|requestfailed: .*(plan_version|plan_save)\.php/.test(x));
+  const erreursAll = [].concat(a.erreurs, e.erreurs, g.erreurs, h.erreurs, t.erreurs, tel2.erreurs, erreursRang).filter(x => !/Failed to load resource: (net::ERR_|the server responded with a status of 40[0-9])|requestfailed: .*(plan_version|plan_save|plan_rangement_save|plan_rangement_auto|plan_geometrie_save)\.php/.test(x));
   verifier(erreursAll.length === 0, 'aucune erreur JavaScript ni requête échouée (hors les refus et la coupure réseau provoqués exprès) : ' + JSON.stringify(erreursAll));
   verifier(violationsCsp.length === 0, 'aucune violation de la politique de sécurité (CSP) : ' + JSON.stringify(violationsCsp));
   let nouveau = ''; try { nouveau = fs.readFileSync(JOURNAL, 'utf8').slice(tailleJournal); } catch (x) { nouveau = ''; }

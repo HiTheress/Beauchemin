@@ -59,10 +59,11 @@ export class Pieces {
   cone(r, h, x, y, z, couleur, seg = 8) { return this.g(new ConeGeometry(r, h, seg), couleur, x, y, z); }
   sphere(r, x, y, z, couleur, sx = 1, sy = 1, sz = 1, seg = 8) { return this.g(new SphereGeometry(r, seg, Math.max(4, seg - 2)), couleur, x, y, z, 0, 0, 0, sx, sy, sz); }
   /** Profil (liste de [x,y]) extrudé en largeur (z), avec biseau doux pour les formes arrondies (cabine, capots). */
-  profil(pts, largeur, x, y, z, couleur, biseau = 0.1) {
+  profil(pts, largeur, x, y, z, couleur, biseau = 0.1, ry = 0) {
     const s = new Shape(); pts.forEach((p, i) => (i ? s.lineTo(p[0], p[1]) : s.moveTo(p[0], p[1])));
     const geo = new ExtrudeGeometry(s, { depth: Math.max(0.01, largeur - 2 * biseau), bevelEnabled: biseau > 0, bevelThickness: biseau, bevelSize: biseau, bevelSegments: 2, curveSegments: 4 });
-    return this.g(geo, couleur, x, y, z - largeur / 2 + biseau);
+    geo.translate(0, 0, -largeur / 2 + biseau);
+    return this.g(geo, couleur, x, y, z, 0, ry, 0);
   }
   fin() {
     const g = this.l.length ? mergeGeometries(this.l) : null;
@@ -111,5 +112,16 @@ export function dalleUV(w, d, pas) {
 export function fusionner(liste) {
   const g = liste.length ? mergeGeometries(liste) : null;
   liste.forEach(x => x.dispose());
+  return g;
+}
+
+/** Boîte à UV en mètres (briques : répétition dans les deux sens, un carreau = pu x pv mètres). */
+export function boiteUV(w, h, d, x, y, z, pu, pv) {
+  const g = new BoxGeometry(w, h, d);
+  const uv = g.attributes.uv, lu = [d, d, w, w, w, w], lv = [h, h, d, d, h, h];
+  for (let f = 0; f < 6; f++) {
+    for (let i = 0; i < 4; i++) { const k = f * 4 + i; uv.setXY(k, uv.getX(k) * lu[f] / pu, uv.getY(k) * lv[f] / pv); }
+  }
+  g.translate(x, y, z);
   return g;
 }

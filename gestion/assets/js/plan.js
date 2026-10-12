@@ -47,9 +47,10 @@
     version: '', pieceId: null, recherche: null,
     rects: {},                               // places affichées (px) : id -> {x, y, largeur, hauteur}
     edition: false, brouillon: null, avant: null, sale: false,
-    tiroirId: null, tiroirLignes: null, tiroirTronque: false, declencheur: null,
+    tiroirId: null, tiroirLignes: null, tiroirTronque: false, declencheur: null, tiroirRep: null, editeur: null,   // tiroirRep : dernière réponse de plan_emplacement.php ; editeur : position en cours de saisie
     premier: true, seq: 0, derniereLecture: 0,
-    vue: 'tuiles', apresEdition: null
+    vue: 'tuiles', apresEdition: null,
+    interieur: null, ligneVue: null, ligneAmener: false     // interieur : id de l'emplacement visité en 3D (vue en coupe) ; ligneVue : pièce choisie dans la scène
   };
 
   var ui3d = creerVue3d();
@@ -261,12 +262,17 @@
 
   // ---- Les deux vues : 3D et Tuiles (mêmes données, une seule source) --------------------------------------------------------------------
   function creerVue3d() {
-    if (!w.PlanVue3D) { return { disponible: function () { return false; }, activer: function () { return false; }, desactiver: function () {}, donnees: function () {}, recherche: function () {}, selection: function () {}, marge: function () {} }; }
+    if (!w.PlanVue3D) { return { disponible: function () { return false; }, activer: function () { return false; }, desactiver: function () {}, donnees: function () {}, recherche: function () {}, selection: function () {}, marge: function () {},
+      actif: function () { return false; }, entrerInterieur: function () { return false; }, sortirInterieur: function () {}, majInterieur: function () {} }; }
     return w.PlanVue3D.creer({
       conteneur: scene3d,
       ouvrir: function (id, declencheur) { if (etat.edition) { return; } if (etat.tiroirId === id) { fermerTiroir(); } else { ouvrirTiroir(id, declencheur); } },
       fermer: function () { fermerTiroir(); },
       repli: function () { choisirVue('tuiles', { memoriser: false }); },       // contexte WebGL perdu pour de bon : retour discret aux tuiles
+      interieur: function (id) { entrerInterieur(id); },                         // double-clic sur un bâtiment
+      retour: function () { sortirInterieur(); },
+      piece: voirPiece,                                                          // clic sur une caisse : sa ligne dans le tiroir
+      ranger: rangerCaisse,                                                      // caisse déposée dans une autre case
       aide: { resumeHtml: resumeHtml, libelle: libelleTuile, icone: function (type) { return ICONES[type] || 'fa-warehouse'; }, marque: marque },
     });
   }
@@ -310,7 +316,7 @@
       etat.vue = '3d';
       if (!ui3d.activer()) { v = 'tuiles'; etat.vue = avant; }
     }
-    if (v !== '3d' && avant === '3d') { ui3d.desactiver(); }
+    if (v !== '3d' && avant === '3d') { ui3d.desactiver(); seqInt++; etat.interieur = null; racine.classList.remove('pl-interieur'); }
     etat.vue = v;
     racine.classList.toggle('pl-mode-3d', v === '3d');
     racine.classList.toggle('pl-mode-tuiles', v !== '3d');
@@ -400,6 +406,7 @@
     if (etat.tiroirId !== null) {
       if (!etat.objets[etat.tiroirId]) { fermerTiroir(); } else { chargerTiroir(true); }
     }
+    if (etat.interieur !== null) { if (!etat.objets[etat.interieur]) { sortirInterieur(); } else { chargerInterieur(); } }
   }
 
   // ---- Champ de scan / recherche ------------------------------------------------------------------------------------------------
@@ -511,7 +518,7 @@
     el('pl-tiroir-icone').innerHTML = '<i class="fas ' + (ICONES[o.t.type] || 'fa-warehouse') + '"></i>';
     el('pl-tiroir-sous').innerHTML = '<span class="pl-entreprise">' + esc(o.t.entreprise_nom) + '</span>' + esc(o.t.type_libelle) + (o.t.code ? ' · <span class="code">' + esc(o.t.code) + '</span>' : '');
     el('pl-voir-stock').setAttribute('href', lienPage('stock', { emplacement_id: id }));
-    if (!memeTuile) { filtre.value = ''; lignesEl.textContent = ''; lignesEl.removeAttribute('data-html'); etat.tiroirLignes = null; etat.tiroirTronque = false; el('pl-tiroir-resume').textContent = ''; }
+    if (!memeTuile) { filtre.value = ''; lignesEl.textContent = ''; lignesEl.removeAttribute('data-html'); etat.tiroirLignes = null; etat.tiroirTronque = false; el('pl-tiroir-resume').textContent = ''; reinitialiserRangements(); }
     tiroir.hidden = false;
     void tiroir.offsetWidth;
     tiroir.classList.add('pl-ouvert');
@@ -520,11 +527,13 @@
     if (!memeTuile) { el('pl-tiroir-titre').focus({ preventScroll: true }); }
     chargerTiroir(false);
     if (etat.vue === '3d') { ui3d.marge(mqLarge.matches ? 376 : 0); ui3d.selection(id); }
+    majBoutonsInterieur();
   }
   function fermerTiroir() {
     if (etat.tiroirId === null) { return; }
     var retour = etat.declencheur;
-    etat.tiroirId = null; seqTiroir++;
+    etat.tiroirId = null; seqTiroir++; etat.ligneVue = null;
+    reinitialiserRangements();
     tiroir.classList.remove('pl-ouvert');
     racine.classList.remove('pl-tiroir-ouvert');
     Object.keys(etat.objets).forEach(function (k) { etat.objets[k].el.removeAttribute('aria-expanded'); });
@@ -532,6 +541,7 @@
     if (w.matchMedia('(prefers-reduced-motion: reduce)').matches) { fin(); } else { setTimeout(fin, 300); }
     if (retour && d.body.contains(retour)) { retour.focus({ preventScroll: true }); } else { champ.focus(); }
     if (etat.vue === '3d') { ui3d.selection(null); ui3d.marge(0); }
+    majBoutonsInterieur();
   }
   function chargerTiroir(silencieux) {
     var id = etat.tiroirId, mon = ++seqTiroir, q = filtre.value.trim();
@@ -550,16 +560,24 @@
     (etat.tiroirLignes || []).forEach(function (l) { anciennes[l.piece_id] = l.quantite; });
     var avait = etat.tiroirLignes !== null;
     etat.tiroirLignes = r.lignes;
+    etat.tiroirRep = r;
+    if (etat.editeur && (!r.peut_ranger || !r.lignes.some(function (l) { return l.piece_id === etat.editeur.piece && l.actif; }))) { etat.editeur = null; }
     var haut = lignesEl.scrollTop;
     var html = r.lignes.map(function (l) {
-      var cls = 'pl-ligne' + (avait && silencieux && anciennes[l.piece_id] !== l.quantite ? ' pl-change' : '');
+      var cls = 'pl-ligne' + (avait && silencieux && anciennes[l.piece_id] !== l.quantite ? ' pl-change' : '') + (etat.editeur && etat.editeur.piece === l.piece_id ? ' pl-ligne-edition' : '');
       return '<li class="' + cls + '" data-piece="' + esc(l.piece_id) + '" data-recherche="' + esc(normaliser(l.code + ' ' + l.nom)) + '">' +
         '<span class="pl-ligne-nom">' + esc(l.nom) + (l.actif ? '' : ' <span class="badge badge-secondary">Désactivée</span>') + '</span>' +
-        '<span class="pl-ligne-sous"><a href="' + esc(lienPage('piece_voir', { id: l.piece_id })) + '" class="code">' + esc(l.code) + '</a>' + (l.bas ? '<span class="badge badge-bas">Sous le minimum</span>' : '') + '</span>' +
-        '<span class="pl-ligne-qte">' + quantiteAvecUnite(l.quantite, l.unite) + '</span></li>';
+        '<span class="pl-ligne-sous"><a href="' + esc(lienPage('piece_voir', { id: l.piece_id })) + '" class="code">' + esc(l.code) + '</a>' + (l.bas ? '<span class="badge badge-bas">Sous le minimum</span>' : '') + pastilleHtml(l, r) + '</span>' +
+        '<span class="pl-ligne-qte">' + quantiteAvecUnite(l.quantite, l.unite) + '</span>' +
+        (etat.editeur && etat.editeur.piece === l.piece_id ? editeurHtml(l, r) : '') + '</li>';
     }).join('');
     if (!r.lignes.length) { html = '<li class="pl-lignes-vide">' + (filtre.value.trim() ? 'Aucune pièce trouvée.' : 'Aucune pièce.') + '</li>'; }
-    if (lignesEl.getAttribute('data-html') !== html) { lignesEl.innerHTML = html; lignesEl.setAttribute('data-html', html); lignesEl.scrollTop = haut; }
+    if (lignesEl.getAttribute('data-html') !== html) {
+      var foc = focusLignes();
+      lignesEl.innerHTML = html; lignesEl.setAttribute('data-html', html); lignesEl.scrollTop = haut;
+      rendreFocusLignes(foc);
+    }
+    majPiedTiroir(r);
     marquerTiroir();
     filtrerLocal();
   }
@@ -567,6 +585,8 @@
   function marquerTiroir() {
     var id = etat.recherche ? String(etat.recherche.piece.id) : null;
     Array.prototype.forEach.call(lignesEl.querySelectorAll('.pl-ligne'), function (li) { li.classList.toggle('pl-ligne-trouvee', li.getAttribute('data-piece') === id); });
+    marquerLigneVue();
+    majBoutonsInterieur();
   }
   /** Recherche rapide : sur place quand toute la liste est là, sinon (très longue liste) le serveur filtre. */
   function filtrerLocal() {
@@ -589,6 +609,256 @@
   });
   el('pl-tiroir-fermer').addEventListener('click', fermerTiroir);
 
+  // ---- Tiroir : rangements (où, dans l'emplacement, se trouve chaque pièce : allée, étagère, niveau) -----------------------------
+  // Chaque ligne porte une pastille « B · 3 · 2 » (cube : « G · 3 · 2 ») ou « À ranger ». Gestionnaire et administrateur : un clic ouvre un petit éditeur
+  // (plan_rangement_save.php) ; l'employé voit la position mais ne peut rien changer (le serveur refuse de toute façon). En bas : « Ranger automatiquement »
+  // (plan_rangement_auto.php) s'il reste des pièces sans position. Administrateur : le bouton de réglage du tiroir ouvre les dimensions des rayonnages
+  // (plan_geometrie_save.php). Les dimensions et les libellés viennent du serveur (geometrie, emplacement.type) ; rien n'est supposé ici.
+  var LETTRES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  var btnAuto = el('pl-ranger-auto'), btnRayons = el('pl-rayons'), formRayons = el('pl-rayons-panneau');
+  var CHAMPS_RAYONS = ['allees', 'etageres', 'niveaux'];
+  function nomAllee(a, type) { if (type === 'cube') { return a === 1 ? 'Côté gauche' : (a === 2 ? 'Côté droit' : 'Côté ' + a); } return LETTRES.charAt(a - 1) || String(a); }
+  function codeAllee(a, type) { if (type === 'cube') { return a === 1 ? 'G' : (a === 2 ? 'D' : String(a)); } return LETTRES.charAt(a - 1) || String(a); }
+  function posCourte(p, type) { return codeAllee(p.allee, type) + ' · ' + p.etagere + ' · ' + p.niveau; }
+  function posLongue(p, type) { return (type === 'cube' ? '' : 'Allée ') + nomAllee(p.allee, type) + ', étagère ' + p.etagere + ', niveau ' + p.niveau; }
+
+  /** La pastille de position d'une ligne : bouton pour qui peut ranger, simple repère pour les autres ; rien pour une pièce désactivée sans position. */
+  function pastilleHtml(l, r) {
+    var type = r.emplacement.type, p = l.rangement;
+    if (!p && !l.actif) { return ''; }
+    var cls = 'pl-pos' + (p ? '' : ' pl-pos-aranger'), txt = esc(p ? posCourte(p, type) : 'À ranger'), lib = p ? posLongue(p, type) : '';
+    if (r.peut_ranger && l.actif) {
+      return '<button type="button" class="' + cls + '" data-piece="' + esc(l.piece_id) + '"' + (p ? ' aria-label="' + esc(lib) + '" title="' + esc(lib) + '"' : '') +
+        ' aria-expanded="' + (etat.editeur && etat.editeur.piece === l.piece_id ? 'true' : 'false') + '">' + txt + '</button>';
+    }
+    return '<span class="' + cls + ' pl-pos-fixe"' + (p ? ' role="img" aria-label="' + esc(lib) + '" title="' + esc(lib) + '"' : '') + '>' + txt + '</span>';
+  }
+  /** L'éditeur de position (trois listes) sous la ligne de la pièce ; les valeurs en cours sont dans etat.editeur, donc un rafraîchissement ne les perd pas. */
+  function editeurHtml(l, r) {
+    var e = etat.editeur, type = r.emplacement.type, g = r.geometrie;
+    function liste(champ, libelle, n, texte) {
+      var h = '', i;
+      for (i = 1; i <= n; i++) { h += '<option value="' + i + '"' + (i === e[champ] ? ' selected' : '') + '>' + esc(texte(i)) + '</option>'; }
+      return '<label class="pl-edit-champ' + (champ === 'allee' && type === 'cube' ? ' pl-edit-cote' : '') + '"><span>' + esc(libelle) + '</span><select class="custom-select custom-select-sm" data-champ="' + champ + '">' + h + '</select></label>';
+    }
+    e.allee = Math.min(Math.max(e.allee, 1), g.allees); e.etagere = Math.min(Math.max(e.etagere, 1), g.etageres); e.niveau = Math.min(Math.max(e.niveau, 1), g.niveaux);
+    return '<div class="pl-edit" role="group" aria-label="Position de ' + esc(l.nom) + '" data-sans-mascotte>' +
+      liste('allee', type === 'cube' ? 'Côté' : 'Allée', g.allees, function (i) { return nomAllee(i, type); }) +
+      liste('etagere', 'Étagère', g.etageres, String) + liste('niveau', 'Niveau', g.niveaux, String) +
+      '<div class="pl-edit-actions">' + (l.rangement ? '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="retirer">Retirer</button>' : '') +
+      '<button type="button" class="btn btn-primary btn-sm" data-act="enregistrer">Enregistrer</button></div></div>';
+  }
+  /** Ce qui a le focus dans la liste, pour le lui rendre quand la liste est reconstruite (mise à jour en direct pendant la saisie). */
+  function focusLignes() {
+    var a = d.activeElement;
+    if (!a || !lignesEl.contains(a) || !a.closest) { return null; }
+    var li = a.closest('.pl-ligne');
+    return li ? { piece: li.getAttribute('data-piece'), champ: a.getAttribute('data-champ'), act: a.getAttribute('data-act'), pos: a.classList.contains('pl-pos') } : null;
+  }
+  function rendreFocusLignes(f) {
+    if (!f) { return; }
+    var li = lignesEl.querySelector('.pl-ligne[data-piece="' + f.piece + '"]');
+    var cible = !li ? null : f.champ ? li.querySelector('[data-champ="' + f.champ + '"]') : f.act ? li.querySelector('[data-act="' + f.act + '"]') : f.pos ? li.querySelector('.pl-pos') : null;
+    if (cible) { cible.focus({ preventScroll: true }); }
+  }
+  /** Bas et haut du tiroir : « Ranger automatiquement » seulement s'il y a des pièces sans position ; bouton de réglage pour l'administrateur. */
+  function majPiedTiroir(r) {
+    btnAuto.hidden = !(r.peut_ranger && r.nb_a_ranger > 0);
+    if (btnRayons) { btnRayons.hidden = !r.peut_ranger; if (!r.peut_ranger) { fermerRayons(); } }
+  }
+  function reinitialiserRangements() {
+    etat.editeur = null; etat.tiroirRep = null;
+    btnAuto.hidden = true;
+    if (btnRayons) { btnRayons.hidden = true; }
+    fermerRayons();
+  }
+  function ouvrirEditeur(piece) {
+    var r = etat.tiroirRep;
+    if (!r || !r.peut_ranger) { return; }
+    if (etat.editeur && etat.editeur.piece === piece) { fermerEditeur(); return; }
+    var l = r.lignes.filter(function (x) { return x.piece_id === piece && x.actif; })[0];
+    if (!l) { return; }
+    var p = l.rangement || { allee: 1, etagere: 1, niveau: 1 };
+    etat.editeur = { piece: piece, allee: p.allee, etagere: p.etagere, niveau: p.niveau };
+    rendreLignes(r, false);
+    var s = lignesEl.querySelector('.pl-edit select');
+    if (s) { s.focus({ preventScroll: true }); }
+  }
+  function fermerEditeur() {
+    var piece = etat.editeur ? etat.editeur.piece : null;
+    etat.editeur = null;
+    if (etat.tiroirRep) { rendreLignes(etat.tiroirRep, false); }
+    var b = piece === null ? null : lignesEl.querySelector('.pl-ligne[data-piece="' + piece + '"] .pl-pos');
+    if (b) { b.focus({ preventScroll: true }); }
+  }
+  /** Envoie la position (ou son retrait) ; en cas de refus le message du serveur s'affiche et l'éditeur reste ouvert. */
+  function ecrirePosition(corps, bouton, message) {
+    if (!etat.editeur || etat.tiroirId === null) { return; }
+    var piece = etat.editeur.piece, id = etat.tiroirId;
+    corps.emplacement_id = id; corps.piece_id = piece;
+    bouton.disabled = true;
+    w.api.post('app/action/plan_rangement_save.php', corps).then(function () {
+      w.toast(message, 'success');
+      etat.editeur = null;
+      return chargerTiroir(true).then(function () {
+        var b = lignesEl.querySelector('.pl-ligne[data-piece="' + piece + '"] .pl-pos');
+        if (b && etat.tiroirId === id) { b.focus({ preventScroll: true }); }
+      });
+    }).catch(function (e) { w.toast(msgErreur(e), 'danger'); }).then(function () { bouton.disabled = false; });
+  }
+  lignesEl.addEventListener('click', function (ev) {
+    var t = ev.target.closest ? ev.target.closest('button.pl-pos, [data-act]') : null;
+    if (!t || !lignesEl.contains(t)) { return; }
+    if (t.classList.contains('pl-pos')) { ouvrirEditeur(parseInt(t.getAttribute('data-piece'), 10)); return; }
+    var e = etat.editeur;
+    if (!e) { return; }
+    if (t.getAttribute('data-act') === 'enregistrer') { ecrirePosition({ allee: e.allee, etagere: e.etagere, niveau: e.niveau }, t, 'Position enregistrée.'); }
+    else if (t.getAttribute('data-act') === 'retirer') { ecrirePosition({ retirer: true }, t, 'Position retirée.'); }
+  });
+  lignesEl.addEventListener('change', function (ev) {
+    var c = ev.target && ev.target.getAttribute ? ev.target.getAttribute('data-champ') : null;
+    if (c && etat.editeur) { etat.editeur[c] = parseInt(ev.target.value, 10); }
+  });
+  btnAuto.addEventListener('click', function () {
+    var id = etat.tiroirId;
+    if (id === null) { return; }
+    btnAuto.disabled = true;
+    w.api.post('app/action/plan_rangement_auto.php', { emplacement_id: id }).then(function (r) {
+      var n = r.nb, reste = r.restantes || 0;
+      if (!n) { w.toast(reste ? 'Aucune position libre.' : 'Rien à ranger.', reste ? 'warning' : 'success'); }
+      else { w.toast(n + (n > 1 ? ' pièces rangées.' : ' pièce rangée.') + (reste ? ' ' + reste + (reste > 1 ? ' restent' : ' reste') + ' à ranger.' : ''), reste ? 'warning' : 'success'); }
+      return chargerTiroir(true);
+    }).catch(function (e) { w.toast(msgErreur(e), 'danger'); }).then(function () { btnAuto.disabled = false; });
+  });
+
+  // Administrateur : dimensions des rayonnages de l'emplacement (Allées, Étagères, Niveaux), discrètes derrière le bouton de réglage du tiroir
+  function fermerRayons() {
+    if (!formRayons) { return; }
+    formRayons.hidden = true;
+    btnRayons.setAttribute('aria-expanded', 'false');
+  }
+  function remplirRayons(r) {
+    CHAMPS_RAYONS.forEach(function (k) {
+      var i = el('pl-rayons-' + k);
+      i.max = r.geometrie_limites[k]; i.value = r.geometrie[k]; i.classList.remove('is-invalid');
+    });
+    el('pl-rayons-defaut').disabled = !r.geometrie_personnalisee;
+  }
+  function ecrireRayons(corps, bouton) {
+    var id = etat.tiroirId;
+    if (id === null) { return; }
+    corps.emplacement_id = id;
+    bouton.disabled = true;
+    w.api.post('app/action/plan_geometrie_save.php', corps).then(function (r) {
+      w.toast('Rayonnages enregistrés.' + (r.retires ? ' ' + r.retires + (r.retires > 1 ? ' pièces' : ' pièce') + ' à ranger.' : ''), r.retires ? 'warning' : 'success');
+      fermerRayons();
+      etat.editeur = null;
+      return chargerTiroir(true).then(function () { if (btnRayons) { btnRayons.focus({ preventScroll: true }); } });
+    }).catch(function (e) {
+      if (e && e.champ && el('pl-rayons-' + e.champ)) { el('pl-rayons-' + e.champ).classList.add('is-invalid'); }
+      w.toast(msgErreur(e), 'danger');
+    }).then(function () { bouton.disabled = false; });
+  }
+  if (formRayons) {
+    btnRayons.addEventListener('click', function () {
+      if (!formRayons.hidden) { fermerRayons(); return; }
+      if (!etat.tiroirRep) { return; }
+      remplirRayons(etat.tiroirRep);
+      formRayons.hidden = false;
+      btnRayons.setAttribute('aria-expanded', 'true');
+      el('pl-rayons-allees').focus({ preventScroll: true });
+    });
+    formRayons.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var corps = {};
+      CHAMPS_RAYONS.forEach(function (k) { var i = el('pl-rayons-' + k); i.classList.remove('is-invalid'); corps[k] = i.value.trim(); });
+      ecrireRayons(corps, el('pl-rayons-enregistrer'));
+    });
+    el('pl-rayons-defaut').addEventListener('click', function () { ecrireRayons({ defaut: true }, el('pl-rayons-defaut')); });
+  }
+  // Échap ferme d'abord l'éditeur ou le réglage ouvert, pas le tiroir
+  tiroir.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape') { return; }
+    if (etat.editeur) { ev.preventDefault(); fermerEditeur(); }
+    else if (formRayons && !formRayons.hidden) { ev.preventDefault(); fermerRayons(); btnRayons.focus({ preventScroll: true }); }
+  });
+
+  // ---- Intérieur d'un emplacement (vue 3D en coupe) ----------------------------------------------------------------------------------
+  // « Voir l'intérieur » (bouton du tiroir), double-clic sur le bâtiment ou « Voir sur l'étagère » depuis une recherche : plan_emplacement.php donne les pièces et leur position
+  // (allée, étagère, niveau) ; la scène (plan3d.bundle.js) les pose sur les rayonnages, une caisse par pièce. Relu avec le plan (mise à jour en direct).
+  // Un clic sur une caisse ouvre sa ligne dans le tiroir. Gestionnaire et administrateur : une caisse glissée dans une autre case est enregistrée par
+  // plan_rangement_save.php (refus du serveur = la caisse revient). Échap ou « Retour au plan » ferment la visite.
+  var seqInt = 0, seqLecture = 0, rangementsEnCours = 0;
+  var btnInterieur = el('pl-voir-interieur'), btnEtagere = el('pl-voir-etagere');
+  function peutVoirInterieur() { return etat.vue === '3d' && !etat.edition && ui3d.actif(); }
+  function pieceCherchee() { return etat.recherche && etat.recherche.piece ? etat.recherche.piece.id : null; }
+  function entrerInterieur(id, piece) {
+    if (!peutVoirInterieur() || etat.interieur !== null || !etat.objets[id]) { return; }
+    var mon = ++seqInt, p = piece !== undefined ? piece : pieceCherchee();
+    etat.interieur = id;                                           // réservé tout de suite : deux double-clics n'ouvrent pas deux visites
+    w.api.get('app/ajax/plan_emplacement.php', { emplacement_id: id }).then(function (r) {
+      if (mon !== seqInt || etat.interieur !== id) { return; }
+      if (etat.tiroirId !== null) { fermerTiroir(); }
+      if (!peutVoirInterieur() || !ui3d.entrerInterieur(id, r, { piece: p })) { etat.interieur = null; return; }
+      racine.classList.add('pl-interieur');
+      majBoutonsInterieur();
+      var b = el('pl3-retour'); if (b) { b.focus({ preventScroll: true }); }
+    }).catch(function (e) { if (mon === seqInt) { etat.interieur = null; } w.toast(msgErreur(e), 'danger'); });
+  }
+  function sortirInterieur() {
+    if (etat.interieur === null) { return; }
+    seqInt++; seqLecture++;
+    etat.interieur = null; etat.ligneVue = null;
+    if (etat.tiroirId !== null) { fermerTiroir(); }
+    ui3d.sortirInterieur();
+    racine.classList.remove('pl-interieur');
+    majBoutonsInterieur();
+  }
+  /** Relit l'intérieur visité (changement du plan, rangement) ; sans effet pendant l'enregistrement d'une caisse déplacée. */
+  function chargerInterieur() {
+    var id = etat.interieur;
+    if (id === null || rangementsEnCours) { return Promise.resolve(); }
+    var mon = ++seqLecture;
+    return w.api.get('app/ajax/plan_emplacement.php', { emplacement_id: id }).then(function (r) {
+      if (mon !== seqLecture || id !== etat.interieur || rangementsEnCours) { return; }
+      ui3d.majInterieur(r);
+    }).catch(function () { /* la prochaine lecture du plan réessaie */ });
+  }
+  /** Une caisse choisie dans la scène : sa ligne s'ouvre dans le tiroir de l'emplacement. */
+  function voirPiece(empId, pieceId) {
+    etat.ligneVue = pieceId; etat.ligneAmener = true;
+    if (etat.tiroirId === empId) { marquerLigneVue(); } else { ouvrirTiroir(empId, el('pl3-retour')); }
+  }
+  function marquerLigneVue() {
+    var id = etat.ligneVue === null ? null : String(etat.ligneVue), cible = null;
+    Array.prototype.forEach.call(lignesEl.querySelectorAll('.pl-ligne'), function (li) {
+      var oui = li.getAttribute('data-piece') === id;
+      li.classList.toggle('pl-ligne-vue', oui);
+      if (oui) { cible = li; }
+    });
+    if (cible && etat.ligneAmener) { etat.ligneAmener = false; try { cible.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ancien navigateur */ } }
+  }
+  /** Boutons du pied du tiroir : « Voir l'intérieur » en 3D ; « Voir sur l'étagère » quand la pièce cherchée est dans cet emplacement. */
+  function majBoutonsInterieur() {
+    var id = etat.tiroirId, ici = peutVoirInterieur() && id !== null && etat.interieur === null, p = pieceCherchee();
+    btnInterieur.hidden = !ici;
+    btnEtagere.hidden = !(ici && p !== null && etat.recherche.emplacements.some(function (e) { return e.emplacement_id === id; }));
+  }
+  function rangerCaisse(empId, pieceId, dest, ok, ko) {
+    var corps = { emplacement_id: empId, piece_id: pieceId };
+    if (dest) { corps.allee = dest.allee; corps.etagere = dest.etagere; corps.niveau = dest.niveau; } else { corps.retirer = true; }
+    rangementsEnCours++;
+    w.api.post('app/action/plan_rangement_save.php', corps).then(function () {
+      ok(); w.toast(dest ? 'Position enregistrée.' : 'Position retirée.', 'success');
+    }, function (e) { ko(); w.toast(msgErreur(e), 'danger'); }).then(function () {
+      rangementsEnCours--;
+      if (etat.interieur === empId) { chargerInterieur(); }
+      if (etat.tiroirId === empId) { chargerTiroir(true); }
+    });
+  }
+  btnInterieur.addEventListener('click', function () { if (etat.tiroirId !== null) { entrerInterieur(etat.tiroirId); } });
+  btnEtagere.addEventListener('click', function () { if (etat.tiroirId !== null) { entrerInterieur(etat.tiroirId, pieceCherchee()); } });
+
   // Un clic sur une tuile ouvre (ou ferme) son tiroir ; en modification, les tuiles se déplacent mais ne s'ouvrent pas
   surface.addEventListener('click', function (e) {
     var b = e.target.closest ? e.target.closest('.pl-tuile') : null;
@@ -600,6 +870,7 @@
   d.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape' || e.defaultPrevented) { return; }
     if (glisse) { finGlisse({ pointerId: glisse.pointeur }, true); return; }       // Échap pendant un glisser : on laisse tomber
+    if (etat.interieur !== null && etat.tiroirId === null) { sortirInterieur(); return; }      // dans un intérieur : Échap ferme d'abord la fiche, puis la visite
     if (etat.tiroirId !== null) { fermerTiroir(); return; }
     if (!etat.edition && (etat.pieceId || champ.value)) { effacerRecherche(); }
   });

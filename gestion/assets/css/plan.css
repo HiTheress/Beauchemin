@@ -140,6 +140,7 @@
 .pl-tiroir-tete { display: flex; align-items: flex-start; gap: .8rem; padding: 1.2rem 1rem .8rem 1.4rem; border-left: 0; position: relative; }
 .pl-tiroir-tete::before { content: ""; position: absolute; left: 0; top: 1.2rem; bottom: .8rem; width: 8px; border-radius: 0 6px 6px 0; background: linear-gradient(180deg, var(--ent), var(--ent-2)); }
 .pl-tiroir-titres { flex: 1 1 auto; min-width: 0; }
+.pl-tiroir-tete .pl-croix { flex: 0 0 44px; }                /* les boutons de l'en-tête (réglage, fermer) gardent leur taille quand le titre est long */
 .pl-tiroir-titres h2 { margin: 0; font-size: 1.35rem; line-height: 1.25; overflow-wrap: anywhere; }
 .pl-tiroir-titres h2:focus { outline: none; }
 .pl-tiroir-sous { font-size: .85rem; color: var(--muted); }
@@ -167,8 +168,42 @@
 @keyframes pl-ligne-change { 0% { background: color-mix(in srgb, var(--ent) 30%, transparent); } 100% { background: transparent; } }
 @media (prefers-reduced-motion: reduce) { .pl-ligne.pl-change { animation: none; background: color-mix(in srgb, var(--ent) 20%, transparent); } }
 .pl-lignes-vide { padding: 1.5rem 1rem; text-align: center; color: var(--muted); }
-.pl-tiroir-pied { padding: .8rem 1.4rem 1.2rem; border-top: 1px solid var(--line-soft); }
+.pl-tiroir-pied { display: flex; flex-wrap: wrap; gap: .6rem; padding: .8rem 1.4rem 1.2rem; border-top: 1px solid var(--line-soft); }
 .pl-tiroir-pied .btn { min-height: 48px; }
+.pl-tiroir-pied [hidden] { display: none !important; }
+#pl-ranger-auto { flex: 1 1 100%; justify-content: center; }
+#pl-ranger-auto:not([hidden]) + #pl-voir-stock { flex: 1 1 100%; justify-content: center; }       /* les deux boutons du pied ont alors la même largeur */
+
+/* Rangements : pastille de position (« B · 3 · 2 » ou « À ranger »), éditeur sous la ligne, dimensions des rayonnages (administrateur) */
+.pl-pos { appearance: none; -webkit-appearance: none; position: relative; z-index: 2; display: inline-flex; align-items: center; margin: 0; padding: .12rem .7rem; border: 0; border-radius: 999px;
+  background: var(--ent-soft); color: var(--ent-ink); font: inherit; font-size: .8rem; font-weight: 800; line-height: 1.4; letter-spacing: .02em; white-space: nowrap; font-variant-numeric: tabular-nums;
+  box-shadow: var(--n-out-sm); cursor: pointer; transition: box-shadow .15s; }
+.pl-pos::before { content: ""; position: absolute; inset: -12px -6px; }          /* zone tactile d'au moins 44 px sans grossir la pastille */
+.pl-pos:hover { box-shadow: var(--n-in); }
+.pl-pos:focus { outline: none; }
+.pl-pos:focus-visible { outline: 3px solid var(--ent-ink); outline-offset: 2px; }
+.pl-pos[aria-expanded="true"] { box-shadow: var(--n-in); }
+.pl-pos-aranger { background: transparent; color: var(--muted); font-weight: 600; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.pl-pos-aranger:hover { box-shadow: inset 0 0 0 1.5px var(--ent-ink); color: var(--ent-ink); }
+.pl-pos-fixe { cursor: default; box-shadow: none; }
+.pl-pos-fixe.pl-pos-aranger { box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.pl-pos-fixe::before { display: none; }
+.pl-ligne { grid-template-areas: "nom qte" "code qte" "edit edit"; }
+.pl-ligne.pl-ligne-edition { background: color-mix(in srgb, var(--ent) 8%, var(--surface)); }
+.pl-edit { grid-area: edit; position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: flex-end; gap: .55rem; margin: .6rem 0 .25rem; padding: .7rem .75rem; border-radius: 16px; background: var(--bg); box-shadow: var(--n-in); }
+.pl-edit-champ { flex: 1 1 5.2rem; min-width: 0; margin: 0; font-size: .72rem; font-weight: 700; color: var(--muted); }
+.pl-edit-champ.pl-edit-cote { flex: 2 1 8rem; }                  /* « Côté gauche » / « Côté droit » : plus long qu'une lettre */
+.pl-edit-champ > span { display: block; margin: 0 0 .15rem .2rem; }
+.pl-edit .custom-select { min-height: 44px; font-size: .95rem; font-weight: 600; }
+.pl-edit-actions { flex: 1 0 100%; display: flex; justify-content: flex-end; gap: .5rem; }
+.pl-edit-actions .btn { min-height: 44px; min-width: 7rem; }
+
+.pl-rayons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .3rem .55rem; margin: 0 1.2rem .7rem 1.4rem; padding: .7rem .75rem; border-radius: 16px; background: var(--bg); box-shadow: var(--n-in); }
+.pl-rayons[hidden] { display: none; }
+.pl-rayons label { margin: 0; font-size: .72rem; font-weight: 700; color: var(--muted); }
+.pl-rayons .form-control { min-height: 44px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pl-rayons-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: .5rem; margin-top: .3rem; }
+.pl-rayons-actions .btn { min-height: 44px; min-width: 7rem; }
 
 /* ---------- Téléphone : liste de cartes (pas de disposition libre) ---------- */
 @media (max-width: 767.98px) {

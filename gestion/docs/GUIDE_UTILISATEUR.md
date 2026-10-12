@@ -28,6 +28,7 @@ Les écrans sont faits pour se passer d'explications ; ce guide sert d'aide-mém
 | Noter les pièces utilisées chez un client | **Utiliser** : emplacement, motif, scannez, *Utiliser* |
 | Compter un emplacement | **Compter** : emplacement, scannez chaque pièce présente, *Terminer le comptage* |
 | Voir tout le stock | **Stock** |
+| Savoir où une pièce est rangée dans l'entrepôt, la boutique ou le cube | **Plan** → ouvrir l'emplacement : la pastille « B · 3 · 2 » dit allée B, étagère 3, niveau 2 (« À ranger » : pas encore de place) |
 | Voir où sont les pièces | **Plan** (chercher ou scanner une pièce : les emplacements qui l'ont s'illuminent ; un clic sur une tuile montre son contenu ; l'écran se met à jour tout seul ; sur écran large le Plan s'ouvre en **vue 3D** (glisser pour déplacer, molette pour zoomer, clic droit ou deux doigts pour pivoter) ; le bouton **Tuiles** revient à la liste) |
 
 Un transfert reste **dans la même entreprise** ; pour passer d'une entreprise à l'autre, on fait une facture.
@@ -42,6 +43,7 @@ d'appliquer et demande de relire. *Mettre à 0 les pièces non comptées* : seul
 * **Facturation → Nouvelle facture** : choisissez qui facture à qui, d'où on prend les pièces, où on les met, scannez, *Facturer*. Facture **au coût**, sans marge.
   **Factures** les liste (télécharger en PDF, imprimer ou annuler) ; **Bilan du mois** dit qui doit combien à qui, avec le détail (PDF, imprimable, exportable).
 * **Documents** (réception, déplacement, utilisation, correction du stock) : ouvrez un document, *Télécharger en PDF* ou *Imprimer* (logo de l'entreprise, numéro, date, pièces).
+* **Ranger une pièce** : **Plan** → ouvrir l'emplacement → cliquer la pastille de la pièce (« À ranger » ou « B · 3 · 2 »), choisir l'allée, l'étagère et le niveau, *Enregistrer* (ou *Retirer*). *Ranger automatiquement* place d'un coup les pièces « À ranger ». Ranger une pièce ne change jamais le stock.
 * **Annuler un document** : ouvrez-le (Documents → numéro), motif obligatoire. Refusé si la marchandise n'est plus là. Seule l'entreprise qui a émis le document peut l'annuler.
 * **Ajouter une pièce** (Catalogue → Pièces → *Ajouter une pièce*) : tapez le **nom**, **scannez le code-barres** de la pièce, choisissez l'**unité** d'un clic, *Enregistrer*. Le code interne se propose tout seul ; les autres champs (minimum, emplacement habituel, autres codes…) sont sous *Plus d'options*.
 * **Catalogue** : *Pièces*, *Importer des pièces* (aperçu avant écriture ; une erreur = rien d'importé), *Fournisseurs* (prix dans la fiche de la pièce), *Catégories*, *Étiquettes* (feuille, rouleau ou grande).
@@ -50,6 +52,7 @@ d'appliquer et demande de relire. *Mettre à 0 les pièces non comptées* : seul
 ## 5. Administrateurs
 * **Utilisateurs** : ajouter (mot de passe affiché **une seule fois**), rôle, entreprises, désactiver, réinitialiser, déverrouiller. On ne peut pas désactiver le dernier administrateur.
 * **Plan** → *Modifier le plan* (écran large) : déplacez et redimensionnez les tuiles à la souris ou au doigt, *Enregistrer*. Une tuile jamais placée garde sa place automatique ; *Tout ranger* remet tout en ordre.
+* **Plan** → ouvrir un emplacement → le bouton de réglage du tiroir (« Rayonnages ») change le nombre d'allées, d'étagères et de niveaux de cet emplacement ; *Par défaut* rétablit les valeurs du type (entrepôt 4 × 6 × 4, boutique 2 × 4 × 3, cube 2 × 3 × 3). Les pièces rangées au-delà des nouvelles dimensions redeviennent « À ranger ».
 * **Entreprises**, **Emplacements** (entrepôt, boutique, cube de service ; code d'étiquette `EMP-…`), **Journal** (qui a fait quoi), **Sauvegarde** (téléchargement ; les sauvegardes automatiques se configurent à l'installation, voir `DEPLOIEMENT.md`).
 
 ## 6. Comprendre les chiffres

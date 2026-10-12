@@ -96,9 +96,53 @@
 .pl-mode-3d.pl-tiroir-ouvert .pl3 .pl3-outils { right: calc(min(360px, 100% - 24px) + 26px); }
 .pl-mode-3d.pl-tiroir-ouvert .pl3 .pl3-stats { max-width: calc(100% - min(360px, 100% - 24px) - 112px); }
 
+/* ---------- Intérieur d'un emplacement (vue en coupe) : « Retour au plan », fil d'Ariane, fiche au survol, « +N / −N » ---------- */
+.pl3-stats[hidden], .pl3-etiquettes[hidden], .pl3-int[hidden], .pl3-carte[hidden], .pl3-clavier[hidden] { display: none; }
+.pl3-int { position: absolute; z-index: 3; top: 14px; left: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .9rem; max-width: calc(100% - 92px); }
+.pl3-retour { display: inline-flex; align-items: center; gap: .6rem; min-height: 46px; padding: 0 1.1rem 0 .85rem; border: 0; border-radius: 999px; background: rgba(255, 255, 255, .86); color: var(--ink); font: inherit; font-weight: 800; cursor: pointer;
+  -webkit-backdrop-filter: blur(12px) saturate(1.25); backdrop-filter: blur(12px) saturate(1.25); box-shadow: 0 8px 24px rgba(60, 80, 120, .16), inset 0 0 0 1px rgba(255, 255, 255, .8); transition: box-shadow .2s, transform .2s, color .2s; }
+.pl3-retour i { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); font-size: .85rem; }
+.pl3-retour:hover { color: var(--accent-ink); transform: translateX(-2px); }
+.pl3-retour:focus { outline: none; }
+.pl3-retour:focus-visible { outline: 3px solid var(--accent-ink); outline-offset: 2px; }
+.pl3-fil { display: flex; align-items: center; gap: .1rem; margin: 0; padding: .3rem .85rem; list-style: none; border-radius: 999px; background: rgba(255, 255, 255, .55); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  font-size: .8rem; font-weight: 600; color: var(--muted); }
+.pl3-fil li + li::before { content: "\203A"; margin: 0 .5rem; font-weight: 800; color: var(--muted); }
+.pl3-fil li[aria-current] { color: var(--ink); font-weight: 800; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-mode-3d.pl-tiroir-ouvert .pl3 .pl3-int { max-width: calc(100% - min(360px, 100% - 24px) - 112px); }
+
+.pl3-carte { position: absolute; z-index: 5; left: 0; top: 0; display: flex; flex-direction: column; gap: .12rem; width: max-content; max-width: 270px; padding: .6rem .8rem .65rem; border-radius: 16px; pointer-events: none; will-change: transform;
+  background: rgba(255, 255, 255, .96); box-shadow: 0 14px 34px rgba(50, 62, 84, .28), inset 0 0 0 1px rgba(255, 255, 255, .85); font-size: .8rem; line-height: 1.25; color: var(--ink-2); }
+.pl3-carte-tete { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.pl3-carte-code { font-size: .95rem; font-weight: 800; color: var(--accent-ink); letter-spacing: .01em; }
+.pl3-carte-bas { padding: .05rem .5rem; border-radius: 999px; background: #fde8e8; color: #a31b1b; font-size: .7rem; font-weight: 800; white-space: nowrap; }
+.pl3-carte-bas[hidden] { display: none; }
+.pl3-carte-nom { font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
+.pl3-carte-qte { font-size: 1.15rem; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pl3-carte-pos { font-size: .74rem; color: var(--muted); }
+.pl3-carte-qte:empty, .pl3-carte-pos:empty { display: none; }
+.pl3-carte-bas-oui { box-shadow: 0 14px 34px rgba(50, 62, 84, .28), inset 0 0 0 2px #e0463c; }
+.pl3-carte-liste .pl3-carte-nom { font-weight: 600; font-size: .78rem; font-variant-numeric: tabular-nums; }
+
+.pl3-puces { position: absolute; inset: 0; z-index: 4; overflow: hidden; pointer-events: none; }
+.pl3-puce { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+.pl3-puce-txt { position: absolute; left: 0; bottom: 14px; transform: translateX(-50%); padding: .15rem .65rem; border-radius: 999px; font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(40, 60, 90, .22); animation: pl3-flotte 2.7s ease-out forwards; }
+
+/* liste des pièces pour le clavier et les lecteurs d'écran : invisible, mais chaque bouton prend le focus (la caisse s'éclaire dans la scène) */
+.pl3-clavier { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; list-style: none; }
+.pl3-clavier-btn { position: static; }
+
+/* fiche de pièce choisie dans la scène : sa ligne dans le tiroir */
+.pl-ligne.pl-ligne-vue { background: color-mix(in srgb, var(--ent) 16%, var(--surface)); box-shadow: inset 4px 0 0 var(--ent); }
+.pl-tiroir-pied #pl-voir-interieur, .pl-tiroir-pied #pl-voir-etagere { flex: 1 1 100%; justify-content: center; }
+
 @media (prefers-reduced-motion: reduce) {
   .pl3-alerte::after { animation: none; opacity: 0; }
   .pl3-delta { animation: none; transform: translateX(-50%); opacity: 1; }
+  .pl3-puce-txt { animation: none; opacity: 1; }
+  .pl3-retour { transition: none; }
+  .pl3-retour:hover { transform: none; }
   .pl3-delta-carte { animation: none; }
   .pl-vue, .pl3-etiquette, .pl3-corps, .pl3-outils { transition: none; }
   .pl3-etiquette:hover .pl3-corps, .pl3-survol .pl3-corps { transform: none; }
@@ -113,6 +157,11 @@
   .pl3-stat-ico { display: none; }
   .pl3-stat-nom { font-size: .6rem; white-space: nowrap; }
   .pl3-stat-val { font-size: 1.1rem; }
+  .pl3-int { top: 8px; left: 8px; right: 8px; max-width: none; gap: .4rem; }
+  .pl3-retour { min-height: 44px; padding: 0 .9rem 0 .6rem; font-size: .9rem; }
+  .pl3-fil { padding: .2rem .65rem; font-size: .72rem; }
+  .pl3-fil li[aria-current] { max-width: 11rem; }
+  .pl3-carte { max-width: 210px; }
   .pl3-outils { top: auto; bottom: 8px; right: 8px; flex-direction: row; padding: 3px; border-radius: 14px; }
   .pl3-btn { width: 40px; height: 40px; border-radius: 11px; }
   .pl3-btn.pl3-sep { margin: 0 0 0 5px; }

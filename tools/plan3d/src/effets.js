@@ -7,7 +7,7 @@ import { ease } from './anim.js';
 const BLEU_PIN = 0x2f6bff;
 
 /** Épingle de carte : goutte (tournée par révolution) pointe en bas, taille de départ 3 m de haut. */
-function geoGoutte() {
+export function geoGoutte() {
   const R = 0.62, yc = 1.95, a = Math.asin(R / yc), phi0 = Math.PI / 2 - a, pts = [new Vector2(0.001, 0)];
   for (let i = 0; i <= 14; i++) { const f = phi0 + (Math.PI - phi0) * i / 14; pts.push(new Vector2(Math.max(0.001, R * Math.sin(f)), yc - R * Math.cos(f))); }
   return new LatheGeometry(pts, 20);

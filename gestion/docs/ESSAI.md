@@ -29,7 +29,7 @@ La première fois, c'est long (quelques minutes : téléchargements et préparat
 | `gestionnaire1` | `Test-Beauchemin-1` | gestionnaire des deux entreprises : réceptions, factures internes, bilan, coûts |
 | `employe1` | `Test-Beauchemin-1` | employé de Beauchemin : transferts, sorties, comptages — ne voit **aucun coût** |
 
-Les données de démonstration (14 pièces, 3 fournisseurs, quelques mouvements et deux factures internes) permettent de tout essayer tout de suite.
+Les données de démonstration (14 pièces, 3 fournisseurs, 6 emplacements dont trois cubes de service, quelques mouvements, deux factures internes et la position de rangement de la plupart des pièces) permettent de tout essayer tout de suite.
 
 ## Commandes utiles
 

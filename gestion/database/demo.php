@@ -18,7 +18,8 @@ $pdo->exec("INSERT INTO utilisateur_entreprises (utilisateur_id, entreprise_id) 
 $pdo->exec("INSERT INTO categories (nom) VALUES ('Brûleurs'), ('Contrôles'), ('Gicleurs et pompes'), ('Plomberie / gaz'), ('Cheminée et évacuation')");
 $pdo->exec("INSERT INTO fournisseurs (nom, contact, telephone) VALUES ('Distribution Chauffage Plus', 'Marc Tremblay', '418-555-0101'), ('Grossiste Gaz du Nord', 'Julie Roy', '418-555-0102'), ('Pièces Mazout Express', NULL, '418-555-0103')");
 $pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type, code_barres) VALUES
-	(1, 'Cube 12 — Marc', 'cube', 'EMP-000003'), (1, 'Cube 14 — Luc', 'cube', 'EMP-000004'), (2, 'Boutique Centre-ville', 'boutique', 'EMP-000005')");
+	(1, 'Cube 12 — Marc', 'cube', 'EMP-000003'), (1, 'Cube 14 — Luc', 'cube', 'EMP-000004'), (2, 'Boutique Centre-ville', 'boutique', 'EMP-000005'),
+	(2, 'Cube 21 — Sophie', 'cube', 'EMP-000006')");
 
 $pieces = array(
 	// code, nom, catégorie, unité, prix fournisseur (f1,f2,f3), coût réception, minimum BEA
@@ -75,7 +76,43 @@ $inv->factureInterne($admin, array('emplacement_id' => 1, 'entreprise_dest_id' =
 $inv->factureInterne($admin, array('emplacement_id' => 2, 'entreprise_dest_id' => 1, 'emplacement_dest_id' => 4, 'lignes' => array(
 	array('piece_id' => $pid['P-0009'], 'quantite' => 2), array('piece_id' => $pid['P-0010'], 'quantite' => 3),
 )));
+// Charger le cube de service de Boutique Chaleur (le sien : entrepôt 2 -> cube 21)
+$inv->transferer($admin, array('emplacement_id' => 2, 'emplacement_dest_id' => 6, 'note' => 'Plein de cube 21 (démo)', 'lignes' => array(
+	array('piece_id' => $pid['P-0009'], 'quantite' => 1), array('piece_id' => $pid['P-0010'], 'quantite' => 2),
+	array('piece_id' => $pid['P-0012'], 'quantite' => 1), array('piece_id' => $pid['P-0013'], 'quantite' => 3), array('piece_id' => $pid['P-0014'], 'quantite' => 1),
+)));
 // Plan de l'entrepôt : les deux entrepôts en haut, les cubes de service et la boutique en dessous (pixels, multiples de 20)
 $pdo->exec("INSERT INTO plan_emplacements (emplacement_id, x, y, largeur, hauteur) VALUES
-	(1, 0, 0, 340, 220), (2, 360, 0, 300, 220), (3, 0, 240, 160, 140), (4, 180, 240, 160, 140), (5, 360, 240, 300, 140)");
-echo "Démo prête : " . count($pieces) . " pièces, 3 fournisseurs. Comptes : admin / gestionnaire1 / employe1.\n";
+	(1, 0, 0, 340, 220), (2, 360, 0, 300, 220), (3, 0, 240, 160, 140), (4, 180, 240, 160, 140), (5, 360, 240, 300, 140), (6, 680, 240, 160, 140)");
+
+// Rangements : où, dans chaque emplacement, se trouve chaque pièce (allée, étagère, niveau ; cube : allée 1 = côté gauche, 2 = côté droit ; niveau 1 = le plus bas).
+// Les pièces d'une même famille sont voisines ; les plus lourdes sont au niveau 1. Deux pièces de l'entrepôt de Beauchemin (P-0006, P-0014) restent « à ranger ».
+$rangements = array(
+	1 => array(   // Entrepôt principal Beauchemin (4 allées x 6 étagères x 4 niveaux)
+		'P-0001' => array(1, 1, 2), 'P-0008' => array(1, 1, 2), 'P-0002' => array(1, 2, 2), 'P-0012' => array(1, 3, 2),    // A : contrôles (deux petites pièces sur la même tablette)
+		'P-0003' => array(2, 1, 2), 'P-0005' => array(2, 1, 2), 'P-0004' => array(2, 2, 1), 'P-0007' => array(2, 3, 1),    // B : gicleurs, pompes, moteurs
+		'P-0009' => array(3, 1, 2), 'P-0010' => array(3, 1, 3), 'P-0011' => array(3, 2, 1),                                // C : plomberie et gaz
+		'P-0013' => array(4, 1, 1),                                                                                         // D : cheminée
+	),
+	2 => array(   // Entrepôt principal Boutique Chaleur
+		'P-0009' => array(1, 1, 2), 'P-0010' => array(1, 1, 3), 'P-0012' => array(2, 1, 2), 'P-0013' => array(3, 1, 1), 'P-0014' => array(3, 1, 2),
+	),
+	3 => array(   // Cube 12 — Marc (2 côtés x 3 étagères x 3 niveaux)
+		'P-0003' => array(1, 1, 2), 'P-0005' => array(1, 1, 2), 'P-0001' => array(2, 1, 2), 'P-0011' => array(2, 2, 1),
+	),
+	4 => array(   // Cube 14 — Luc
+		'P-0009' => array(1, 1, 2), 'P-0010' => array(1, 1, 3),
+	),
+	5 => array(   // Boutique Centre-ville (2 allées x 4 étagères x 3 niveaux)
+		'P-0012' => array(1, 1, 2), 'P-0013' => array(2, 1, 1), 'P-0014' => array(2, 1, 2),
+	),
+	6 => array(   // Cube 21 — Sophie
+		'P-0009' => array(1, 1, 2), 'P-0010' => array(1, 1, 3), 'P-0012' => array(2, 1, 2), 'P-0013' => array(2, 2, 1), 'P-0014' => array(2, 2, 2),
+	),
+);
+$insR = $pdo->prepare("INSERT INTO rangements (emplacement_id, piece_id, allee, etagere, niveau) VALUES (?, ?, ?, ?, ?)");
+$nbRangements = 0;
+foreach ($rangements as $empId => $positions) {
+	foreach ($positions as $code => $pos) { $insR->execute(array($empId, $pid[$code], $pos[0], $pos[1], $pos[2])); $nbRangements++; }
+}
+echo "Démo prête : " . count($pieces) . " pièces, 3 fournisseurs, 6 emplacements, $nbRangements rangements. Comptes : admin / gestionnaire1 / employe1.\n";

@@ -48,13 +48,20 @@ $admin = $donnees['admin'];
 
     <div class="card pl-carte"><div class="card-body">
       <div id="pl-3d" class="pl3 no-print" hidden>
-        <div class="pl3-scene" id="pl3-scene" data-libelle="Vue 3D de l'entrepôt. La liste des emplacements est disponible dans la vue Tuiles."></div>
+        <div class="pl3-scene" id="pl3-scene" data-libelle="Vue 3D de l'entrepôt. La liste des emplacements est disponible dans la vue Tuiles." data-logo-bea="assets/img/logo-beauchemin.png" data-logo-bch="assets/img/logo-boutique-chaleur.png"></div>
         <div class="pl3-etiquettes" id="pl3-etiquettes"></div>
         <div class="pl3-stats" id="pl3-stats" role="group" aria-label="Résumé">
           <div class="pl3-stat" id="pl3-stat-unites"><span class="pl3-stat-ico" aria-hidden="true"><i class="fas fa-boxes"></i></span><span class="pl3-stat-txt"><span class="pl3-stat-nom">Unités en stock</span><b class="pl3-stat-val" id="pl3-unites">0</b></span><span class="pl3-delta-carte" id="pl3-delta" hidden></span></div>
           <div class="pl3-stat" id="pl3-stat-bas"><span class="pl3-stat-ico" aria-hidden="true"><i class="fas fa-exclamation-triangle"></i></span><span class="pl3-stat-txt"><span class="pl3-stat-nom">Sous le minimum</span><b class="pl3-stat-val" id="pl3-bas">0</b></span></div>
           <div class="pl3-stat" id="pl3-stat-emp"><span class="pl3-stat-ico" aria-hidden="true"><i class="fas fa-warehouse"></i></span><span class="pl3-stat-txt"><span class="pl3-stat-nom">Emplacements</span><b class="pl3-stat-val" id="pl3-emp">0</b></span></div>
         </div>
+        <div class="pl3-int" id="pl3-int" hidden>
+          <button type="button" class="pl3-retour" id="pl3-retour" aria-label="Retour au plan" title="Retour au plan (Échap)"><i class="fas fa-arrow-left" aria-hidden="true"></i><span>Retour au plan</span></button>
+          <ol class="pl3-fil" aria-label="Fil d'Ariane"><li>Plan</li><li id="pl3-fil-nom" aria-current="page"></li></ol>
+        </div>
+        <div class="pl3-puces" id="pl3-puces" aria-hidden="true"></div>
+        <div class="pl3-carte" id="pl3-carte" aria-hidden="true" hidden><span class="pl3-carte-tete"><b class="pl3-carte-code"></b><span class="pl3-carte-bas" hidden>Sous le minimum</span></span><span class="pl3-carte-nom"></span><span class="pl3-carte-qte"></span><span class="pl3-carte-pos"></span></div>
+        <ul class="pl3-clavier" id="pl3-clavier" aria-label="Pièces de l'emplacement" hidden></ul>
         <div class="pl3-outils" id="pl3-outils" role="toolbar" aria-label="Caméra">
           <button type="button" class="pl3-btn" data-act="plus" aria-label="Zoom avant" title="Zoom avant"><i class="fas fa-plus" aria-hidden="true"></i></button>
           <button type="button" class="pl3-btn" data-act="moins" aria-label="Zoom arrière" title="Zoom arrière"><i class="fas fa-minus" aria-hidden="true"></i></button>
@@ -78,15 +85,33 @@ $admin = $donnees['admin'];
         <h2 id="pl-tiroir-titre" tabindex="-1"></h2>
         <div class="pl-tiroir-sous" id="pl-tiroir-sous"></div>
       </div>
+      <?php if ($admin) { ?>
+      <button type="button" class="pl-croix" id="pl-rayons" aria-label="Rayonnages" title="Rayonnages" aria-expanded="false" aria-controls="pl-rayons-panneau" hidden><i class="fas fa-sliders-h" aria-hidden="true"></i></button>
+      <?php } ?>
       <button type="button" class="pl-croix" id="pl-tiroir-fermer" aria-label="Fermer"><i class="fas fa-times" aria-hidden="true"></i></button>
     </div>
     <div class="pl-tiroir-resume" id="pl-tiroir-resume"></div>
+    <?php if ($admin) { ?>
+    <form class="pl-rayons" id="pl-rayons-panneau" data-sans-mascotte aria-label="Rayonnages" novalidate hidden>
+      <label for="pl-rayons-allees">Allées</label><label for="pl-rayons-etageres">Étagères</label><label for="pl-rayons-niveaux">Niveaux</label>
+      <input id="pl-rayons-allees" type="number" class="form-control" inputmode="numeric" min="1" max="12" step="1" data-champ="allees">
+      <input id="pl-rayons-etageres" type="number" class="form-control" inputmode="numeric" min="1" max="30" step="1" data-champ="etageres">
+      <input id="pl-rayons-niveaux" type="number" class="form-control" inputmode="numeric" min="1" max="10" step="1" data-champ="niveaux">
+      <div class="pl-rayons-actions">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="pl-rayons-defaut">Par défaut</button>
+        <button type="submit" class="btn btn-primary btn-sm" id="pl-rayons-enregistrer">Enregistrer</button>
+      </div>
+    </form>
+    <?php } ?>
     <div class="pl-tiroir-recherche">
       <label for="pl-filtre" class="sr-only">Chercher dans cet emplacement</label>
       <input id="pl-filtre" type="search" class="form-control" autocomplete="off" maxlength="100" placeholder="Chercher ici">
     </div>
     <ul class="pl-lignes" id="pl-lignes" aria-label="Pièces de l'emplacement"></ul>
     <div class="pl-tiroir-pied">
+      <button type="button" class="btn btn-primary" id="pl-voir-interieur" hidden><i class="fas fa-door-open mr-1" aria-hidden="true"></i> Voir l'intérieur</button>
+      <button type="button" class="btn btn-outline-secondary" id="pl-voir-etagere" hidden><i class="fas fa-search-location mr-1" aria-hidden="true"></i> Voir sur l'étagère</button>
+      <button type="button" class="btn btn-outline-secondary" id="pl-ranger-auto" hidden><i class="fas fa-magic mr-1" aria-hidden="true"></i> Ranger automatiquement</button>
       <a class="btn btn-outline-secondary" id="pl-voir-stock" href="index.php?page=stock"><i class="fas fa-boxes mr-1" aria-hidden="true"></i> Voir dans Stock</a>
     </div>
   </aside>

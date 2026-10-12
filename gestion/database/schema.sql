@@ -313,19 +313,42 @@ CREATE TABLE IF NOT EXISTS journal (
   KEY ix_journal_entite (entite, entite_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Plan de l'entrepôt (page « Plan ») : place libre d'une tuile, en pixels sur une grille de 20 (voir Plan.php).
--- Une ligne par emplacement ; sans ligne, la tuile garde sa place automatique. Même contenu que database/migrations/2026-10-12-plan.sql.
+-- Plan de l'entrepôt (page « Plan ») : place libre d'une tuile, en pixels sur une grille de 20 (voir Plan.php), et dimensions des rayonnages de l'emplacement.
+-- Une ligne par emplacement ; sans ligne, la tuile garde sa place automatique et ses rayonnages sont ceux de son type.
+-- x, y, largeur, hauteur NULL = pas de place enregistrée (la ligne ne sert alors qu'aux rayonnages) ; rayon_* NULL = valeur par défaut du type (Plan::GEOMETRIE_DEFAUT).
+-- Même contenu que database/migrations/2026-10-12-plan.sql et 2026-10-13-rangements.sql.
 CREATE TABLE IF NOT EXISTS plan_emplacements (
   emplacement_id  INT UNSIGNED      NOT NULL,
-  x               SMALLINT UNSIGNED NOT NULL,
-  y               SMALLINT UNSIGNED NOT NULL,
-  largeur         SMALLINT UNSIGNED NOT NULL,
-  hauteur         SMALLINT UNSIGNED NOT NULL,
+  x               SMALLINT UNSIGNED NULL,
+  y               SMALLINT UNSIGNED NULL,
+  largeur         SMALLINT UNSIGNED NULL,
+  hauteur         SMALLINT UNSIGNED NULL,
   modifie_le      TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   modifie_par     INT UNSIGNED      NULL,
+  rayon_allees    TINYINT UNSIGNED  NULL,
+  rayon_etageres  TINYINT UNSIGNED  NULL,
+  rayon_niveaux   TINYINT UNSIGNED  NULL,
   PRIMARY KEY (emplacement_id),
   CONSTRAINT fk_plan_emplacement FOREIGN KEY (emplacement_id) REFERENCES emplacements (id) ON DELETE CASCADE,
   CONSTRAINT ck_plan_taille CHECK (largeur > 0 AND hauteur > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Rangement : où, DANS un emplacement, se trouve physiquement une pièce (allée, étagère, niveau). Le stock reste compté par pièce et par emplacement ;
+-- ceci n'est qu'une position. Une seule position par pièce et emplacement ; plusieurs pièces peuvent partager la même. Les bornes viennent des rayonnages
+-- de l'emplacement (plan_emplacements.rayon_*, sinon Plan::GEOMETRIE_DEFAUT). La position survit à un stock tombé à zéro. Même contenu que la migration 2026-10-13-rangements.sql.
+CREATE TABLE IF NOT EXISTS rangements (
+  emplacement_id  INT UNSIGNED      NOT NULL,
+  piece_id        INT UNSIGNED      NOT NULL,
+  allee           SMALLINT UNSIGNED NOT NULL,
+  etagere         SMALLINT UNSIGNED NOT NULL,
+  niveau          SMALLINT UNSIGNED NOT NULL,
+  modifie_le      TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  modifie_par     INT UNSIGNED      NULL,
+  PRIMARY KEY (emplacement_id, piece_id),
+  KEY ix_rangements_piece (piece_id),
+  CONSTRAINT fk_rangements_emplacement FOREIGN KEY (emplacement_id) REFERENCES emplacements (id) ON DELETE CASCADE,
+  CONSTRAINT fk_rangements_piece FOREIGN KEY (piece_id) REFERENCES pieces (id) ON DELETE CASCADE,
+  CONSTRAINT ck_rangements_positif CHECK (allee > 0 AND etagere > 0 AND niveau > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -6,11 +6,16 @@ import { BoxGeometry } from 'three';
 
 /** Couleurs des entreprises : BEA bleu marine + liseré vert/cyan, BCH rouge + or ; sinon un gris-bleu neutre. */
 export const MARQUES = {
-  bea: { cle: 'bea', toit: 0x044c92, cadre: 0x0a3a73, lis: [0x35802a, 0x2db2d1], acc: 0x2db2d1, cabine: 0x0b5aa8, bande: 0x35802a, filet: 0x2db2d1, auvent: ['#044c92', '#f4f8fc'], nom: 'Beauchemin', c: ['#044c92', '#35802a'], halo: 0x2db2d1 },
-  bch: { cle: 'bch', toit: 0xd0021b, cadre: 0x9c0516, lis: [0xc9a24d, 0xe8c779], acc: 0xc9a24d, cabine: 0xd0021b, bande: 0xd0021b, filet: 0xc9a24d, auvent: ['#d0021b', '#fbf4ea'], nom: 'Boutique Chaleur', c: ['#d0021b', '#c9a24d'], halo: 0xe0a93a },
-  neutre: { cle: 'neutre', toit: 0x4f6f9c, cadre: 0x37507a, lis: [0x8fa6c6, 0xb9c8de], acc: 0x8fa6c6, cabine: 0x4f6f9c, bande: 0x4f6f9c, filet: 0x8fa6c6, auvent: ['#4f6f9c', '#f4f6fa'], nom: '', c: ['#4f6f9c', '#8fa6c6'], halo: 0x6c8bb8 },
+  bea: { cle: 'bea', toit: 0x044c92, cadre: 0x0a3a73, lis: [0x35802a, 0x2db2d1], acc: 0x2db2d1, cabine: 0x0b5aa8, bande: 0x35802a, filet: 0x2db2d1, auvent: ['#044c92', '#f4f8fc'], nom: 'Beauchemin', c: ['#044c92', '#35802a'], halo: 0x2db2d1, logo: { mode: 'blanc', ratio: 812 / 166 } },
+  bch: { cle: 'bch', toit: 0xd0021b, cadre: 0x9c0516, lis: [0xc9a24d, 0xe8c779], acc: 0xc9a24d, cabine: 0xd0021b, bande: 0xd0021b, filet: 0xc9a24d, auvent: ['#d6353d', '#a1161e'], nom: 'Boutique Chaleur', c: ['#d0021b', '#c9a24d'], halo: 0xe0a93a, logo: { mode: 'rouge', ratio: 784 / 352 } },
+  neutre: { cle: 'neutre', toit: 0x4f6f9c, cadre: 0x37507a, lis: [0x8fa6c6, 0xb9c8de], acc: 0x8fa6c6, cabine: 0xeef1f6, bande: 0x6f819e, filet: 0xa9b8d0, auvent: ['#4f6f9c', '#f4f6fa'], nom: '', c: ['#4f6f9c', '#8fa6c6'], halo: 0x6c8bb8 },
 };
-export function marque(code) { const c = String(code || '').toLowerCase(); return MARQUES[c === 'bea' || c === 'bch' ? c : 'neutre']; }
+/** Palette d'une entreprise : BEA, BCH ou, pour toute autre, un blanc neutre qui porte SON nom (clé propre : texture propre). */
+export function marque(code, nom) {
+  const c = String(code || '').toLowerCase();
+  if (c === 'bea' || c === 'bch') { return MARQUES[c]; }
+  return Object.assign({}, MARQUES.neutre, { cle: 'neutre:' + c, nom: nom || String(code || '') });
+}
 
 const INT1 = 0xa9b4cb, INT2 = 0x7d89a6, BETON = 0xcfd6e4, NOIR = 0x222733, GRIS = 0x8793ab, CLAIR = 0xf3f6fb;
 
@@ -22,16 +27,17 @@ export const PALETTE = { x: 1.3, y: 0.16, z: 1.1 };
  * Pile = palette + cartons (cols x rows par couche, plusieurs couches) posée en (x, y, z).
  * Le remplissage allume les cartons dans l'ordre : couche par couche, pile par pile.
  */
-function pile(x, y, z, cols, rows, layers, ry = 0) { return { x, y, z, cols, rows, layers, ry }; }
+export function pile(x, y, z, cols, rows, layers, ry = 0) { return { x, y, z, cols, rows, layers, ry }; }
 
 // ===========================================================================================================================
 //  Entrepôt : tôle nervurée, toit en dents de scie, portes de quai (cadre foncé, palettes visibles dans l'alcôve)
 // ===========================================================================================================================
-export function entrepot(W, D, M, R) {
-  const n = clamp(Math.round(W / 5.2), 1, 9), p = W / n;
-  const hl = clamp(3.9 + 0.1 * W, 4.4, 6.4), hr = clamp(0.3 * p, 1.1, 2.2), H = hl + hr;
+export function entrepot(W, D, M, R, opts) {
+  const bw = opts && opts.bureau ? opts.bureau : 0, Ww = W - bw;                      // bw : largeur du bloc de bureau à gauche (entrepôt Beauchemin), sinon 0
+  const n = clamp(Math.round(Ww / 5.2), 1, 9), p = Ww / n;
+  const hl = clamp(3.9 + 0.1 * Ww, 4.4, 6.4), hr = clamp(0.3 * p, 1.1, 2.2), H = hl + hr;
   const dep = Math.min(1.7, D * 0.42), dw = Math.min(3.1, p - 1.5), dh = Math.min(3.5, hl - 0.8), seuil = 0.18, cad = 0.3;
-  const x0 = -W / 2, z1 = D / 2;
+  const x0 = -W / 2 + bw, z1 = D / 2;
   const S = new Pieces(), murs = [], toit = [], verre = new Pieces(), piles = [], plaques = [];
 
   // profil en dents de scie : haut à gauche (-X), bas à droite (+X) ; la contremarche regarde -X (elle porte le vitrage)
@@ -202,7 +208,9 @@ export function camion(W, D, M, R) {
   S.boite(0.95, 0.1, larg - 0.2, bx1 + 0.5, 0.2, 0, 0x9aa6bd);
   S.boite(0.08, 0.12, larg - 0.2, bx1 + 0.99, 0.2, 0, 0xf2b53a);
   S.boite(0.1, 0.5, larg - 0.4, bx1 + 0.02, 0.55, 0, 0x30384b);                                         // pare-chocs arrière
-  plaques.push({ w: 2.6, h: 0.65, x: 0.55, y: 2.55, z: bz + 0.08, ry: 0 }, { w: 2.6, h: 0.65, x: 0.55, y: 2.55, z: -bz - 0.08, ry: Math.PI });
+  // logo réel de l'entreprise des DEUX côtés de la caisse (BEA : bandeau large ; BCH : panneau rouge ; autre : son nom sur blanc)
+  const lg = M.logo ? M.logo.ratio : 4, PH = M.cle === 'bch' ? 1.0 : (M.logo ? 0.66 : 0.62), PW = Math.min(M.cle === 'bch' ? 2.2 : 3.2, PH * lg), py = M.cle === 'bch' ? 2.35 : 2.5, px = M.cle === 'bch' ? 0.45 : 0.35;   // à gauche des vantaux ouverts
+  plaques.push({ tex: 'logo', w: PW, h: PH, x: px, y: py, z: bz + 0.075, ry: 0 }, { tex: 'logo', w: PW, h: PH, x: px, y: py, z: -bz - 0.075, ry: Math.PI });
   // cartons : sur le hayon d'abord, puis deux piles au fond de la caisse
   piles.push(pile(bx1 + 0.5, 0.25, 0, 2, 2, 3, 0.05), pile(2.35, 1.07, -0.56, 2, 2, 3, 0.03), pile(2.35, 1.07, 0.56, 2, 2, 3, -0.04));
 
