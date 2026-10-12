@@ -116,6 +116,19 @@ Migration actuelle : `2026-10-12-plan.sql` (page **Plan** : table `plan_emplacem
 
 **Toujours faire une sauvegarde manuelle avant une mise à jour.** Avant de la déployer, la suite de tests peut être lancée sur une base jetable : `TEST_DB=beauchemin_test tests/run.sh`.
 
+### Vue 3D du Plan : reconstruire le bundle (développeurs seulement)
+
+La vue 3D de la page Plan est le fichier **`gestion/assets/js/plan3d.bundle.js`** (≈ 615 Ko, 164 Ko compressé ; Three.js, minifié, licence MIT en en-tête). Il est **versionné** : le serveur d'exploitation (PHP seulement, ou le conteneur Docker) **ne construit rien et n'a pas besoin de Node**.
+Les sources sont dans `tools/plan3d/` (hors de `gestion/`, donc jamais servies). Pour les modifier :
+
+```bash
+cd tools/plan3d
+npm install          # three et esbuild (versions exactes dans package.json / package-lock.json)
+npm run build        # réécrit gestion/assets/js/plan3d.bundle.js (le script refuse un bundle de plus de 700 Ko)
+```
+
+Puis committer le bundle (pas `node_modules/`). Détails : `tools/plan3d/README.md`.
+
 ## 10. Dépannage
 
 | Symptôme | Piste |
@@ -126,5 +139,6 @@ Migration actuelle : `2026-10-12-plan.sql` (page **Plan** : table `plan_emplacem
 | Connexion refusée (mot de passe correct) | 5 échecs depuis une même adresse sur un compte → cette adresse est refusée 15 min ; 20 échecs au total → compte verrouillé 15 min. Un administrateur le lève dans *Utilisateurs*. Si l'unique administrateur est bloqué : `tools/deverrouiller.sh <nom_utilisateur> [nouveau_mot_de_passe]` sur le serveur. |
 | Caméra refusée | la page doit être en **HTTPS** et l'accès à la caméra autorisé dans le navigateur |
 | La page Plan affiche « Erreur inattendue » | La migration `2026-10-12-plan.sql` n'a pas été appliquée (table `plan_emplacements` absente) : voir « Migrations de la base » (étape 9) |
+| La page Plan reste en vue Tuiles, sans bouton « 3D » | Le navigateur n'a pas WebGL (accélération graphique désactivée, très vieux poste) : c'est le repli prévu, rien à réparer ; la vue Tuiles est complète |
 | Le Plan affiche « Connexion perdue » | Le navigateur n'atteint plus le serveur (réseau, serveur arrêté) : la page reprend toute seule dès que la connexion revient |
 | Heures décalées | `date.timezone = America/Toronto` (php-production.ini) et heure du serveur à jour (`timedatectl`) |

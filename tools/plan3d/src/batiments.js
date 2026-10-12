@@ -60,6 +60,13 @@ export function entrepot(W, D, M, R) {
     const dx = (R() - 0.5) * 0.5;
     piles.push(pile(cx + dx, seuil, z1 - dep + 0.15 + PALETTE.z / 2, 2, 2, 4, (R() - 0.5) * 0.08));
   }
+  // fenêtres sur le mur du fond (visibles en tournant la vue), une par travée
+  for (let j = 0; j < n; j++) {
+    const cx = x0 + (j + 0.5) * p;
+    verre.boite(1.7, 0.85, 0.05, cx, hl * 0.68, -D / 2 - 0.03, 0xc6e8f6);
+    S.boite(1.9, 0.07, 0.1, cx, hl * 0.68 + 0.5, -D / 2 - 0.03, M.cadre); S.boite(1.9, 0.07, 0.1, cx, hl * 0.68 - 0.5, -D / 2 - 0.03, M.cadre);
+    S.boite(0.07, 0.99, 0.1, cx - 0.93, hl * 0.68, -D / 2 - 0.03, M.cadre); S.boite(0.07, 0.99, 0.1, cx + 0.93, hl * 0.68, -D / 2 - 0.03, M.cadre);
+  }
   // poteaux d'angle
   S.boite(0.36, H, 0.36, x0, H / 2, z1, M.cadre);
   S.boite(0.36, hl, 0.36, W / 2, hl / 2, z1, M.cadre);

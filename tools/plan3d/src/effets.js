@@ -37,7 +37,7 @@ export class Effets {
   /** Anneau lumineux qui s'élargit et s'efface autour d'un bâtiment (contenu modifié). */
   pulse(b, couleur, reduit) {
     this.nPulses++;
-    const g = this.anneauGeo(b.w + 1.6, b.d + 1.6, 0.55);
+    const g = this.anneauGeo(b.tw + 0.6, b.td + 0.6, 0.5);
     const m = new MeshBasicMaterial({ color: couleur, transparent: true, opacity: 0.9, depthWrite: false });
     const o = new Mesh(g, m); o.position.set(b.cx, 0.1, b.cz); o.renderOrder = 3;
     this.groupe.add(o);
@@ -45,7 +45,7 @@ export class Effets {
     if (reduit) { m.opacity = 0.7; this.anim.ajouter({ dur: 2200, toujours: true, f: () => {}, fin }); return; }
     this.anim.ajouter({
       dur: 1700, courbe: ease.sortie,
-      f: k => { const e = 2.4 * k; o.scale.set((b.w + 1.6 + 2 * e) / (b.w + 1.6), 1, (b.d + 1.6 + 2 * e) / (b.d + 1.6)); m.opacity = 0.9 * (1 - k); },
+      f: k => { const e = 2.4 * k; o.scale.set((b.tw + 0.6 + 2 * e) / (b.tw + 0.6), 1, (b.td + 0.6 + 2 * e) / (b.td + 0.6)); m.opacity = 0.9 * (1 - k); },
       fin,
     });
     this.demander();
@@ -53,14 +53,14 @@ export class Effets {
 
   /** Cadre continu autour du bâtiment choisi (couleur de l'entreprise) ; null l'enlève. */
   selection(b, couleur) {
-    if (this.cadre) { this.groupe.remove(this.cadre.o); this.cadre.m.dispose(); this.cadre.m2.dispose(); this.cadre = null; }
+    if (this.cadre) { this.groupe.remove(this.cadre.o); this.cadre.m.dispose(); this.cadre.m2.dispose(); this.cadre.blanc.material.dispose(); this.cadre = null; }
     if (!b) { return; }
     const m = new MeshBasicMaterial({ color: couleur, transparent: true, opacity: 0.95, depthWrite: false });
     const m2 = new MeshBasicMaterial({ color: couleur, transparent: true, opacity: 0.16, depthWrite: false });
     const o = new Group();
-    const a = new Mesh(this.anneauGeo(b.w + 1.5, b.d + 1.5, 0.28), m); a.position.y = 0.11;
-    const f = new Mesh(this.anneauGeo(b.w + 1.5, b.d + 1.5, 20), m2); f.position.y = 0.09;
-    const blanc = new Mesh(this.anneauGeo(b.w + 0.9, b.d + 0.9, 0.12), new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false })); blanc.position.y = 0.12;
+    const a = new Mesh(this.anneauGeo(b.tw + 0.9, b.td + 0.9, 0.42), m); a.position.y = 0.11;
+    const f = new Mesh(this.anneauGeo(b.tw + 0.9, b.td + 0.9, 0), m2); f.position.y = 0.09;
+    const blanc = new Mesh(this.anneauGeo(b.tw + 0.2, b.td + 0.2, 0.14), new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false })); blanc.position.y = 0.12;
     o.add(f, a, blanc); o.position.set(b.cx, 0, b.cz); o.renderOrder = 2;
     this.groupe.add(o);
     this.cadre = { o, m, m2, blanc };
@@ -71,7 +71,7 @@ export class Effets {
     if (this.survol) { this.groupe.remove(this.survol.o); this.survol.m.dispose(); this.survol = null; }
     if (!b) { return; }
     const m = new MeshBasicMaterial({ color: couleur, transparent: true, opacity: 0.55, depthWrite: false });
-    const o = new Mesh(this.anneauGeo(b.w + 1.4, b.d + 1.4, 0.22), m); o.position.set(b.cx, 0.1, b.cz); o.renderOrder = 2;
+    const o = new Mesh(this.anneauGeo(b.tw + 0.9, b.td + 0.9, 0.3), m); o.position.set(b.cx, 0.1, b.cz); o.renderOrder = 2;
     this.groupe.add(o);
     this.survol = { o, m };
   }
@@ -120,7 +120,7 @@ export class Effets {
     if (reduit) { if (fin) { fin(); } return; }
     this.nVols++;
     if (!this.carton) { const g = geoCarton(); this.carton = { g, m: new MeshLambertMaterial({ vertexColors: true, color: 0xe0b07a }) }; }
-    const o = new Mesh(this.carton.g, this.carton.m); o.castShadow = true; o.scale.setScalar(1.3);
+    const o = new Mesh(this.carton.g, this.carton.m); o.castShadow = true; o.scale.setScalar(2.3);
     this.groupe.add(o);
     const A = new Vector3(de.x, de.y, de.z), B = new Vector3(vers.x, vers.y, vers.z), haut = 5 + A.distanceTo(B) * 0.18;
     this.anim.ajouter({

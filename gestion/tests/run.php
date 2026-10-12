@@ -623,6 +623,22 @@ foreach ($plan->donnees($adm)['tuiles'] as $t) {
 	if ($t['nb_pieces'] !== count($lignes) || $t['unites'] !== Dec::fmt($somme, Dec::QTE)) { $tousOk = false; echo "  tuile {$t['id']} : {$t['nb_pieces']} / {$t['unites']} au lieu de " . count($lignes) . ' / ' . Dec::fmt($somme, Dec::QTE) . "\n"; }
 }
 ok($tousOk, 'plan : nb_pieces et unites de chaque tuile = calcul indépendant sur le stock');
+// résumé des cartes de la vue 3D : unités, pièces sous le minimum (une fois par entreprise), emplacements ; comparé à un calcul indépendant
+$resumeSql = function (array $ents) use ($actifs) {
+	$in = implode(',', $ents);
+	$u = 0; foreach (q("SELECT s.quantite FROM stock s JOIN emplacements e ON e.id = s.emplacement_id WHERE s.quantite > 0 AND e.actif = 1 AND e.entreprise_id IN ($in)") as $l) { $u += Dec::parse($l['quantite'], Dec::QTE); }
+	$bas = array();
+	foreach (q("SELECT s.piece_id, e.entreprise_id, s.emplacement_id FROM stock s JOIN emplacements e ON e.id = s.emplacement_id AND e.actif = 1 AND e.entreprise_id IN ($in) JOIN pieces p ON p.id = s.piece_id AND p.actif = 1
+	            JOIN seuils se ON se.entreprise_id = e.entreprise_id AND se.piece_id = s.piece_id AND se.minimum > 0 WHERE s.quantite > 0") as $l) {
+		$tot = 0; foreach (q('SELECT s2.quantite FROM stock s2 JOIN emplacements e2 ON e2.id = s2.emplacement_id WHERE s2.piece_id = ? AND e2.entreprise_id = ?', array($l['piece_id'], $l['entreprise_id'])) as $x) { $tot += Dec::parse($x['quantite'], Dec::QTE); }
+		$min = Dec::parse(val('SELECT minimum FROM seuils WHERE entreprise_id = ? AND piece_id = ?', array($l['entreprise_id'], $l['piece_id'])), Dec::QTE);
+		if ($tot < $min) { $bas[$l['entreprise_id'] . ':' . $l['piece_id']] = true; }
+	}
+	return array('unites' => Dec::fmt($u, Dec::QTE), 'nb_bas' => count($bas), 'nb_emplacements' => count($actifs($ents)));
+};
+egal($resumeSql(array(1, 2)), $plan->donnees($adm)['resume'], 'plan : résumé (unités, pièces sous le minimum, emplacements) de l\'administrateur = calcul indépendant');
+egal($resumeSql(array(1)), $plan->donnees($gA)['resume'], 'plan : le résumé du gestionnaire de l\'entreprise 1 ne compte que son entreprise');
+egal(array('unites', 'nb_bas', 'nb_emplacements'), array_keys($plan->donnees($emp)['resume']), 'plan : le résumé ne contient que des quantités (aucun prix, coût ni valeur), pour un employé comme pour les autres');
 ok($tuile($plan->donnees($adm), $E['A1'])['type_libelle'] === 'Entrepôt' && $tuile($plan->donnees($adm), $E['CUBE'])['type_libelle'] === 'Cube de service', 'plan : libellés de type en français');
 // emplacement vide et emplacement désactivé
 $pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type, code_barres) VALUES (1, 'Plan vide', 'boutique', 'EMP-PLAN-1')");

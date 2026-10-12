@@ -90,7 +90,12 @@ export class Vue {
     });
     this.o.demander();
   }
-  pivoter(sens) { this.aller({ az: this.cible('az') + sens * PAS }, 520); }
+  pivoter(sens) { this.versAzimut(this.cible('az') + sens * PAS, 520); }
+  /** Tourne vers un azimut ; si la vue n'a pas été déplacée à la main, l'ensemble est recadré pour ce nouvel angle. */
+  versAzimut(az, dur) {
+    const f = !this.utilisee && this.o.cadreAzimut ? this.o.cadreAzimut(az) : null;
+    this.aller(f || { az }, f ? 650 : dur);
+  }
   cible(k) { return this.t && this.vers ? this.vers[k] : this.e[k]; }
   zoom(facteur, px, py, dur) {
     const e = this.e, L = this.o.limites && this.o.limites();
@@ -103,7 +108,7 @@ export class Vue {
   /** Revient au pas d'isométrie le plus proche (45 ° + k · 90 °). */
   caler() {
     const e = this.e, az = AZ0 + Math.round((e.az - AZ0) / PAS) * PAS;
-    if (Math.abs(az - e.az) > 1e-3) { this.aller({ az }, 260); }
+    if (Math.abs(az - e.az) > 1e-3) { this.versAzimut(az, 260); }
   }
 
   // ---- Interactions -----------------------------------------------------------------------------------------------------------
@@ -115,7 +120,7 @@ export class Vue {
     ecoute(el, 'contextmenu', ev => ev.preventDefault());
     ecoute(el, 'pointerdown', ev => {
       if (ev.pointerType === 'mouse' && ev.button > 2) { return; }
-      this.arreter(); this.utilisee = true;
+      this.arreter();
       try { el.setPointerCapture(ev.pointerId); } catch (x) { /* capture refusée : le glisser suit quand même */ }
       const [x, y] = rel(ev);
       this.ptrs.set(ev.pointerId, { x, y });
@@ -123,7 +128,7 @@ export class Vue {
         this.mode = (ev.pointerType === 'mouse' && ev.button === 2) ? 'rot' : 'pan';
         this.depart = { x, y, bouge: false, bouton: ev.button, az0: this.e.az };
       } else if (this.ptrs.size === 2) {
-        this.mode = 'geste'; this.depart.bouge = true;
+        this.mode = 'geste'; this.depart.bouge = true; this.utilisee = true;
         const [a, b] = Array.from(this.ptrs.values());
         this.g = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, a: Math.atan2(b.y - a.y, b.x - a.x), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
       }
@@ -136,7 +141,7 @@ export class Vue {
       const dx = x - p.x, dy = y - p.y; p.x = x; p.y = y;
       const e = this.e;
       if (this.mode === 'pan') {
-        if (!this.depart.bouge && Math.hypot(x - this.depart.x, y - this.depart.y) > 5) { this.depart.bouge = true; if (this.o.surSurvol) { this.o.surSurvol(-1, -1); } }
+        if (!this.depart.bouge && Math.hypot(x - this.depart.x, y - this.depart.y) > 5) { this.depart.bouge = true; this.utilisee = true; if (this.o.surSurvol) { this.o.surSurvol(-1, -1); } }
         if (this.depart.bouge) {
           this.pan(dx, dy);
         }
@@ -168,11 +173,7 @@ export class Vue {
     };
     ecoute(el, 'pointerup', fin); ecoute(el, 'pointercancel', fin);
     ecoute(el, 'pointerleave', ev => { if (!this.ptrs.size && this.o.surSurvol) { this.o.surSurvol(-1, -1); } });
-    ecoute(el, 'wheel', ev => {
-      ev.preventDefault(); this.arreter(); this.utilisee = true;
-      const [x, y] = rel(ev), k = ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? 300 : 1;
-      this.zoom(Math.exp(-ev.deltaY * k * (ev.ctrlKey ? 0.01 : 0.0017)), x, y);
-    }, { passive: false });
+    ecoute(el, 'wheel', ev => this.molette(ev), { passive: false });
     ecoute(el, 'keydown', ev => {
       if (ev.altKey || ev.ctrlKey || ev.metaKey) { return; }
       const e = this.e, pas = (ev.shiftKey ? 90 : 45) / e.ech, k = ev.key;
@@ -188,8 +189,14 @@ export class Vue {
       else if (k === 'e' || k === 'E') { this.pivoter(1); }
       else if (k === 'Home' || k === '0') { this.o.recentrer(); }
       else { ok = false; }
-      if (ok) { ev.preventDefault(); this.utilisee = true; }
+      if (ok) { ev.preventDefault(); if (k !== 'q' && k !== 'Q' && k !== 'e' && k !== 'E' && k !== 'Home' && k !== '0') { this.utilisee = true; } }
     });
+  }
+  /** Molette (ou pincement du pavé tactile) : zoom vers le pointeur ; les étiquettes HTML la renvoient ici pour que le zoom marche aussi par-dessus. */
+  molette(ev) {
+    ev.preventDefault(); this.arreter(); this.utilisee = true;
+    const r = this.el.getBoundingClientRect(), k = ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? 300 : 1;
+    this.zoom(Math.exp(-ev.deltaY * k * (ev.ctrlKey ? 0.01 : 0.0017)), ev.clientX - r.left, ev.clientY - r.top);
   }
   pan(dx, dy) {
     const e = this.e, sa = Math.sin(e.az), ca = Math.cos(e.az), k = dy / (e.ech * Math.sin(EL));

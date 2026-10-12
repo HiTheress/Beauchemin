@@ -193,6 +193,7 @@ const toastTexte = async (p, ms) => { try { await p.waitForSelector('#toasts .al
   const im1 = await attr(a, 'images');
   verifier(im1 === im0, 'au repos : aucune image dessinée en 2,5 s (' + im0 + ' → ' + im1 + ') ; pas de boucle permanente');
   const dessins = await attr(a, 'dessins'), tri = await attr(a, 'triangles'), ms = await attr(a, 'ms');
+  console.log('  mesures (5 emplacements) : ' + dessins + ' dessins, ' + tri + ' triangles, ' + ms + ' ms JS par image');
   verifier(dessins > 5 && dessins < 120, 'appels de dessin par image : ' + dessins + ' (' + tri + ' triangles, ' + ms + ' ms de JavaScript pour la dernière image)');
   await capture(a, '1-bureau-3d');
 
@@ -605,6 +606,7 @@ const toastTexte = async (p, ms) => { try { await p.waitForSelector('#toasts .al
   const cartonsTot = await attr(gr, 'cartons'), dessG = await attr(gr, 'dessins'), msG = await attr(gr, 'ms'), triG = await attr(gr, 'triangles');
   verifier(ecl.length === nbEmp && nbEmp >= 30, nbEmp + ' emplacements, une étiquette chacun');
   verifier(cartonsTot >= 700, cartonsTot + ' cartons visibles dans la scène (une seule instance de dessin pour tous)');
+  console.log('  mesures (31 emplacements) : ' + dessG + ' dessins, ' + triG + ' triangles, ' + msG + ' ms JS par image, ' + cartonsTot + ' cartons visibles');
   verifier(dessG < 160, 'appels de dessin par image : ' + dessG + ' (' + triG + ' triangles) ; temps JavaScript de l\'image : ' + msG + ' ms');
   const masques = ecl.filter(x => x.classe.includes('pl3-masque')).length;
   verifier(masques >= 1 && masques < ecl.length, 'les étiquettes qui se chevauchent sont masquées (' + masques + ' sur ' + ecl.length + ' ; les autres restent lisibles)');

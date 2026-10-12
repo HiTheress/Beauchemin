@@ -56,7 +56,7 @@ export class Scene3D {
 
     this.images = 0; this.dessins = 0; this.triangles = 0;
     this.demande = false; this.detruit = false; this.perdu = false; this.ombresSale = true;
-    this.selId = null; this.survolId = null; this.recherche = null; this.azSoleil = null; this.marges = { g: 24, d: 24, h: 96, b: 36 };
+    this.selId = null; this.survolId = null; this.recherche = null; this.azSoleil = null; this.marges = { g: 20, d: 20, h: 78, b: 22 };
     this.ray = new Raycaster(); this.ndc = new Vector2();
     this.limites = { x0: -50, x1: 50, z0: -50, z1: 50, echMin: 4, echMax: 90 };
     this.fit = 12; this.bornes = null;
@@ -67,6 +67,7 @@ export class Scene3D {
     this.vue = new Vue(cv, {
       anim: this.anim, demander: () => this.demander(), limites: () => this.limites, recentrer: () => this.recentrer(true),
       surChange: () => this.camChange(),
+      cadreAzimut: az => { if (!this.bornes || !this.w) { return null; } const f = this.cadre(this.pointsDe(this.bornes), az, 0); f.ech = Math.min(f.ech * 0.98, 26); return f; },
       surClic: (x, y) => { const id = this.choisir(x, y); if (this.o.surSelection) { this.o.surSelection(id, cv); } },
       surSurvol: (x, y) => this.survoler(x, y),
     });
@@ -251,14 +252,14 @@ export class Scene3D {
   calculerLimites() {
     if (!this.bornes || !this.w) { return; }
     const f = this.cadre(this.pointsDe(this.bornes), AZ0, 0);
-    this.fit = Math.min(f.ech * 0.92, 26);
+    this.fit = Math.min(f.ech * 0.98, 26);
     const B = this.bornes;
     this.limites = { x0: B.x0 - 12, x1: B.x1 + 12, z0: B.z0 - 12, z1: B.z1 + 12, echMin: Math.max(2.5, this.fit * 0.55), echMax: Math.max(72, this.fit * 6) };
   }
   recentrer(animer) {
     if (!this.bornes || !this.w) { return; }
     const f = this.cadre(this.pointsDe(this.bornes), AZ0, 0);
-    f.ech = Math.min(f.ech * 0.92, 26);
+    f.ech = Math.min(f.ech * 0.98, 26);
     this.vue.utilisee = false;
     this.vue.aller(f, animer ? 700 : 0);
   }
@@ -409,7 +410,8 @@ export class Scene3D {
       definirDonnees: (t, r, o) => { s.definirDonnees(t, r, o); s.rendu = true; },
       chercher: (m, o) => s.chercher(m, o), selectionner: (id, o) => s.selectionner(id, o),
       pulser: ids => s.pulser(ids), voler: (a, b, f) => s.voler(a, b, f), marges: m => s.definirMarges(m),
-      zoom: f => { s.vue.utilisee = true; s.vue.zoom(f); }, pivoter: sens => { s.vue.utilisee = true; s.vue.pivoter(sens); }, recentrer: () => s.recentrer(true),
+      molette: ev => s.vue.molette(ev),
+      zoom: f => { s.vue.utilisee = true; s.vue.zoom(f); }, pivoter: sens => s.vue.pivoter(sens), recentrer: () => s.recentrer(true),
       cadrer: ids => s.cadrerBatiments(ids, { maxFit: 2.2 }), canevas: s.canvas, redessiner: () => s.demander(),
       stats: () => ({ images: s.images, dessins: s.dessins, triangles: s.triangles, ech: s.vue.e.ech, az: s.vue.e.az, cartons: s.rem.c.filter(c => c.vers === 1).length, instances: s.rem.c.length }),
       detruire: () => s.detruire(),

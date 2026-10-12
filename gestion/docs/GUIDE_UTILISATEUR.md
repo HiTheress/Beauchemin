@@ -28,7 +28,7 @@ Les écrans sont faits pour se passer d'explications ; ce guide sert d'aide-mém
 | Noter les pièces utilisées chez un client | **Utiliser** : emplacement, motif, scannez, *Utiliser* |
 | Compter un emplacement | **Compter** : emplacement, scannez chaque pièce présente, *Terminer le comptage* |
 | Voir tout le stock | **Stock** |
-| Voir où sont les pièces | **Plan** (chercher ou scanner une pièce : les emplacements qui l'ont s'illuminent ; un clic sur une tuile montre son contenu ; l'écran se met à jour tout seul) |
+| Voir où sont les pièces | **Plan** (chercher ou scanner une pièce : les emplacements qui l'ont s'illuminent ; un clic sur une tuile montre son contenu ; l'écran se met à jour tout seul ; sur écran large le Plan s'ouvre en **vue 3D** (glisser pour déplacer, molette pour zoomer, clic droit ou deux doigts pour pivoter) ; le bouton **Tuiles** revient à la liste) |
 
 Un transfert reste **dans la même entreprise** ; pour passer d'une entreprise à l'autre, on fait une facture.
 

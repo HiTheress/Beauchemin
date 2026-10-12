@@ -35,12 +35,13 @@
         vue = w.Plan3D.creer(scene, { libelle: scene.getAttribute('data-libelle') || '', surRendu: rendu, surSelection: clic, surSurvol: survol, surPerte: perte });
       } catch (e) { vue = null; conteneur.hidden = true; webgl = false; return false; }
       actif = true;
-      if (dernier) { precedent = instantane(dernier.tuiles); appliquer(dernier, null); }
+      vue.marges(w.innerWidth < 768 ? { g: 8, d: 8, h: 62, b: 58 } : { g: 20, d: 20, h: 78, b: 22 });
+      precedent = null;                                           // plan.js envoie tout de suite les données courantes (donnees())
       return true;
     }
     function desactiver() {
       if (vue) { try { vue.detruire(); } catch (e) { /* déjà détruite */ } vue = null; }
-      actif = false; recherche = null; rechCle = '';
+      actif = false; recherche = null; rechCle = ''; dernier = null; precedent = null; selection = null; survole = null; unitesAffichees = null;
       Object.keys(etiq).forEach(function (id) { etiq[id].el.remove(); });
       etiq = {}; ordre = [];
       conteneur.hidden = true;
@@ -264,7 +265,9 @@
       else if (a === 'gauche') { vue.pivoter(-1); } else if (a === 'droite') { vue.pivoter(1); } else if (a === 'centrer') { vue.recentrer(); }
     });
 
-    function marge(droite) { if (vue) { vue.marges({ d: 24 + Math.max(0, droite || 0) }); } }
+    couche.addEventListener('wheel', function (ev) { if (vue) { vue.molette(ev); } }, { passive: false });      // le zoom marche aussi au-dessus d'une étiquette
+
+    function marge(droite) { if (vue) { vue.marges({ d: (w.innerWidth < 768 ? 8 : 20) + Math.max(0, droite || 0) }); } }
 
     return {
       disponible: disponible, activer: activer, desactiver: desactiver, actif: function () { return actif; },

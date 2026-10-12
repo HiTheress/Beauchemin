@@ -91,7 +91,8 @@ function decor(items, B, X0, X1, Z0, Z1) {
   const bea = items.filter(t => t.type === 'entrepot' && t.m.cle === 'bea').sort((a, b) => a.cz - b.cz || a.cx - b.cx)[0];
   if (bea) {
     const r = { x0: bea.cx - bea.w / 2, x1: bea.cx + bea.w / 2, z0: bea.cz - bea.d / 2, z1: bea.cz + bea.d / 2 };
-    const c = [[r.x1 + 2.1, bea.cz], [bea.cx, r.z1 + 1.9], [r.x0 - 2.1, bea.cz], [bea.cx, r.z0 - 1.9]].map(([x, z]) => ({ x, z })).find(c => libre(c.x, c.z, 1.5));
+    // près de l'angle de façade (là où le camion ou le chariot ne cachent rien, et où la vue d'ensemble le montre)
+    const c = [[r.x1 + 2.4, r.z1 - 1.7], [r.x0 + 2.2, r.z1 + 2.1], [r.x0 - 2.4, r.z1 - 1.7], [bea.cx, r.z0 - 2.0]].map(([x, z]) => ({ x, z })).find(c => libre(c.x, c.z, 1.3));
     if (c) { cage(P, c.x, c.z); cone(P, c.x + 1.8, c.z + 0.9); }
   }
   return P.fin();

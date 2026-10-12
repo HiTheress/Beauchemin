@@ -108,13 +108,15 @@
 @media (max-width: 767.98px) {
   .pl3 { height: clamp(420px, calc(100vh - 20rem), 640px); min-height: 420px; border-radius: 20px; }
   .pl-vues { order: 2; }
-  .pl3-stats { top: 8px; left: 8px; gap: 6px; max-width: calc(100% - 64px); }
-  .pl3-stat { gap: .4rem; padding: .35rem .6rem .35rem .35rem; border-radius: 14px; }
-  .pl3-stat-ico { width: 30px; height: 30px; border-radius: 10px; font-size: .78rem; }
-  .pl3-stat-nom { font-size: .6rem; }
-  .pl3-stat-val { font-size: 1.05rem; }
-  .pl3-outils { top: 8px; right: 8px; padding: 3px; border-radius: 14px; }
+  .pl3-stats { top: 8px; left: 8px; right: 8px; gap: 6px; max-width: none; flex-wrap: nowrap; }
+  .pl3-stat { flex: 1 1 0; min-width: 0; gap: .4rem; padding: .35rem .5rem; border-radius: 14px; }
+  .pl3-stat-ico { display: none; }
+  .pl3-stat-nom { font-size: .6rem; white-space: nowrap; }
+  .pl3-stat-val { font-size: 1.1rem; }
+  .pl3-outils { top: auto; bottom: 8px; right: 8px; flex-direction: row; padding: 3px; border-radius: 14px; }
   .pl3-btn { width: 40px; height: 40px; border-radius: 11px; }
+  .pl3-btn.pl3-sep { margin: 0 0 0 5px; }
+  .pl3-btn.pl3-sep::before { left: -3px; right: auto; top: 9px; bottom: 9px; width: 1px; height: auto; }
   .pl3-nom { font-size: .76rem; max-width: 9rem; }
   .pl3-chiffres { font-size: .66rem; }
   .pl3-icone { width: 24px; height: 24px; font-size: .68rem; }
