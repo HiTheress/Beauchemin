@@ -53,7 +53,7 @@ gestion/
 ```
 
 Pages existantes à connaître (noms de routes **figés** : les modules se lient entre eux par ces noms) :
-`dashboard, scanner, stock, reception, transfert, sortie, ajustement, facture_interne, comptage, comptage_voir(id),
+`dashboard, scanner, stock, plan, reception, transfert, sortie, ajustement, facture_interne, comptage, comptage_voir(id),
 pieces, piece_voir(id), piece_edit(id?), fournisseurs, categories, etiquettes, documents, document_voir(id),
 historique, sous_minimum, factures_internes, facture_interne_voir(id), bilan_mensuel, valeur_inventaire,
 utilisateurs, entreprises, emplacements, journal, profil, backup_database`.
@@ -74,6 +74,7 @@ Le menu (`inc/sidebar.php`) contient déjà toutes ces entrées avec leur rôle 
 * `comptages` : brouillon de comptage d'un emplacement → « appliquer » crée **un** ajustement (écarts = compté − stock actuel).
 * `prix_fournisseurs` (prix courant par pièce/fournisseur) + `prix_fournisseurs_hist`. `seuils` (minimum par entreprise).
 * `journal` : audit. `utilisateurs` + `utilisateur_entreprises`.
+* `plan_emplacements(emplacement_id PK/FK, x, y, largeur, hauteur, modifie_le, modifie_par)` : place libre de la tuile d'un emplacement sur le plan (une ligne par emplacement ; pas de ligne = place automatique). Voir §13.
 * **Montants** : coûts unitaires à 4 décimales, totaux à 2, quantités à 3 (les pièces vendues au mètre/pied existent). Les
   décimaux voyagent **toujours en chaîne** (`"12.500"`), jamais en float. Entrée utilisateur : virgule ou point acceptés
   (le service les convertit). Formats d'affichage : PHP `fmt_argent($s)`, `fmt_nombre($s)`, `fmt_date($d)` ;
@@ -275,6 +276,7 @@ Chacun ne voit que **ses** entreprises (`utilisateur_entreprises`) ; l'admin voi
 | D1 Scanner et comptage | `scanner*`, `comptage*` — JS `scan.js`, `comptage.js` |
 | D2 Stock, tableau de bord, historique | `stock*`, `dashboard*`, `historique*`, `sous_minimum*` — JS `stock.js`, `dashboard.js` |
 | E Administration | `utilisateur*`, `entreprise*`, `emplacement_*`, `emplacements` (page), `journal*`, `profil*`, `pages/backup_database.php` — JS `admin.js` |
+| F Plan de l'entrepôt | `plan` (page), `plan_*` (endpoints), classe `app/classes/Plan.php`, `database/migrations/*`, `database/migrer.php` — JS `plan.js`, CSS `plan.css`, test `tests/e2e/plan.js` |
 
 Ne créez pas de fichier dans le territoire d'un autre module ; n'en modifiez aucun.
 
@@ -296,3 +298,43 @@ vous pouvez continuer sans, contournez dans **vos** fichiers. Les demandes sont 
    et un contrôle d'accès (employé refusé / autre entreprise refusée) et la présence d'aucune erreur console.
 5. Après vos tests, **`tests/run.sh` passe toujours** (vous n'avez pas cassé le noyau) et l'invariant stock = Σ mouvements tient.
 6. Rapport final (court, en français) : fichiers créés, parcours testés (avec résultats), limites connues, **Demandes au noyau**.
+
+## 13. Plan de l'entrepôt (page `plan`) : temps réel, disposition libre
+
+**Principe.** Une tuile par emplacement **actif** des entreprises que l'utilisateur peut **consulter** (même règle que la page Stock, y compris une entreprise désactivée).
+Tout le calcul est dans `app/classes/Plan.php` (testé par `tests/run.php`, sans HTTP) ; les endpoints ne font que valider l'entrée et appeler la classe.
+Lecture seule du stock. **Aucun coût, prix ni valeur n'est lu ni envoyé, pour aucun rôle** : un employé reçoit exactement les mêmes champs qu'un gestionnaire
+(clés `unites`, `nb_pieces`, `nb_bas`, `somme` : jamais `total`, `valeur`, `prix`, `cout`, que l'audit de sécurité surveille).
+
+| Fichier | Rôle |
+|---|---|
+| `pages/plan.php` | page (employé+) ; les données de départ sont dans `data-donnees` (aucun JavaScript en ligne : la CSP reste stricte) |
+| `app/ajax/plan_data.php` | `?piece_id=` facultatif. `{version, admin, zone, tuiles:[{id, nom, code, type, type_libelle, entreprise_*, nb_pieces, unites, nb_bas, sig, pos}], recherche:{piece, emplacements:[{emplacement_id, quantite}], somme}}` |
+| `app/ajax/plan_version.php` | le jeton de version (42 octets) ; la session est relâchée tout de suite |
+| `app/ajax/plan_emplacement.php` | `?emplacement_id=&q=` : contenu d'une tuile, trié par nom, 400 pièces au plus (`tronque` : la recherche rapide interroge alors le serveur). 403 identique pour un emplacement inexistant, désactivé ou d'une autre entreprise |
+| `app/action/plan_save.php` | **administrateur seulement** (403 sinon). `positions:[{emplacement_id, x, y, largeur, hauteur}]` : entiers multiples de 20, tuile dans le plan (1600 x 1200), taille de 140 x 100 à 600 x 400, pas de doublon, emplacements actifs et consultables ; **tout ou rien** ; une ligne par emplacement ; seules les tuiles modifiées sont écrites ; journal `plan.disposition` (rien si rien n'a changé) |
+| `app/ajax/plan_lib.php` | outils communs (réponses JSON, 403/400/500), 404 si appelé directement |
+
+**Jeton de version.** `Plan::versionPour($entreprises)` : `<dernier id de mouvement>-<nb d'emplacements>-<empreinte>`, calculé **uniquement** sur les emplacements des entreprises de l'utilisateur
+(un mouvement chez l'autre entreprise ne le change pas : aucune fuite). Il change pour toute réception, déplacement, utilisation, correction, comptage appliqué, facture interne et annulation
+(chacun laisse au moins un mouvement), et quand un emplacement est créé, renommé, (dés)activé ou déplacé sur le plan. Il ne couvre pas les minimums ni les noms de pièces : la page relit tout
+de toute façon **chaque minute**.
+
+**Coût d'une interrogation** (mesuré avec 400 000 mouvements et 5 emplacements, MariaDB 10.11, serveur de développement PHP) : **une requête SQL**, 0,47 ms ; la requête HTTP complète
+`plan_version.php` prend 2,6 ms en moyenne (p95 : 3,5 ms), comme le plus léger des autres endpoints (`emplacements_liste.php` : 2,6 ms) ; `plan_data.php` 4,4 ms ; `plan_emplacement.php` 3,6 ms.
+Dix utilisateurs qui laissent la page ouverte = 2,5 interrogations par seconde. Le dernier mouvement de chaque emplacement se lit d'**un seul accès** dans l'index
+`ix_mouv_emplacement_id (emplacement_id, id)` (ajouté au schéma et à la migration) avec `ORDER BY id DESC LIMIT 1` et `FORCE INDEX` : un `MAX(id)` corrélé, lui, parcourt tous les
+mouvements de l'emplacement (64 ms pour 400 000 lignes, et de plus en plus). Le coût est proportionnel au nombre d'emplacements, jamais au nombre de mouvements.
+
+**Interrogation côté navigateur** (`assets/js/plan.js`) : toutes les 4 s, **une seule requête à la fois** (délai maximal de 8 s), arrêt complet quand l'onglet est caché, interrogation immédiate au retour,
+recul exponentiel (4, 8, 16… 30 s) après une erreur réseau et indicateur « Connexion perdue » (jamais de message technique), reprise automatique (événement `online` compris). Quand le jeton change :
+relecture de `plan_data.php` (le jeton y est lu **avant** les données : un mouvement arrivé entre-temps est revu au tour suivant) ; les tuiles dont `sig`, `nb_pieces`, `unites` ou `nb_bas` ont changé pulsent
+(`prefers-reduced-motion` : simple contour, sans animation). Le tiroir ouvert et la recherche active se mettent à jour aussi.
+
+**Disposition.** Écran large (≥ 768 px) : surface de tuiles positionnées en pixels sur une grille de 20 ; sans aucune place enregistrée, rangement automatique (une rangée par type, entrepôts puis boutiques puis cubes, puis entreprise) avec le titre de chaque groupe ;
+dès qu'une place existe, les tuiles non placées se rangent automatiquement **sous** les autres. Téléphone : liste de cartes, sans glisser-déposer. Modification (administrateur) : pointer events (souris, doigt, stylet),
+accrochage à 20 px, limites du plan, recouvrement refusé (la tuile revient à sa place), flèches du clavier (Maj : taille), défilement automatique près du bord de l'écran, « Annuler » rétablit, « Tout ranger » range en grille.
+
+**Base de données.** Table `plan_emplacements` et index `ix_mouv_emplacement_id` : dans `database/schema.sql` ET dans la migration idempotente `database/migrations/2026-10-12-plan.sql`
+(`php database/migrer.php`, exécuté à chaque démarrage par le conteneur Docker ; voir `docs/DEPLOIEMENT.md`). Données de démonstration : `database/demo.php` pose une disposition (deux entrepôts en haut, cubes et boutique dessous).
+

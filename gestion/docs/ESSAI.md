@@ -56,7 +56,7 @@ Le mot de passe et le nom de l'administrateur ne sont lus qu'**au tout premier d
 
 1. **Gestionnaire** : recevoir 10 gicleurs de *Distribution Chauffage Plus* à l'entrepôt de Beauchemin (Réception) ; vérifier le coût moyen sur la fiche de la pièce.
 2. **Employé** : transférer 4 gicleurs de l'entrepôt vers un cube de service ; scanner le code d'un cube pour voir son contenu.
-3. **Employé** : sortir 2 gicleurs du cube (pièces utilisées chez un client).
+3. **Employé** : sortir 2 gicleurs du cube (pièces utilisées chez un client). Pendant ce temps, ouvrir **Plan** sur un autre poste : la tuile du cube se met à jour toute seule ; chercher un gicleur illumine les emplacements qui en ont.
 4. **Gestionnaire** : faire une facture interne (Boutique Chaleur prend des pièces chez Beauchemin) ; consulter le **bilan mensuel** et l'exporter.
 5. **Gestionnaire** : un **comptage** d'un cube avec le lecteur ; appliquer les écarts.
 6. Noter tout ce qui est lent, confus ou manquant : c'est ce qui sera corrigé avant le lancement.

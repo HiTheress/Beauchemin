@@ -602,6 +602,260 @@ ok(substr_count($bt, '/Subtype /Image') === 1 && strpos($bt, 'Entreprise Tierce 
 $pdo->exec("DELETE FROM entreprises WHERE id = $ent3");
 $_SESSION = array();
 
+// ---- Plan de l'entrepôt (page « Plan ») ------------------------------------------------------------------------------
+groupe('Plan de l\'entrepôt : tuiles, cloisonnement, employé sans prix');
+require_once __DIR__ . '/../app/classes/Plan.php';
+$plan = new Plan($pdo, $inv);
+$idsTuiles = function ($tuiles) { $r = array_map(function ($t) { return $t['id']; }, $tuiles); sort($r); return $r; };
+$actifs = function (array $ents) { return array_map('intval', array_column(q('SELECT id FROM emplacements WHERE actif = 1 AND entreprise_id IN (' . implode(',', $ents) . ') ORDER BY id'), 'id')); };
+$tuile = function ($donnees, $id) { foreach ($donnees['tuiles'] as $t) { if ($t['id'] === $id) { return $t; } } return null; };
+egal($actifs(array(1)), $idsTuiles($plan->donnees($gA)['tuiles']), 'plan : le gestionnaire de l\'entreprise 1 ne voit que les emplacements actifs de l\'entreprise 1');
+egal($actifs(array(2)), $idsTuiles($plan->donnees($gB)['tuiles']), 'plan : le gestionnaire de l\'entreprise 2 ne voit que ceux de l\'entreprise 2');
+egal($actifs(array(1)), $idsTuiles($plan->donnees($emp)['tuiles']), 'plan : l\'employé de l\'entreprise 1 ne voit que l\'entreprise 1');
+egal($actifs(array(1, 2)), $idsTuiles($plan->donnees($adm)['tuiles']), 'plan : l\'administrateur voit toutes les entreprises');
+refuse(function () use ($plan, $U) { $plan->donnees($U['off']); }, 'désactivé', 'plan : un utilisateur désactivé est refusé');
+ok($plan->donnees($adm)['admin'] === true && $plan->donnees($gA)['admin'] === false && $plan->donnees($emp)['admin'] === false, 'plan : seul l\'administrateur reçoit admin = vrai');
+// nb de pièces et d'unités : comparés à un calcul indépendant sur la table stock
+$tousOk = true;
+foreach ($plan->donnees($adm)['tuiles'] as $t) {
+	$lignes = q('SELECT quantite FROM stock WHERE emplacement_id = ? AND quantite > 0', array($t['id']));
+	$somme = 0; foreach ($lignes as $l) { $somme += Dec::parse($l['quantite'], Dec::QTE); }
+	if ($t['nb_pieces'] !== count($lignes) || $t['unites'] !== Dec::fmt($somme, Dec::QTE)) { $tousOk = false; echo "  tuile {$t['id']} : {$t['nb_pieces']} / {$t['unites']} au lieu de " . count($lignes) . ' / ' . Dec::fmt($somme, Dec::QTE) . "\n"; }
+}
+ok($tousOk, 'plan : nb_pieces et unites de chaque tuile = calcul indépendant sur le stock');
+ok($tuile($plan->donnees($adm), $E['A1'])['type_libelle'] === 'Entrepôt' && $tuile($plan->donnees($adm), $E['CUBE'])['type_libelle'] === 'Cube de service', 'plan : libellés de type en français');
+// emplacement vide et emplacement désactivé
+$pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type, code_barres) VALUES (1, 'Plan vide', 'boutique', 'EMP-PLAN-1')");
+$vide = (int) $pdo->lastInsertId();
+$t = $tuile($plan->donnees($gA), $vide);
+ok($t !== null && $t['nb_pieces'] === 0 && $t['unites'] === '0.000' && $t['nb_bas'] === 0 && $t['pos'] === null && $t['code'] === 'EMP-PLAN-1' && $t['entreprise_code'] === 'BEA', 'plan : emplacement vide = 0 pièce, 0.000 unité, sans place enregistrée');
+ok($tuile($plan->donnees($gB), $vide) === null, 'plan : cet emplacement vide de l\'entreprise 1 est invisible pour l\'entreprise 2');
+$pdo->exec("UPDATE emplacements SET actif = 0 WHERE id = $vide");
+ok($tuile($plan->donnees($gA), $vide) === null && $tuile($plan->donnees($adm), $vide) === null, 'plan : un emplacement désactivé n\'est plus une tuile');
+refuse(function () use ($plan, $gA, $vide) { $plan->contenu($gA, $vide); }, 'n\'existe pas', 'plan : le contenu d\'un emplacement désactivé est refusé');
+$pdo->exec("UPDATE emplacements SET actif = 1 WHERE id = $vide");
+// entreprise désactivée : comme la page Stock, ses emplacements restent consultables par ses utilisateurs
+$pdo->exec('UPDATE entreprises SET actif = 0 WHERE id = 2');
+ok(count($plan->donnees($gB)['tuiles']) === count($actifs(array(2))) && count($actifs(array(2))) > 0, 'plan : les emplacements d\'une entreprise désactivée restent visibles pour ses utilisateurs (même règle que Stock)');
+$pdo->exec('UPDATE entreprises SET actif = 1 WHERE id = 2');
+// un employé n'obtient aucun montant : ni dans les tuiles, ni dans le tiroir, ni dans la recherche (les mêmes champs pour tous les rôles)
+$motsCout = '/"(cout|couts|cout_unitaire|cout_moyen|prix|prix_fournisseurs|valeur|valeur_totale|total|total_ligne|montant)"\s*:/';
+$jsonEmp = json_encode($plan->donnees($emp, $P['T1'])) . json_encode($plan->contenu($emp, $E['A1'])) . json_encode($plan->contenu($emp, $E['CUBE']));
+ok(!preg_match($motsCout, $jsonEmp) && strpos($jsonEmp, 'cout') === false && strpos($jsonEmp, 'prix') === false, 'plan : aucune clé de coût, prix ou valeur dans les réponses d\'un employé');
+egal(array_keys($plan->contenu($emp, $E['A1'])), array_keys($plan->contenu($gA, $E['A1'])), 'plan : un employé et un gestionnaire reçoivent les mêmes champs (aucun montant pour personne)');
+
+groupe('Plan : « sous le minimum », où est cette pièce, contenu d\'une tuile');
+$pdo->exec("INSERT INTO pieces (code, nom, unite) VALUES ('PL1', 'Abeille de plan', 'unité'), ('PL2', 'mouche de plan', 'unité'), ('PL3', 'Zèbre de plan', 'm')");
+$PL = array(); foreach (q("SELECT id, code FROM pieces WHERE code LIKE 'PL_'") as $r) { $PL[$r['code']] = (int) $r['id']; }
+$avantBas = $tuile($plan->donnees($gA), $E['A1'])['nb_bas'];
+$inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'lignes' => array(L($PL['PL1'], '2', '1.00'), L($PL['PL2'], '5', '1.00'))));
+egal($avantBas, $tuile($plan->donnees($gA), $E['A1'])['nb_bas'], 'plan : sans minimum, aucune pièce n\'est sous le minimum');
+$pdo->exec("INSERT INTO seuils (entreprise_id, piece_id, minimum) VALUES (1, {$PL['PL1']}, 10)");
+egal($avantBas + 1, $tuile($plan->donnees($gA), $E['A1'])['nb_bas'], 'plan : une pièce sous le minimum de son entreprise est comptée sur la tuile');
+$c = $plan->contenu($gA, $E['A1']);
+$lAb = array_values(array_filter($c['lignes'], function ($l) use ($PL) { return $l['piece_id'] === $PL['PL1']; }));
+ok(count($lAb) === 1 && $lAb[0]['bas'] === true && $lAb[0]['quantite'] === '2.000', 'plan : la ligne du tiroir porte la pastille « sous le minimum » et la bonne quantité');
+// le minimum se compare au TOTAL de l'entreprise : du stock ailleurs dans l'entreprise 1 le règle
+$inv->recevoir($gA, array('emplacement_id' => $E['CUBE'], 'lignes' => array(L($PL['PL1'], '9', '1.00'))));
+egal($avantBas, $tuile($plan->donnees($gA), $E['A1'])['nb_bas'], 'plan : 2 + 9 en stock dans l\'entreprise (minimum 10) : plus sous le minimum');
+$pdo->exec("UPDATE seuils SET minimum = 50 WHERE piece_id = {$PL['PL1']}");
+$pdo->exec("UPDATE pieces SET actif = 0 WHERE id = {$PL['PL1']}");
+egal($avantBas, $tuile($plan->donnees($gA), $E['A1'])['nb_bas'], 'plan : une pièce désactivée n\'est jamais sous le minimum (même règle que Stock)');
+$pdo->exec("UPDATE pieces SET actif = 1 WHERE id = {$PL['PL1']}");
+egal($avantBas + 1, $tuile($plan->donnees($gA), $E['A1'])['nb_bas'], 'plan : réactivée et toujours sous 50 : de nouveau comptée');
+$pdo->exec("DELETE FROM seuils WHERE piece_id = {$PL['PL1']}");
+
+// où est cette pièce ?
+$r = $plan->donnees($gA, $PL['PL1'])['recherche'];
+egal(array(array('emplacement_id' => $E['A1'], 'quantite' => '2.000'), array('emplacement_id' => $E['CUBE'], 'quantite' => '9.000')), $r['emplacements'], 'plan : où est la pièce : quantité exacte dans chaque emplacement');
+egal('11.000', $r['somme'], 'plan : somme des quantités');
+ok($r['piece']['code'] === 'PL1' && $r['piece']['nom'] === 'Abeille de plan' && $r['piece']['unite'] === 'unité', 'plan : la recherche nomme la pièce');
+egal(array(), $plan->donnees($gA, $P['T4'])['recherche']['emplacements'], 'plan : pièce nulle part : aucun emplacement');
+egal('0.000', $plan->donnees($gA, $P['T4'])['recherche']['somme'], 'plan : pièce nulle part : somme à zéro');
+$inv->recevoir($gB, array('emplacement_id' => $E['B1'], 'lignes' => array(L($PL['PL3'], '7,5', '2.00'))));
+egal(array(), $plan->donnees($emp, $PL['PL3'])['recherche']['emplacements'], 'plan : le stock de l\'autre entreprise est invisible dans la recherche d\'un employé');
+egal(array(array('emplacement_id' => $E['B1'], 'quantite' => '7.500')), $plan->donnees($gB, $PL['PL3'])['recherche']['emplacements'], 'plan : l\'entreprise 2 voit son stock décimal');
+egal('7.500', $plan->donnees($adm, $PL['PL3'])['recherche']['somme'], 'plan : l\'administrateur voit la somme');
+refuse(function () use ($plan, $gA) { $plan->donnees($gA, 999999); }, 'introuvable', 'plan : pièce inconnue refusée');
+egal(null, $plan->donnees($gA)['recherche'], 'plan : sans pièce demandée, pas de recherche');
+
+// contenu d'une tuile
+$pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type, code_barres) VALUES (1, 'Plan tri', 'cube', 'EMP-PLAN-2')");
+$tri = (int) $pdo->lastInsertId();
+$inv->recevoir($gA, array('emplacement_id' => $tri, 'lignes' => array(L($PL['PL2'], '3', '1.00'), L($PL['PL3'], '1,5', '1.00'), L($PL['PL1'], '4', '1.00'))));
+$c = $plan->contenu($gA, $tri);
+egal(array('Abeille de plan', 'mouche de plan', 'Zèbre de plan'), array_column($c['lignes'], 'nom'), 'plan : le contenu est trié par nom (sans égard à la casse ni aux accents)');
+egal(3, $c['nb_pieces'], 'plan : nb de pièces du tiroir');
+egal('8.500', $c['unites'], 'plan : unités du tiroir (3 + 1,5 + 4)');
+ok($c['lignes'][2]['unite'] === 'm' && $c['lignes'][2]['quantite'] === '1.500' && $c['tronque'] === false && $c['emplacement']['nom'] === 'Plan tri' && $c['emplacement']['entreprise_code'] === 'BEA', 'plan : tiroir : unité, quantité décimale, emplacement et entreprise');
+egal(array('mouche de plan'), array_column($plan->contenu($gA, $tri, 'MOUCHE')['lignes'], 'nom'), 'plan : recherche rapide par nom (sans égard à la casse)');
+egal(array('Zèbre de plan'), array_column($plan->contenu($gA, $tri, 'PL3')['lignes'], 'nom'), 'plan : recherche rapide par code');
+egal(array('Abeille de plan'), array_column($plan->contenu($gA, $tri, 'plan abe')['lignes'], 'nom'), 'plan : recherche rapide : chaque mot doit être trouvé');
+egal(array(), $plan->contenu($gA, $tri, '%')['lignes'], 'plan : « % » dans la recherche rapide est un caractère, pas un joker');
+egal(3, $plan->contenu($gA, $tri, "' OR 1=1 -- ") ['nb_pieces'], 'plan : recherche rapide piégée : aucune injection (le résumé reste celui de l\'emplacement)');
+egal(array(), $plan->contenu($gA, $tri, "' OR 1=1 -- ")['lignes'], 'plan : recherche rapide piégée : aucune ligne');
+refuse(function () use ($plan, $emp, $E) { $plan->contenu($emp, $E['B1']); }, 'n\'existe pas', 'plan : le contenu d\'un emplacement d\'une autre entreprise est refusé');
+refuse(function () use ($plan, $emp) { $plan->contenu($emp, 999999); }, 'n\'existe pas', 'plan : emplacement inconnu : même refus (on ne révèle pas son existence)');
+try { $plan->contenu($emp, $E['B1']); } catch (PlanRefus $e) { ok(true, 'plan : le refus d\'accès est un PlanRefus (HTTP 403)'); }
+// plus de 400 pièces : le tiroir est tronqué et le serveur filtre à la demande
+$pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type, code_barres) VALUES (1, 'Plan long', 'entrepot', 'EMP-PLAN-3')");
+$long = (int) $pdo->lastInsertId();
+$pdo->beginTransaction();
+$insP = $pdo->prepare("INSERT INTO pieces (code, nom) VALUES (?, ?)");
+$insS = $pdo->prepare('INSERT INTO stock (piece_id, emplacement_id, quantite) VALUES (?, ?, 1)');
+for ($i = 1; $i <= Plan::MAX_LIGNES + 5; $i++) { $insP->execute(array('PLL' . $i, 'Longue ' . sprintf('%04d', $i))); $insS->execute(array((int) $pdo->lastInsertId(), $long)); }
+$pdo->commit();
+$cl = $plan->contenu($gA, $long);
+ok($cl['tronque'] === true && count($cl['lignes']) === Plan::MAX_LIGNES && $cl['nb_pieces'] === Plan::MAX_LIGNES + 5, 'plan : plus de ' . Plan::MAX_LIGNES . ' pièces : liste tronquée, mais le résumé compte tout');
+$cf = $plan->contenu($gA, $long, 'Longue 0' . (Plan::MAX_LIGNES + 3));
+ok($cf['tronque'] === false && count($cf['lignes']) === 1, 'plan : le serveur retrouve une pièce au-delà de la limite quand on la cherche');
+$pdo->exec("DELETE FROM stock WHERE emplacement_id = $long");        // données de test directes : on les retire (l'invariant stock = somme des mouvements reste vrai)
+$pdo->exec("DELETE FROM pieces WHERE code LIKE 'PLL%'");
+
+groupe('Plan : disposition libre (administrateur), validation, journal');
+$pos = function ($id, $x = 0, $y = 0, $l = 240, $h = 160) { return array('emplacement_id' => $id, 'x' => $x, 'y' => $y, 'largeur' => $l, 'hauteur' => $h); };
+$nbPlan = function () { return (int) val('SELECT COUNT(*) FROM plan_emplacements'); };
+$nbJournal = function () { return (int) val("SELECT COUNT(*) FROM journal WHERE action = 'plan.disposition'"); };
+refuse(function () use ($plan, $gA, $pos, $E) { $plan->enregistrer($gA, array($pos($E['A1']))); }, 'administrateur', 'plan : un gestionnaire ne peut pas enregistrer la disposition');
+refuse(function () use ($plan, $emp, $pos, $E) { $plan->enregistrer($emp, array($pos($E['A1']))); }, 'administrateur', 'plan : un employé ne peut pas enregistrer la disposition');
+try { $plan->enregistrer($emp, array($pos($E['A1']))); } catch (PlanRefus $e) { ok(true, 'plan : le refus de rôle est un PlanRefus (HTTP 403)'); }
+refuse(function () use ($plan, $U, $pos, $E) { $plan->enregistrer($U['off'], array($pos($E['A1']))); }, 'désactivé', 'plan : un utilisateur désactivé ne peut rien enregistrer');
+egal(0, $nbPlan(), 'plan : rien n\'a été écrit par les refus');
+$j0 = $nbJournal();
+$r = $plan->enregistrer($adm, array($pos($E['A1'], 0, 0, 320, 200), $pos($E['B1'], 340, 0), $pos($E['CUBE'], 0, 220, 160, 140)));
+egal(3, $r['modifies'], 'plan : trois tuiles enregistrées');
+egal(3, $nbPlan(), 'plan : une ligne par emplacement');
+egal($j0 + 1, $nbJournal(), 'plan : l\'enregistrement est journalisé (une entrée)');
+$det = json_decode(val("SELECT details FROM journal WHERE action = 'plan.disposition' ORDER BY id DESC LIMIT 1"), true);
+ok($det['nb_emplacements'] === 3 && strpos($det['emplacements'], 'Entrepôt principal (Beauchemin)') !== false && strpos($det['emplacements'], 'Entrepôt principal (Boutique Chaleur)') !== false && (int) val("SELECT utilisateur_id FROM journal WHERE action = 'plan.disposition' ORDER BY id DESC LIMIT 1") === $adm, 'plan : le journal dit qui et quelles tuiles (avec l\'entreprise)');
+$d = $plan->donnees($adm);
+egal(array('x' => 0, 'y' => 0, 'largeur' => 320, 'hauteur' => 200), $tuile($d, $E['A1'])['pos'], 'plan : la place enregistrée revient dans les données');
+egal(array('x' => 340, 'y' => 0, 'largeur' => 240, 'hauteur' => 160), $tuile($d, $E['B1'])['pos'], 'plan : place d\'une tuile de l\'autre entreprise');
+egal(null, $tuile($d, $E['BOUT'])['pos'], 'plan : une tuile jamais placée n\'a pas de place (rangement automatique)');
+$r = $plan->enregistrer($adm, array($pos($E['A1'], 0, 0, 320, 200), $pos($E['B1'], 340, 0)));
+egal(0, $r['modifies'], 'plan : rien n\'a changé : rien n\'est écrit');
+egal($j0 + 1, $nbJournal(), 'plan : rien n\'a changé : rien n\'est journalisé');
+$r = $plan->enregistrer($adm, array($pos($E['B1'], 360, 20, 300, 180)));
+egal(1, $r['modifies'], 'plan : une tuile déplacée et agrandie');
+egal(3, $nbPlan(), 'plan : toujours une seule ligne par emplacement après un nouvel enregistrement');
+egal(array('x' => 360, 'y' => 20, 'largeur' => 300, 'hauteur' => 180), $tuile($plan->donnees($adm), $E['B1'])['pos'], 'plan : la nouvelle place remplace l\'ancienne');
+egal(array('x' => 0, 'y' => 0, 'largeur' => 320, 'hauteur' => 200), $tuile($plan->donnees($adm), $E['A1'])['pos'], 'plan : les tuiles absentes de la liste gardent leur place');
+egal(array('x' => 360, 'y' => 20, 'largeur' => 300, 'hauteur' => 180), $tuile($plan->donnees($gB), $E['B1'])['pos'], 'plan : la disposition est la même pour tous les rôles');
+// positions refusées
+$avantNb = $nbPlan();
+$refus = array(
+	array('grille', array($pos($E['A1'], 10)), 'x hors de la grille de 20 px'),
+	array('grille', array($pos($E['A1'], 0, 30)), 'y hors de la grille'),
+	array('grille', array($pos($E['A1'], 0, 0, 250)), 'largeur hors de la grille'),
+	array('sort du plan', array($pos($E['A1'], -20)), 'x négatif'),
+	array('sort du plan', array($pos($E['A1'], 0, -20)), 'y négatif'),
+	array('sort du plan', array($pos($E['A1'], 0, 0, -240)), 'largeur négative'),
+	array('grille', array($pos($E['A1'], 20.0)), 'x décimal'),
+	array('grille', array($pos($E['A1'], '20.5')), 'x décimal en chaîne'),
+	array('grille', array($pos($E['A1'], 'abc')), 'x non numérique'),
+	array('grille', array($pos($E['A1'], array(20))), 'x en tableau'),
+	array('grille', array($pos($E['A1'], true)), 'x booléen'),
+	array('grille', array($pos($E['A1'], null)), 'x absent'),
+	array('grille', array($pos($E['A1'], '1e3')), 'x en notation scientifique'),
+	array('sort du plan', array($pos($E['A1'], 1500, 0, 240)), 'dépasse à droite'),
+	array('sort du plan', array($pos($E['A1'], 0, 1100, 240, 160)), 'dépasse en bas'),
+	array('Taille invalide', array($pos($E['A1'], 0, 0, 100)), 'trop étroite'),
+	array('Taille invalide', array($pos($E['A1'], 0, 0, 240, 80)), 'trop basse'),
+	array('Taille invalide', array($pos($E['A1'], 0, 0, 620)), 'trop large'),
+	array('Taille invalide', array($pos($E['A1'], 0, 0, 240, 420)), 'trop haute'),
+	array('Taille invalide', array($pos($E['A1'], 0, 0, 0, 0)), 'taille nulle'),
+	array('Emplacement invalide', array(array('x' => 0, 'y' => 0, 'largeur' => 240, 'hauteur' => 160)), 'sans emplacement'),
+	array('Emplacement invalide', array($pos(0)), 'emplacement 0'),
+	array('Emplacement invalide', array($pos(-3)), 'emplacement négatif'),
+	array('Emplacement invalide', array($pos('x')), 'emplacement non numérique'),
+	array('Emplacement invalide', array($pos(array(1))), 'emplacement en tableau'),
+	array('double', array($pos($E['A1']), $pos($E['A1'], 20)), 'emplacement en double'),
+	array('n\'existe plus', array($pos(999999)), 'emplacement inconnu'),
+	array('n\'existe plus', array($pos($E['A1']), $pos(999999, 400)), 'une bonne position + un emplacement inconnu : rien d\'écrit'),
+	array('Position invalide', array('texte'), 'entrée qui n\'est pas une position'),
+	array('Aucune position', array(), 'liste vide'),
+	array('Aucune position', 'texte', 'positions qui n\'est pas une liste'),
+	array('Aucune position', null, 'positions absentes'),
+);
+$tousRefuses = true;
+foreach ($refus as $cas) {
+	try { $plan->enregistrer($adm, $cas[1]); $tousRefuses = false; echo "  non refusé : {$cas[2]}\n"; }
+	catch (InventaireException $e) { if (mb_stripos($e->getMessage(), $cas[0]) === false) { $tousRefuses = false; echo "  {$cas[2]} : message « {$e->getMessage()} »\n"; } }
+}
+ok($tousRefuses, 'plan : ' . count($refus) . ' positions invalides refusées avec un message en français');
+egal($avantNb, $nbPlan(), 'plan : les positions refusées n\'ont rien écrit (tout ou rien)');
+$enorme = array(); for ($i = 1; $i <= Plan::MAX_POSITIONS + 1; $i++) { $enorme[] = $pos($i); }
+refuse(function () use ($plan, $adm, $enorme) { $plan->enregistrer($adm, $enorme); }, 'Trop', 'plan : plus de ' . Plan::MAX_POSITIONS . ' tuiles à la fois refusé');
+$pdo->exec("UPDATE emplacements SET actif = 0 WHERE id = $vide");
+refuse(function () use ($plan, $adm, $pos, $vide) { $plan->enregistrer($adm, array($pos($vide))); }, 'n\'existe plus', 'plan : on ne place pas un emplacement désactivé');
+$pdo->exec("UPDATE emplacements SET actif = 1 WHERE id = $vide");
+ok($plan->enregistrer($adm, array($pos($E['A1'], 1360, 1040, 240, 160)))['modifies'] === 1, 'plan : une tuile au coin extrême du plan (1600 x 1200) est acceptée');
+ok($plan->enregistrer($adm, array($pos($E['A1'], 0, 0, 140, 100), $pos($E['B1'], 0, 120, 600, 400)))['modifies'] === 2, 'plan : tailles minimale (140 x 100) et maximale (600 x 400) acceptées');
+$pdo->exec("INSERT INTO emplacements (entreprise_id, nom, type) VALUES (1, 'Plan éphémère', 'cube')");
+$eph = (int) $pdo->lastInsertId();
+$pdo->exec("INSERT INTO plan_emplacements (emplacement_id, x, y, largeur, hauteur) VALUES ($eph, 0, 0, 240, 160)");
+$pdo->exec("DELETE FROM emplacements WHERE id = $eph");
+egal(0, (int) val('SELECT COUNT(*) FROM plan_emplacements WHERE emplacement_id = ?', array($eph)), 'plan : la place d\'un emplacement supprimé disparaît avec lui (clé étrangère en cascade)');
+$pdo->exec('DELETE FROM plan_emplacements');
+
+groupe('Plan : jeton de version (temps réel)');
+$jVersion = $nbJournal();
+$vA = $plan->version($gA); $vB = $plan->version($gB);
+ok(preg_match('/^\d+-\d+-\d+$/', $vA) === 1, 'plan : le jeton de version a la forme « mouvement-emplacements-empreinte »');
+egal($vA, $plan->version($gA), 'plan : le jeton est stable tant que rien ne change');
+egal($vA, $plan->version($emp), 'plan : même entreprises, même jeton (employé et gestionnaire de l\'entreprise 1)');
+ok($vA !== $vB, 'plan : deux entreprises différentes, deux jetons');
+$inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'lignes' => array(L($PL['PL2'], '1', '1.00'))));
+$vA1 = $plan->version($gA);
+ok($vA1 !== $vA, 'plan : une réception change le jeton');
+egal($vB, $plan->version($gB), 'plan : le jeton de l\'entreprise 2 ne bouge pas pour une réception de l\'entreprise 1 (pas de fuite entre entreprises)');
+ok($plan->version($adm) !== $plan->versionPour(array(2)), 'plan : l\'administrateur a son propre jeton (toutes les entreprises)');
+$tr = $inv->transferer($emp, array('emplacement_id' => $E['A1'], 'emplacement_dest_id' => $E['CUBE'], 'lignes' => array(L($PL['PL2'], '1'))));
+$vA2 = $plan->version($gA); ok($vA2 !== $vA1, 'plan : un déplacement change le jeton');
+$inv->sortir($emp, array('emplacement_id' => $E['CUBE'], 'motif' => 'service', 'lignes' => array(L($PL['PL2'], '1'))));
+$vA3 = $plan->version($gA); ok($vA3 !== $vA2, 'plan : une utilisation change le jeton');
+$aj = $inv->ajuster($gA, array('emplacement_id' => $E['A1'], 'motif' => 'correction', 'lignes' => array(L($PL['PL2'], '2'))));
+$vA4 = $plan->version($gA); ok($vA4 !== $vA3, 'plan : une correction change le jeton');
+$rc = $inv->recevoir($gA, array('emplacement_id' => $E['A1'], 'lignes' => array(L($PL['PL2'], '1', '1.00'))));
+$vA4b = $plan->version($gA);
+$inv->annuler($gA, $rc['id'], 'essai');
+$vA5 = $plan->version($gA); ok($vA4b !== $vA4 && $vA5 !== $vA4b, 'plan : une réception, puis son annulation, changent chacune le jeton');
+$cmp = $inv->creerComptage($emp, $E['CUBE']);
+$inv->comptageScanner($emp, $cmp['id'], $PL['PL1'], '5', 'fixer');
+$vA6a = $plan->version($gA);
+$inv->comptageAppliquer($gA, $cmp['id'], false);
+$vA6 = $plan->version($gA); ok($vA6 !== $vA5 && $vA6a === $vA5, 'plan : un comptage appliqué change le jeton (le brouillon, lui, ne change rien)');
+$fi = $inv->factureInterne($gA, array('emplacement_id' => $E['A1'], 'entreprise_dest_id' => 2, 'emplacement_dest_id' => $E['B1'], 'lignes' => array(L($PL['PL2'], '1'))));
+ok($plan->version($gA) !== $vA6 && $plan->version($gB) !== $vB, 'plan : une facture interne change le jeton des deux entreprises');
+$vB2 = $plan->version($gB);
+$pdo->exec("UPDATE emplacements SET nom = 'Plan tri renommé' WHERE id = $tri");
+ok($plan->version($gA) !== $vA6 && $plan->version($gB) === $vB2, 'plan : renommer un emplacement change le jeton (de son entreprise seulement)');
+$vR = $plan->version($gA);
+$pdo->exec("UPDATE emplacements SET actif = 0 WHERE id = $tri");
+$vD = $plan->version($gA); ok($vD !== $vR, 'plan : désactiver un emplacement change le jeton');
+$pdo->exec("UPDATE emplacements SET actif = 1 WHERE id = $tri");
+egal($vR, $plan->version($gA), 'plan : le réactiver rétablit le même jeton');
+$plan->enregistrer($adm, array($pos($tri, 20, 20)));
+ok($plan->version($gA) !== $vR && $plan->version($gB) === $vB2, 'plan : enregistrer la disposition change le jeton de l\'entreprise concernée seulement');
+egal($jVersion + 1, $nbJournal(), 'plan : journal : une entrée de plus pour cet enregistrement qui a changé quelque chose');
+$expl = q('EXPLAIN SELECT m.id FROM mouvements m FORCE INDEX (ix_mouv_emplacement_id) WHERE m.emplacement_id = 1 ORDER BY m.id DESC LIMIT 1');
+ok($expl && $expl[0]['key'] === 'ix_mouv_emplacement_id' && strpos((string) $expl[0]['Extra'], 'filesort') === false, 'plan : le dernier mouvement d\'un emplacement se lit dans l\'index (emplacement_id, id), sans tri : ' . json_encode($expl[0]));
+$pdo->exec('DELETE FROM plan_emplacements');
+
+groupe('Migration : idempotente');
+require_once __DIR__ . '/../database/migrer.php';
+egal(array('SET @a = 1', 'CREATE TABLE t (x INT)', 'SELECT 2'), migration_instructions("-- commentaire\nSET @a = 1;\n\n-- autre\nCREATE TABLE t (x INT);   \nSELECT 2;"), 'migration : les instructions sont séparées, les commentaires retirés');
+$faits1 = migrer($pdo, __DIR__ . '/../database/migrations');
+$faits2 = migrer($pdo, __DIR__ . '/../database/migrations');
+ok(in_array('2026-10-12-plan.sql', $faits1, true) && $faits1 === $faits2, 'migration : rejouée deux fois sans erreur : ' . implode(', ', $faits1));
+egal(2, (int) val("SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mouvements' AND index_name = 'ix_mouv_emplacement_id'"), 'migration : l\'index (emplacement_id, id) existe une seule fois (deux colonnes)');
+egal(1, (int) val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'plan_emplacements'"), 'migration : la table plan_emplacements existe');
+$pdo->exec('DROP TABLE plan_emplacements');
+$pdo->exec("ALTER TABLE mouvements DROP INDEX ix_mouv_emplacement_id");
+migrer($pdo, __DIR__ . '/../database/migrations');
+egal(1, (int) val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'plan_emplacements'") + (int) val("SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mouvements' AND index_name = 'ix_mouv_emplacement_id'") - 2, 'migration : sur une base de l\'ancien schéma (sans table ni index), elle crée les deux');
+egal(2, (int) val("SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mouvements' AND index_name = 'ix_mouv_emplacement_id'"), 'migration : index recréé avec ses deux colonnes');
+
 invariants('fin des scénarios');
 
 echo "\n" . ($T_FAIL === 0 ? "OK" : "ÉCHECS") . " — $T_PASS vérifications réussies, $T_FAIL échec(s)\n";

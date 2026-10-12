@@ -75,4 +75,7 @@ $inv->factureInterne($admin, array('emplacement_id' => 1, 'entreprise_dest_id' =
 $inv->factureInterne($admin, array('emplacement_id' => 2, 'entreprise_dest_id' => 1, 'emplacement_dest_id' => 4, 'lignes' => array(
 	array('piece_id' => $pid['P-0009'], 'quantite' => 2), array('piece_id' => $pid['P-0010'], 'quantite' => 3),
 )));
+// Plan de l'entrepôt : les deux entrepôts en haut, les cubes de service et la boutique en dessous (pixels, multiples de 20)
+$pdo->exec("INSERT INTO plan_emplacements (emplacement_id, x, y, largeur, hauteur) VALUES
+	(1, 0, 0, 340, 220), (2, 360, 0, 300, 220), (3, 0, 240, 160, 140), (4, 180, 240, 160, 140), (5, 360, 240, 300, 140)");
 echo "Démo prête : " . count($pieces) . " pièces, 3 fournisseurs. Comptes : admin / gestionnaire1 / employe1.\n";

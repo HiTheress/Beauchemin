@@ -100,9 +100,19 @@ sudo crontab -u www-data -e
 
 ```bash
 cd /var/www/beauchemin && sudo git pull
-# si la mise à jour contient des changements de base de données, un fichier database/migrations/AAAA-MM-JJ-*.sql sera fourni avec ses instructions
+cat gestion/database/migrations/*.sql | sudo mysql beauchemin           # migrations de la base (voir ci-dessous) ; sans effet si déjà appliquées
 sudo systemctl reload php8.3-fpm
 ```
+
+**Migrations de la base.** Une mise à jour qui change la base de données ajoute un fichier `gestion/database/migrations/AAAA-MM-JJ-<sujet>.sql`. Chaque fichier est **idempotent**
+(`CREATE TABLE IF NOT EXISTS`, index testé avant sa création) : on peut le rejouer sans danger, sur une installation neuve comme sur une installation existante ; rien n'est supprimé ni modifié.
+`database/schema.sql` contient toujours la version à jour du schéma complet (nouvelle installation). Deux façons d'appliquer :
+
+* `sudo mysql beauchemin < /var/www/beauchemin/gestion/database/migrations/2026-10-12-plan.sql` — avec le compte administrateur de MariaDB, comme pour `schema.sql` (l'utilisateur `beauchemin` de l'étape 3 n'a pas les droits `CREATE` et `ALTER`) ;
+* `php database/migrer.php` (depuis `gestion/`) : applique **tous** les fichiers, par ordre de date, avec les identifiants de `config.local.php` ; il faut alors que ce compte ait les droits `CREATE` et `ALTER`.
+
+Le démarrage de l'environnement d'essai Docker exécute `php database/migrer.php` à chaque fois (`docker/docker-entrypoint.sh`) : un volume créé avec une ancienne version reçoit les nouveautés tout seul.
+Migration actuelle : `2026-10-12-plan.sql` (page **Plan** : table `plan_emplacements` et index `ix_mouv_emplacement_id` sur `mouvements`). Sans elle, la page Plan affiche « Erreur inattendue » (le détail est dans le journal de PHP).
 
 **Toujours faire une sauvegarde manuelle avant une mise à jour.** Avant de la déployer, la suite de tests peut être lancée sur une base jetable : `TEST_DB=beauchemin_test tests/run.sh`.
 
@@ -115,4 +125,6 @@ sudo systemctl reload php8.3-fpm
 | Déconnexions fréquentes | `session.gc_maxlifetime` (voir `php-production.ini`), et HTTPS bien configuré (cookie « secure ») |
 | Connexion refusée (mot de passe correct) | 5 échecs depuis une même adresse sur un compte → cette adresse est refusée 15 min ; 20 échecs au total → compte verrouillé 15 min. Un administrateur le lève dans *Utilisateurs*. Si l'unique administrateur est bloqué : `tools/deverrouiller.sh <nom_utilisateur> [nouveau_mot_de_passe]` sur le serveur. |
 | Caméra refusée | la page doit être en **HTTPS** et l'accès à la caméra autorisé dans le navigateur |
+| La page Plan affiche « Erreur inattendue » | La migration `2026-10-12-plan.sql` n'a pas été appliquée (table `plan_emplacements` absente) : voir « Migrations de la base » (étape 9) |
+| Le Plan affiche « Connexion perdue » | Le navigateur n'atteint plus le serveur (réseau, serveur arrêté) : la page reprend toute seule dès que la connexion revient |
 | Heures décalées | `date.timezone = America/Toronto` (php-production.ini) et heure du serveur à jour (`timedatectl`) |

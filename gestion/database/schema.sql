@@ -232,6 +232,7 @@ CREATE TABLE IF NOT EXISTS mouvements (
   PRIMARY KEY (id),
   KEY ix_mouv_piece_date (piece_id, date_mouvement),
   KEY ix_mouv_emplacement_date (emplacement_id, date_mouvement),
+  KEY ix_mouv_emplacement_id (emplacement_id, id),   -- dernier mouvement d'un emplacement en une lecture (jeton de version du plan, voir Plan::version)
   KEY ix_mouv_date (date_mouvement),
   KEY ix_mouv_document (document_id),
   CONSTRAINT fk_mouv_document FOREIGN KEY (document_id) REFERENCES documents (id),
@@ -310,6 +311,21 @@ CREATE TABLE IF NOT EXISTS journal (
   PRIMARY KEY (id),
   KEY ix_journal_date (date_action),
   KEY ix_journal_entite (entite, entite_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Plan de l'entrepôt (page « Plan ») : place libre d'une tuile, en pixels sur une grille de 20 (voir Plan.php).
+-- Une ligne par emplacement ; sans ligne, la tuile garde sa place automatique. Même contenu que database/migrations/2026-10-12-plan.sql.
+CREATE TABLE IF NOT EXISTS plan_emplacements (
+  emplacement_id  INT UNSIGNED      NOT NULL,
+  x               SMALLINT UNSIGNED NOT NULL,
+  y               SMALLINT UNSIGNED NOT NULL,
+  largeur         SMALLINT UNSIGNED NOT NULL,
+  hauteur         SMALLINT UNSIGNED NOT NULL,
+  modifie_le      TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  modifie_par     INT UNSIGNED      NULL,
+  PRIMARY KEY (emplacement_id),
+  CONSTRAINT fk_plan_emplacement FOREIGN KEY (emplacement_id) REFERENCES emplacements (id) ON DELETE CASCADE,
+  CONSTRAINT ck_plan_taille CHECK (largeur > 0 AND hauteur > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

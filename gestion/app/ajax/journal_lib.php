@@ -36,6 +36,7 @@ final class JournalFr
 		'emplacement.modifie' => 'Emplacement modifié',
 		'emplacement.desactive' => 'Emplacement désactivé',
 		'emplacement.reactive' => 'Emplacement réactivé',
+		'plan.disposition' => 'Plan de l\'entrepôt modifié',
 		'sauvegarde.telechargee' => 'Sauvegarde téléchargée',
 		'journal.export' => 'Export du journal',
 		'piece.cree' => 'Pièce créée',
@@ -70,6 +71,7 @@ final class JournalFr
 		'utilisateurs' => 'Utilisateur',
 		'entreprises' => 'Entreprise',
 		'emplacements' => 'Emplacement',
+		'plan' => 'Plan de l\'entrepôt',
 		'pieces' => 'Pièce',
 		'fournisseurs' => 'Fournisseur',
 		'categories' => 'Catégorie',
@@ -97,6 +99,7 @@ final class JournalFr
 		'action' => 'Action', 'entite' => 'Objet concerné', 'recherche' => 'Recherche', 'statut' => 'Statut', 'note' => 'Note',
 		'reference' => 'Référence', 'quantite' => 'Quantité', 'unite' => 'Unité', 'categorie' => 'Catégorie',
 		'description' => 'Description', 'telephone' => 'Téléphone', 'courriel' => 'Courriel', 'contact' => 'Contact',
+		'nb_emplacements' => 'Nombre d\'emplacements', 'emplacements' => 'Emplacements',
 	);
 
 	/** Clés dont la valeur est un montant (affichée « 27,30 $ »). */

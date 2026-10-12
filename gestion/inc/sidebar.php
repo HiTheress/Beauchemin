@@ -6,6 +6,7 @@ $menu = array(
   array('dashboard',  'Accueil',          'fa-home',            'employe',      array()),
   array('scanner',    'Scanner',          'fa-barcode',         'employe',      array()),
   array('stock',      'Stock',            'fa-boxes',           'employe',      array()),
+  array('plan',       'Plan',             'fa-warehouse',       'employe',      array()),
   array('transfert',  'Déplacer',         'fa-exchange-alt',    'employe',      array()),
   array('sortie',     'Utiliser',         'fa-wrench',          'employe',      array()),
   array('comptage',   'Compter',          'fa-clipboard-check', 'employe',      array('comptage_voir')),

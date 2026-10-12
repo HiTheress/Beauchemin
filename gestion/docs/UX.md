@@ -33,6 +33,11 @@ Objectif : **quelqu'un qui n'a jamais vu le logiciel comprend quoi faire sans li
 * **Cases** : au survol, le réservoir (petit) sort de derrière le milieu du bord supérieur de la case (dessin et mouvement repris du projet Lovable « Hamster Peek Animation » du client). Automatique pour `input.form-control`, `select.custom-select`, `textarea.form-control` ; `data-sans-mascotte` sur un conteneur l'exclut. Une case qui reçoit la classe `is-invalid` (convention déjà utilisée partout) fait sortir le réservoir aux yeux en croix, secoué, quelques secondes.
 * **Succès / échec** : on ne code rien de spécial. `toast(message, 'success')` affiche la coche verte, le réservoir content et des confettis ; `toast(message, 'danger')` (ou tout `.alert-danger` qui devient visible, ou une page qui s'ouvre avec un `.alert-danger`) affiche la croix rouge, le réservoir aux yeux en croix secoué et des étoiles, avec « Oups ! » ; plusieurs échecs rapprochés (scans) ne relancent pas l'animation. Un message de succès affiché par la page après une redirection déclenche la coche aussi. Les animations sont décoratives : jamais de texte dans les messages, jamais de clic intercepté ; le message utile reste dans la notification.
 
+## 6 ter. Plan de l'entrepôt (page `plan`)
+* Une tuile = un emplacement (nom, code d'étiquette, icône du type, pièces et unités) ; le liseré est aux couleurs de **son** entreprise. Aucun texte explicatif : le champ « Chercher ou scanner » est actif dès l'ouverture, les tuiles qui ont la pièce s'illuminent (pastille de quantité), les autres s'estompent ; Échap ou la croix efface.
+* Le point vert « En direct » dit que la page se met à jour toute seule ; « Connexion perdue » (orange) s'affiche si le réseau coupe, et la reprise est automatique. Les tuiles dont le contenu change pulsent doucement (rien si l'utilisateur demande moins de mouvement).
+* Un seul bouton principal à la fois : aucun en consultation (« Modifier le plan » est secondaire, administrateur seulement, écran large) ; **Enregistrer** pendant la modification. Sur téléphone : liste de cartes, jamais de glisser-déposer. Aucun prix ni coût, pour aucun rôle.
+
 ## 7. Ce qu'on ne touche jamais
 * Les règles métier, les droits, les URL des actions, les identifiants (`id`) utilisés par les scripts et les tests : si on en change un, on met le test à jour dans le même geste.
 * Les contrôles de sécurité, les messages d'erreur du serveur, les confirmations d'actions irréversibles.
@@ -60,5 +65,6 @@ Objectif : **quelqu'un qui n'a jamais vu le logiciel comprend quoi faire sans li
 | `bilan_mensuel` | Bilan du mois | | `entreprises` | Entreprises |
 | `journal` | Journal | | `emplacements` | Emplacements |
 | `backup_database` | Sauvegarde | | `profil` | Mon profil |
+| `plan` | Plan | | | |
 
 Les titres qui contiennent un nom (une pièce, un numéro de document) restent tels quels.

@@ -28,6 +28,7 @@ Les écrans sont faits pour se passer d'explications ; ce guide sert d'aide-mém
 | Noter les pièces utilisées chez un client | **Utiliser** : emplacement, motif, scannez, *Utiliser* |
 | Compter un emplacement | **Compter** : emplacement, scannez chaque pièce présente, *Terminer le comptage* |
 | Voir tout le stock | **Stock** |
+| Voir où sont les pièces | **Plan** (chercher ou scanner une pièce : les emplacements qui l'ont s'illuminent ; un clic sur une tuile montre son contenu ; l'écran se met à jour tout seul) |
 
 Un transfert reste **dans la même entreprise** ; pour passer d'une entreprise à l'autre, on fait une facture.
 
@@ -48,6 +49,7 @@ d'appliquer et demande de relire. *Mettre à 0 les pièces non comptées* : seul
 
 ## 5. Administrateurs
 * **Utilisateurs** : ajouter (mot de passe affiché **une seule fois**), rôle, entreprises, désactiver, réinitialiser, déverrouiller. On ne peut pas désactiver le dernier administrateur.
+* **Plan** → *Modifier le plan* (écran large) : déplacez et redimensionnez les tuiles à la souris ou au doigt, *Enregistrer*. Une tuile jamais placée garde sa place automatique ; *Tout ranger* remet tout en ordre.
 * **Entreprises**, **Emplacements** (entrepôt, boutique, cube de service ; code d'étiquette `EMP-…`), **Journal** (qui a fait quoi), **Sauvegarde** (téléchargement ; les sauvegardes automatiques se configurent à l'installation, voir `DEPLOIEMENT.md`).
 
 ## 6. Comprendre les chiffres

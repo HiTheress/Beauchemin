@@ -1,0 +1,203 @@
+/* Plan de l'entrepôt (page « Plan », assets/js/plan.js).
+ * Une tuile = un emplacement. Le liseré de la tuile est aux couleurs de SON entreprise (BEA vert et cyan, BCH rouge et or : mêmes valeurs
+ * que assets/css/theme.css, qui ne définit ces couleurs que pour l'entreprise active) ; le relief, les ombres et les arrondis viennent du thème. */
+
+/* ---------- Couleurs de l'entreprise de la tuile ---------- */
+.pl-tuile, .pl-bandeau, .pl-tiroir {
+  --ent: var(--accent); --ent-2: var(--accent-2); --ent-soft: var(--accent-soft); --ent-ink: var(--accent-ink);
+}
+.pl-tuile[data-marque="bea"], .pl-tiroir[data-marque="bea"] { --ent: #35802a; --ent-2: #2db2d1; --ent-soft: #e4f2df; --ent-ink: #2a6821; }
+.pl-tuile[data-marque="bch"], .pl-tiroir[data-marque="bch"] { --ent: #c8161d; --ent-2: #c9a24d; --ent-soft: #fbe8e8; --ent-ink: #a01016; }
+
+/* ---------- Barre du haut : recherche, « En direct », modification ---------- */
+.pl-barre { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem 1rem; margin-bottom: 1.25rem; }
+.pl-barre .scan-box.pl-scan { position: relative; flex: 1 1 340px; max-width: 640px; padding: .3rem; border-radius: 22px; }
+.pl-scan-icone { position: absolute; left: 1.35rem; top: 50%; transform: translateY(-50%); font-size: 1.15rem; color: var(--accent-ink); pointer-events: none; z-index: 3; }
+.pl-scan input.scan-input { min-height: 52px; padding-left: 3rem; padding-right: 3rem; font-size: 1.15rem; }
+.pl-croix { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--ink-2); cursor: pointer; }
+.pl-croix:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.pl-croix:focus-visible { outline: 3px solid var(--accent-ink); outline-offset: 1px; }
+.pl-croix[hidden] { display: none; }
+.pl-scan .pl-croix { position: absolute; right: .55rem; top: 50%; transform: translateY(-50%); z-index: 3; }
+.pl-suggestions { position: absolute; left: 0; right: 0; top: calc(100% + .4rem); z-index: 60; list-style: none; margin: 0; padding: .3rem; max-height: 19rem; overflow-y: auto;
+  background: var(--surface); border-radius: 18px; box-shadow: var(--n-out); }
+.pl-suggestions[hidden] { display: none; }
+.pl-suggestions li { display: flex; align-items: center; gap: .8rem; min-height: 48px; padding: .5rem .85rem; border-radius: 12px; cursor: pointer; }
+.pl-suggestions li:hover, .pl-suggestions li[aria-selected="true"] { background: var(--accent-soft); }
+.pl-sug-code { flex: 0 0 auto; white-space: nowrap; font-weight: 700; color: var(--accent-ink); }
+.pl-sug-nom { min-width: 0; overflow-wrap: anywhere; }
+
+.pl-outils { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-left: auto; }
+.pl-outils .btn { min-height: 44px; }
+.pl-outils [hidden] { display: none !important; }
+.pl-edition-boutons { display: inline-flex; flex-wrap: wrap; gap: .6rem; }
+
+/* Point vert « En direct » : visible en un coup d'œil, lu par les lecteurs d'écran (role=status) */
+.pl-direct { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; padding: 0 1rem; border-radius: 999px; background: var(--surface); box-shadow: var(--n-out-sm); font-size: .9rem; font-weight: 600; color: var(--ink-2); }
+.pl-point { position: relative; width: 10px; height: 10px; border-radius: 50%; background: #2e9e4a; flex: 0 0 auto; }
+.pl-point::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid #2e9e4a; opacity: 0; animation: pl-respire 2.4s ease-out infinite; }
+.pl-direct.pl-hors-ligne { color: #7a4a00; }
+.pl-direct.pl-hors-ligne .pl-point { background: #d68a00; }
+.pl-direct.pl-hors-ligne .pl-point::after { border-color: #d68a00; animation-duration: 1.2s; }
+@keyframes pl-respire { 0% { transform: scale(.6); opacity: .7; } 100% { transform: scale(1.6); opacity: 0; } }
+
+/* ---------- Bandeau « où est cette pièce ? » ---------- */
+.pl-bandeau { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem 1rem; margin-bottom: 1.1rem; padding: .35rem .5rem .35rem 1.2rem; min-height: 52px; border-radius: 20px; background: var(--surface); box-shadow: var(--n-out-sm); border-left: 7px solid var(--ent); }
+.pl-bandeau[hidden] { display: none; }
+.pl-bandeau-piece { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+.pl-bandeau-piece .code { font-weight: 800; color: var(--accent-ink); margin-right: .5rem; }
+.pl-bandeau-somme { font-weight: 600; color: var(--ink-2); }
+.pl-bandeau-somme b { font-size: 1.25rem; color: var(--ink); }
+.pl-bandeau-rien { color: #7a1c1c; font-weight: 700; }
+.pl-bandeau .pl-croix { margin-left: auto; }
+
+/* ---------- Le plan ---------- */
+.pl-carte .card-body { padding: .9rem; }
+.pl-plan { position: relative; overflow: auto; padding: 32px; border-radius: 24px; background: var(--bg); box-shadow: var(--n-in); min-height: 160px; }
+.pl-surface { position: relative; }
+.pl-surface[hidden] { display: none; }
+.pl-vide-plan { margin: 0; padding: 2.5rem 1rem; text-align: center; color: var(--muted); font-size: 1.05rem; }
+.pl-vide-plan[hidden] { display: none; }
+
+/* Titres des groupes (type d'emplacement) : seulement dans le rangement automatique et dans la liste du téléphone */
+.pl-groupe { position: absolute; left: 0; height: 40px; display: none; align-items: center; gap: .5rem; padding-left: .25rem; font-size: .8rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.pl-auto .pl-groupe { display: flex; }
+
+/* Tuile */
+.pl-tuile { appearance: none; -webkit-appearance: none; position: absolute; display: flex; flex-direction: column; justify-content: space-between; gap: .3rem; box-sizing: border-box; margin: 0; padding: .8rem .9rem .75rem 1.3rem; overflow: hidden;
+  border: 0; border-radius: 22px; text-align: left; font: inherit; color: var(--ink); cursor: pointer;
+  background: linear-gradient(150deg, color-mix(in srgb, var(--ent-soft) 60%, var(--surface)), var(--surface) 72%);
+  box-shadow: var(--n-out-sm); transition: box-shadow .2s, transform .2s, opacity .3s, filter .3s; }
+.pl-tuile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 8px; background: linear-gradient(180deg, var(--ent), var(--ent-2)); }
+.pl-tuile:hover { transform: translateY(-2px); box-shadow: 7px 7px 16px var(--sh-dark), -7px -7px 16px var(--sh-light); }
+.pl-tuile:focus { outline: none; }
+.pl-tuile:focus-visible { outline: 3px solid var(--ent-ink); outline-offset: 3px; }
+.pl-tuile:active { box-shadow: var(--n-in); transform: none; }
+.pl-haut { display: flex; align-items: center; justify-content: space-between; gap: .4rem; min-height: 28px; }
+.pl-icone { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 12px; background: var(--ent-soft); color: var(--ent-ink); font-size: .95rem; box-shadow: var(--n-out-sm); }
+.pl-pastilles { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .3rem; }
+.pl-nom { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 1.05rem; font-weight: 700; line-height: 1.25; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.pl-meta { display: flex; flex-wrap: wrap; gap: 0 .5rem; font-size: .75rem; line-height: 1.35; color: var(--muted); }
+.pl-entreprise { font-weight: 700; color: var(--ent-ink); }
+.pl-code { letter-spacing: .02em; }
+.pl-chiffres { font-size: .85rem; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-chiffres b { font-size: 1.1rem; font-weight: 800; color: var(--ink); }
+.pl-alerte { display: inline-flex; align-items: center; gap: .3rem; padding: .12rem .55rem; border-radius: 999px; background: #fde8e8; color: #9b1c1c; font-size: .78rem; font-weight: 800; line-height: 1.3; }
+.pl-qte { display: inline-flex; align-items: baseline; gap: .25rem; padding: .12rem .7rem; border-radius: 999px; background: var(--ent); color: #fff; font-size: 1rem; font-weight: 800; line-height: 1.4; font-variant-numeric: tabular-nums; box-shadow: 0 4px 10px color-mix(in srgb, var(--ent) 45%, transparent); }
+.pl-qte small { font-size: .72rem; font-weight: 600; }
+
+/* Vide : tuile pâle, à plat (le texte garde son contraste : pas d'opacité) */
+.pl-tuile.pl-vide { background: color-mix(in srgb, var(--surface) 55%, var(--bg)); box-shadow: var(--n-in); filter: saturate(.5); }
+.pl-tuile.pl-vide .pl-nom, .pl-tuile.pl-vide .pl-chiffres { color: var(--ink-2); }
+.pl-tuile.pl-vide:hover { box-shadow: var(--n-in); }
+
+/* Tuile trop petite pour tout montrer */
+.pl-tuile.pl-petite .pl-meta { display: none; }
+.pl-tuile.pl-petite .pl-nom { font-size: .95rem; -webkit-line-clamp: 1; }
+
+/* Grande tuile (un entrepôt) : le texte suit */
+.pl-tuile.pl-grande { padding: 1rem 1.1rem .95rem 1.5rem; }
+.pl-tuile.pl-grande .pl-nom { font-size: 1.35rem; }
+.pl-tuile.pl-grande .pl-meta { font-size: .82rem; }
+.pl-tuile.pl-grande .pl-chiffres { font-size: 1rem; }
+.pl-tuile.pl-grande .pl-chiffres b { font-size: 1.6rem; }
+.pl-tuile.pl-grande .pl-icone { width: 40px; height: 40px; font-size: 1.15rem; }
+
+/* Recherche : les tuiles qui ont la pièce s'illuminent, les autres s'estompent */
+.pl-cherche .pl-tuile:not(.pl-trouve) { opacity: .34; filter: grayscale(.45); }
+.pl-tuile.pl-trouve { transform: translateY(-2px); box-shadow: var(--n-out-sm), 0 0 0 3px var(--ent), 0 0 30px 6px color-mix(in srgb, var(--ent) 42%, transparent); }
+.pl-tuile.pl-trouve.pl-vide { filter: none; }
+
+/* Mise à jour en direct : la tuile dont le contenu vient de changer pulse doucement */
+.pl-tuile.pl-pulse { animation: pl-pulse 1.5s ease-out 1; }
+@keyframes pl-pulse {
+  0% { transform: scale(1); box-shadow: var(--n-out-sm), 0 0 0 0 color-mix(in srgb, var(--ent) 60%, transparent); }
+  30% { transform: scale(1.05); box-shadow: var(--n-out-sm), 0 0 0 8px color-mix(in srgb, var(--ent) 30%, transparent), 0 0 26px 4px color-mix(in srgb, var(--ent) 40%, transparent); }
+  100% { transform: scale(1); box-shadow: var(--n-out-sm), 0 0 0 16px color-mix(in srgb, var(--ent) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pl-tuile, .pl-tiroir { transition: none; }
+  .pl-tuile.pl-pulse { animation: none; box-shadow: var(--n-out-sm), 0 0 0 4px var(--ent); }
+  .pl-point::after { animation: none; }
+  .pl-tuile:hover { transform: none; }
+}
+
+/* ---------- Mode modification (administrateur, écran large) ---------- */
+.pl-edition .pl-surface { background-image: radial-gradient(circle, var(--line-strong) 1.3px, transparent 1.6px); background-size: 20px 20px; background-position: -10px -10px; }
+.pl-edition .pl-tuile { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; box-shadow: var(--n-out-sm), 0 0 0 2px var(--line-strong); }
+.pl-edition .pl-tuile:hover { transform: none; }
+.pl-edition .pl-tuile.pl-deplace { cursor: grabbing; z-index: 20; transition: none; box-shadow: 14px 14px 30px var(--sh-dark), -6px -6px 18px var(--sh-light), 0 0 0 3px var(--ent); }
+.pl-edition .pl-tuile.pl-invalide { box-shadow: 0 0 0 4px #c0392b, 8px 8px 20px var(--sh-dark); opacity: .85; }
+.pl-poignee { display: none; position: absolute; right: 0; bottom: 0; width: 44px; height: 44px; cursor: nwse-resize; touch-action: none; }
+.pl-edition .pl-poignee { display: block; }
+.pl-poignee::after { content: ""; position: absolute; right: 7px; bottom: 7px; width: 12px; height: 12px; border-right: 3px solid var(--ent-ink); border-bottom: 3px solid var(--ent-ink); border-radius: 0 0 6px 0; opacity: .7; }
+
+/* ---------- Tiroir : contenu d'une tuile ---------- */
+.pl-tiroir { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1045; display: flex; flex-direction: column; width: min(420px, 100vw); box-sizing: border-box; background: var(--surface);
+  border-radius: 28px 0 0 28px; box-shadow: -16px 0 44px rgba(50, 62, 84, .28); transform: translateX(105%); transition: transform .26s ease; }
+.pl-tiroir[hidden] { display: none; }
+.pl-tiroir.pl-ouvert { transform: none; }
+.pl-tiroir-tete { display: flex; align-items: flex-start; gap: .8rem; padding: 1.2rem 1rem .8rem 1.4rem; border-left: 0; position: relative; }
+.pl-tiroir-tete::before { content: ""; position: absolute; left: 0; top: 1.2rem; bottom: .8rem; width: 8px; border-radius: 0 6px 6px 0; background: linear-gradient(180deg, var(--ent), var(--ent-2)); }
+.pl-tiroir-titres { flex: 1 1 auto; min-width: 0; }
+.pl-tiroir-titres h2 { margin: 0; font-size: 1.35rem; line-height: 1.25; overflow-wrap: anywhere; }
+.pl-tiroir-titres h2:focus { outline: none; }
+.pl-tiroir-sous { font-size: .85rem; color: var(--muted); }
+.pl-tiroir-sous .pl-entreprise { margin-right: .4rem; }
+.pl-tiroir-resume { padding: 0 1.4rem .6rem; font-size: .95rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.pl-tiroir-resume b { font-size: 1.2rem; color: var(--ink); }
+.pl-tiroir-recherche { padding: 0 1.2rem .6rem 1.4rem; }
+.pl-tiroir-recherche .form-control { min-height: 48px; }
+.pl-lignes { flex: 1 1 auto; margin: 0; padding: 0 .8rem .5rem 1rem; list-style: none; overflow-y: auto; overscroll-behavior: contain; }
+.pl-ligne { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "nom qte" "code qte"; column-gap: .8rem; align-items: center; min-height: 56px; padding: .45rem .6rem; border-radius: 14px; border-bottom: 1px solid var(--line-soft); }
+.pl-ligne[hidden] { display: none; }
+.pl-ligne-nom { grid-area: nom; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.pl-ligne-sous { grid-area: code; display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .5rem; font-size: .8rem; color: var(--muted); }
+.pl-ligne-sous a { color: var(--accent-ink); font-weight: 700; text-decoration: none; }
+.pl-ligne-sous a::after { content: ""; position: absolute; inset: 0; border-radius: 14px; }   /* toute la ligne est cliquable (cible tactile ≥ 44 px) */
+.pl-ligne-sous a:hover { text-decoration: underline; }
+.pl-ligne:hover { background: var(--accent-soft); }
+.pl-ligne-sous a:focus-visible { outline: none; }
+.pl-ligne-sous a:focus-visible::after { outline: 3px solid var(--accent-ink); outline-offset: -3px; }
+.pl-ligne-sous .badge { font-size: .7rem; padding: .2em .6em; }
+.pl-ligne-qte { grid-area: qte; font-size: 1.25rem; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pl-ligne-qte small { font-size: .75rem; font-weight: 600; color: var(--muted); }
+.pl-ligne.pl-ligne-trouvee { background: color-mix(in srgb, var(--ent) 16%, var(--surface)); box-shadow: inset 4px 0 0 var(--ent); }
+.pl-ligne.pl-change { animation: pl-ligne-change 1.6s ease-out 1; }
+@keyframes pl-ligne-change { 0% { background: color-mix(in srgb, var(--ent) 30%, transparent); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .pl-ligne.pl-change { animation: none; background: color-mix(in srgb, var(--ent) 20%, transparent); } }
+.pl-lignes-vide { padding: 1.5rem 1rem; text-align: center; color: var(--muted); }
+.pl-tiroir-pied { padding: .8rem 1.4rem 1.2rem; border-top: 1px solid var(--line-soft); }
+.pl-tiroir-pied .btn { min-height: 48px; }
+
+/* ---------- Téléphone : liste de cartes (pas de disposition libre) ---------- */
+@media (max-width: 767.98px) {
+  .pl-barre .scan-box.pl-scan { flex-basis: 100%; max-width: none; }
+  .pl-outils { margin-left: 0; width: 100%; justify-content: space-between; }
+  #pl-modifier { display: none; }
+  .pl-plan { padding: 12px; overflow: visible; }
+  .pl-surface { display: flex; flex-direction: column; gap: .8rem; width: auto !important; height: auto !important; }
+  .pl-groupe { position: static !important; display: flex; height: auto; margin: .6rem 0 -.2rem; }
+  .pl-groupe:first-child { margin-top: 0; }
+  .pl-tuile { position: relative !important; left: auto !important; top: auto !important; width: auto !important; height: auto !important; min-height: 84px;
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "ico nom pastilles" "ico meta meta" "ico chiffres chiffres"; align-items: center; column-gap: .8rem; row-gap: .15rem; padding: .75rem .9rem .75rem 1.3rem; }
+  .pl-haut { display: contents; }
+  .pl-icone { grid-area: ico; width: 44px; height: 44px; font-size: 1.1rem; }
+  .pl-nom { grid-area: nom; }
+  .pl-pastilles { grid-area: pastilles; }
+  .pl-meta { grid-area: meta; }
+  .pl-chiffres { grid-area: chiffres; }
+  .pl-tuile.pl-petite .pl-meta { display: flex; }
+  .pl-tuile:hover { transform: none; }
+  .pl-tiroir { width: 100vw; border-radius: 0; }
+}
+
+/* ---------- Impression : le plan seul, en grille, sans menu ni boutons ---------- */
+@media print {
+  .pl-plan { padding: 0; box-shadow: none; background: #fff; overflow: visible; }
+  .pl-surface { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: auto !important; height: auto !important; }
+  .pl-groupe { position: static !important; display: block; grid-column: 1 / -1; height: auto; margin-top: 6px; color: #000; }
+  .pl-tuile { position: relative !important; left: auto !important; top: auto !important; width: auto !important; height: auto !important; min-height: 90px; box-shadow: none !important; background: #fff !important; border: 1px solid #888; break-inside: avoid; opacity: 1 !important; filter: none !important; }
+  .pl-tuile::before { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pl-poignee, .pl-tiroir { display: none !important; }
+}
