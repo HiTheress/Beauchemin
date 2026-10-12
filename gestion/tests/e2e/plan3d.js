@@ -864,7 +864,9 @@ async function glisser(p, de, vers) {
   const autre = piecesDe1[1];
   await cherche2(a, autre.code); await attendre(2200);
   verifier((await lecteurInt(a)).id === '1' && (await lecteurInt(a)).epingles === 1, 'une autre recherche pendant la visite : l\'épingle passe à ' + autre.code);
-  const absente = lignes("SELECT p.code FROM pieces p WHERE p.id NOT IN (SELECT piece_id FROM stock WHERE emplacement_id = 1 AND quantite > 0) AND EXISTS (SELECT 1 FROM stock s2 WHERE s2.piece_id = p.id AND s2.quantite > 0) LIMIT 1")[0][0];
+  sql("INSERT INTO pieces (code, nom, unite) VALUES ('P-AILLEURS', 'Pièce rangée ailleurs', 'unité')");
+  sql(`INSERT INTO stock (emplacement_id, piece_id, quantite) SELECT 3, id, 5 FROM pieces WHERE code = 'P-AILLEURS'`);
+  const absente = 'P-AILLEURS';
   await cherche2(a, absente); await attendre(1500);
   verifier((await lecteurInt(a)).epingles === 0 && (await lecteurInt(a)).id === '1', 'une pièce qui n\'est pas dans cet emplacement : pas d\'épingle (' + absente + ')');
   await a.click('#pl-bandeau .pl-croix'); await attendre(900);
@@ -897,8 +899,9 @@ async function glisser(p, de, vers) {
   verifier(tr2.status === 200 && tr2.json.ok, 'l\'autre poste déplace 2 ' + p5.code + ' de l\'entrepôt vers le Cube 14');
   await a.waitForSelector('.pl3-puce[data-delta="−2"]', { state: 'attached', timeout: 9500 });
   verifier(true, '« −2 » apparaît au-dessus de la caisse de ' + p5.code + ' (sans quitter l\'intérieur)');
-  const puce = await a.$eval('.pl3-puce[data-delta="−2"] .pl3-puce-txt', x => ({ cls: x.className, anim: getComputedStyle(x).animationName }));
-  verifier(/pl3-moins/.test(puce.cls) && puce.anim === 'pl3-flotte', 'le « −2 » est rouge et flotte puis s\'estompe : ' + JSON.stringify(puce));
+  const puceFlotte = await a.waitForFunction(() => { const x = document.querySelector('.pl3-puce[data-delta="−2"] .pl3-puce-txt'); return !!x && getComputedStyle(x).animationName === 'pl3-flotte'; }, null, { timeout: 2500, polling: 50 }).then(() => true, () => false);
+  const puceCls = await a.evaluate(() => { const x = document.querySelector('.pl3-puce[data-delta="−2"] .pl3-puce-txt'); return x ? x.className : ''; });
+  verifier(puceFlotte && (puceCls === '' || /pl3-moins/.test(puceCls)), 'le « −2 » est rouge et flotte puis s\'estompe (animation « pl3-flotte ») : ' + puceCls);
   await attendre(400);
   const lab5 = (await listeInt(a)).find(x => x.piece === p5.piece).label;
   verifier(lab5.includes(qteTexte(String(q5 - 2), p5.unite)), 'la quantité de la caisse est à jour (' + qteTexte(String(q5 - 2), p5.unite) + ') : ' + lab5);
@@ -964,7 +967,8 @@ async function glisser(p, de, vers) {
   await attendre(1800);
   verifier(posts.length === 0 && (await listeInt(em)).find(x => x.piece === pE.piece).cas === pE.cas, 'l\'employé ne peut pas déplacer une caisse : aucune requête envoyée, la caisse reste en ' + pE.cas);
   verifier(await em.$eval('canvas.pl3-canevas', c => c.style.cursor) !== 'grabbing', 'aucun curseur de déplacement de caisse pour l\'employé');
-  await em.mouse.click(depE.x, depE.y);
+  const depE2 = await placeCaisse(em, pE.piece);                  // glisser sans pouvoir ranger = déplacer la vue : la caisse n'est plus au même endroit
+  await em.mouse.click(depE2.x, depE2.y);
   await em.waitForSelector('#pl-tiroir.pl-ouvert #pl-lignes .pl-ligne-vue');
   verifier((await em.$$('#pl-lignes button.pl-pos')).length === 0 && await em.$eval('#pl-ranger-auto', x => x.hidden) && (await em.$$('#pl-lignes .pl-pos')).length >= 1, 'employé : la fiche de la pièce montre sa position en lecture seule (aucun éditeur, aucun « Ranger automatiquement »)');
   await em.context().close();

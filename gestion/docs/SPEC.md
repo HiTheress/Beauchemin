@@ -331,7 +331,7 @@ de toute façon **chaque minute**.
 `plan_version.php` prend 2,6 ms en moyenne (p95 : 3,5 ms), comme le plus léger des autres endpoints (`emplacements_liste.php` : 2,6 ms) ; `plan_data.php` 4,4 ms ; `plan_emplacement.php` 3,6 ms.
 Dix utilisateurs qui laissent la page ouverte = 2,5 interrogations par seconde. Le dernier mouvement de chaque emplacement se lit d'**un seul accès** dans l'index
 `ix_mouv_emplacement_id (emplacement_id, id)` (ajouté au schéma et à la migration) avec `ORDER BY id DESC LIMIT 1` et `FORCE INDEX` : un `MAX(id)` corrélé, lui, parcourt tous les
-mouvements de l'emplacement (64 ms pour 400 000 lignes, et de plus en plus). Le coût est proportionnel au nombre d'emplacements, jamais au nombre de mouvements.
+mouvements de l'emplacement (64 ms pour 400 000 lignes, et de plus en plus). Le coût est proportionnel au nombre d'emplacements, jamais au nombre de mouvements. L'empreinte des rangements ajoute environ 0,25 ms par millier de pièces rangées (mesuré : 32 000 positions dans 32 emplacements, `versionPour` passe de 0,57 ms à 8 ms ; pour quelques centaines de pièces, c'est de l'ordre de 0,1 ms).
 
 **Interrogation côté navigateur** (`assets/js/plan.js`) : toutes les 4 s, **une seule requête à la fois** (délai maximal de 8 s), arrêt complet quand l'onglet est caché, interrogation immédiate au retour,
 recul exponentiel (4, 8, 16… 30 s) après une erreur réseau et indicateur « Connexion perdue » (jamais de message technique), reprise automatique (événement `online` compris). Quand le jeton change :
