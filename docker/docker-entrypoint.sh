@@ -14,6 +14,10 @@ until nb="$(compter 2>/dev/null)"; do
   sleep 1
 done
 
+# Migrations (database/migrations/*.sql, idempotentes) : une base créée avec une version plus ancienne du schéma les reçoit ici.
+# Avant la démo : demo.php peut déjà s'appuyer sur les tables récentes (plan de l'entrepôt).
+php database/migrer.php || echo "Avertissement : une migration de la base a échoué (voir le message ci-dessus)." >&2
+
 if [ "$nb" = "0" ]; then
   php database/create_admin.php "${ADMIN_USER:-admin}" "${ADMIN_PASSWORD:?ADMIN_PASSWORD manquant}" "Administrateur"
   if [ "${DEMO:-0}" = "1" ]; then php database/demo.php; fi

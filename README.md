@@ -7,6 +7,7 @@ Logiciel web interne pour savoir **où sont les pièces** : entrepôts, boutique
 * **Inventaire permanent** : réception, transfert (entrepôt → cube), sortie (pièces utilisées), ajustement et **comptage** au lecteur de codes-barres.
 * **Coût moyen pondéré** par pièce et par entreprise ; **prix des pièces chez chaque fournisseur** (avec historique).
 * **Facture interne au coût** entre les deux entreprises, puis **bilan mensuel** : qui a pris quoi, combien l'un doit à l'autre.
+* **Plan de l'entrepôt** en direct : chaque emplacement est une tuile (pièces, unités, alerte « sous le minimum ») ; chercher ou scanner une pièce illumine où elle se trouve ; l'administrateur dispose les tuiles comme dans le vrai entrepôt.
 * **Codes-barres** : étiquettes Code 128 imprimables pour les pièces et les emplacements ; lecteurs USB/Bluetooth (ils « tapent » le code) ou caméra du téléphone.
 * **Rôles** : employé, gestionnaire, administrateur ; journal d'activité ; sauvegardes.
 * Pas de facture client, pas de vente de carburant, pas de suivi de réservoirs : ce n'est qu'un inventaire de pièces.
