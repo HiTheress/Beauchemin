@@ -1,0 +1,128 @@
+/* Vue 3D du Plan (assets/js/plan3d-ui.js + plan3d.bundle.js) : commutateur 3D / Tuiles, scène, étiquettes, cartes de statistiques, outils de la caméra.
+ * Même langage que plan.css : relief doux, couleurs de SON entreprise sur chaque étiquette (BEA vert et cyan, BCH rouge et or). */
+
+/* ---------- Commutateur 3D / Tuiles ---------- */
+.pl-vues { display: inline-flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; background: var(--surface); box-shadow: var(--n-in); }
+.pl-vues[hidden] { display: none; }
+.pl-vue { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; min-height: 44px; min-width: 44px; padding: 0 1rem; border: 0; border-radius: 999px; background: transparent; color: var(--ink-2);
+  font: inherit; font-weight: 700; cursor: pointer; transition: box-shadow .2s, color .2s, background .2s; }
+.pl-vue:hover { color: var(--accent-ink); }
+.pl-vue[aria-pressed="true"] { background: var(--surface); color: var(--accent-ink); box-shadow: var(--n-out-sm); }
+.pl-vue:focus { outline: none; }
+.pl-vue:focus-visible { outline: 3px solid var(--accent-ink); outline-offset: 2px; }
+
+/* ---------- La scène ---------- */
+.pl3 { --ent: var(--accent); position: relative; overflow: hidden; border-radius: 24px; box-shadow: var(--n-in); isolation: isolate;
+  height: clamp(440px, calc(100vh - 17.5rem), 800px); min-height: 440px;
+  background: linear-gradient(180deg, #f3f6fc 0%, #e6ecf7 55%, #d6e1f3 100%); }
+.pl3[hidden] { display: none; }
+.pl3-scene { position: absolute; inset: 0; }
+.pl3-canevas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; outline: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+.pl3-canevas:active { cursor: grabbing; }
+.pl3-canevas:focus-visible { outline: 3px solid var(--accent-ink); outline-offset: -3px; border-radius: 24px; }
+
+/* ---------- Étiquettes (HTML posé sur les bâtiments : nettes et accessibles) ---------- */
+.pl3-etiquettes { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; }
+.pl3-etiquette { --ent: var(--accent); --ent-2: var(--accent-2); --ent-soft: var(--accent-soft); --ent-ink: var(--accent-ink); --pointe: 50%;
+  position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: stretch; padding: 0; margin: 0; border: 0; background: none; font: inherit; color: var(--ink);
+  text-align: left; pointer-events: auto; cursor: pointer; will-change: transform; transition: opacity .18s; }
+.pl3-etiquette[data-marque="bea"] { --ent: #35802a; --ent-2: #2db2d1; --ent-soft: #e4f2df; --ent-ink: #2a6821; }
+.pl3-etiquette[data-marque="bch"] { --ent: #c8161d; --ent-2: #c9a24d; --ent-soft: #fbe8e8; --ent-ink: #a01016; }
+.pl3-etiquette:focus { outline: none; }
+.pl3-corps { position: relative; display: flex; align-items: center; gap: .55rem; padding: .32rem .8rem .32rem .38rem; border-radius: 999px; white-space: nowrap;
+  background: rgba(255, 255, 255, .93); box-shadow: 4px 5px 12px color-mix(in srgb, var(--sh-dark) 85%, transparent), -3px -3px 9px var(--sh-light), inset 0 0 0 1px rgba(255, 255, 255, .8); transition: box-shadow .2s, transform .2s; }
+.pl3-corps::after { content: ""; position: absolute; left: var(--pointe); bottom: -5px; width: 10px; height: 10px; margin-left: -5px; background: rgba(255, 255, 255, .93); border-radius: 0 0 3px 0; transform: rotate(45deg); }
+.pl3-icone { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; background: var(--ent-soft); color: var(--ent-ink); font-size: .8rem; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ent) 40%, transparent); }
+.pl3-textes { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.pl3-nom { font-size: .84rem; font-weight: 800; letter-spacing: -.005em; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; }
+.pl3-chiffres { font-size: .73rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.pl3-chiffres b { font-weight: 800; color: var(--ink); }
+.pl3-qte { display: inline-flex; align-items: baseline; gap: .2rem; margin-left: .1rem; padding: .08rem .6rem; border-radius: 999px; background: var(--ent); color: #fff; font-size: .95rem; font-weight: 800; font-variant-numeric: tabular-nums; box-shadow: 0 4px 10px color-mix(in srgb, var(--ent) 45%, transparent); }
+.pl3-qte[hidden] { display: none; }
+.pl3-etiquette:hover .pl3-corps, .pl3-survol .pl3-corps { transform: translateY(-2px); box-shadow: 7px 8px 16px color-mix(in srgb, var(--sh-dark) 90%, transparent), -3px -3px 9px var(--sh-light), inset 0 0 0 1px rgba(255, 255, 255, .8); }
+.pl3-etiquette:focus-visible .pl3-corps { box-shadow: 0 0 0 3px var(--surface), 0 0 0 6px var(--ent-ink), 4px 5px 12px color-mix(in srgb, var(--sh-dark) 85%, transparent); }
+.pl3-actif .pl3-corps { box-shadow: 0 0 0 3px var(--ent), 5px 6px 14px color-mix(in srgb, var(--sh-dark) 85%, transparent); }
+.pl3-trouve .pl3-corps { box-shadow: 0 0 0 3px var(--ent), 0 0 24px 4px color-mix(in srgb, var(--ent) 40%, transparent); }
+.pl3-estompe { opacity: .42; }
+.pl3-masque { opacity: 0; pointer-events: none; }
+.pl3-etiquette:focus-visible.pl3-masque, .pl3-etiquette:focus-visible.pl3-estompe { opacity: 1; pointer-events: auto; }
+
+/* Alerte « sous le minimum » : pastille rouge qui pulse au-dessus de l'étiquette (l'anneau est un pseudo-élément : animation sur le compositeur) */
+.pl3-alerte { position: absolute; left: var(--pointe); bottom: calc(100% + 9px); margin-left: -15px; display: flex; align-items: center; justify-content: center; gap: .15rem; min-width: 30px; height: 30px; padding: 0 .45rem; box-sizing: border-box;
+  border-radius: 999px; background: #d92d2d; color: #fff; font-size: .78rem; line-height: 1; box-shadow: 0 5px 12px rgba(217, 45, 45, .4); pointer-events: none; }
+.pl3-alerte[hidden] { display: none; }
+.pl3-alerte i { font-size: .7rem; }
+.pl3-alerte b { font-weight: 800; font-variant-numeric: tabular-nums; }
+.pl3-alerte::after { content: ""; position: absolute; inset: -3px; border-radius: 999px; border: 2px solid #d92d2d; opacity: 0; animation: pl3-pouls 1.9s ease-out infinite; }
+@keyframes pl3-pouls { 0% { transform: scale(.85); opacity: .75; } 80%, 100% { transform: scale(1.55); opacity: 0; } }
+
+/* « +3 » / « −2 » : flotte au-dessus du bâtiment puis s'estompe */
+.pl3-delta { position: absolute; left: 50%; bottom: calc(100% + 12px); z-index: 4; transform: translateX(-50%); padding: .15rem .65rem; border-radius: 999px; font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; pointer-events: none;
+  box-shadow: 0 6px 16px rgba(40, 60, 90, .22); animation: pl3-flotte 2.7s ease-out forwards; }
+.pl3-plus { background: #e3f6e9; color: #0f7a33; }
+.pl3-moins { background: #fde8e8; color: #a31b1b; }
+@keyframes pl3-flotte { 0% { transform: translate(-50%, 8px) scale(.7); opacity: 0; } 12% { transform: translate(-50%, -4px) scale(1.08); opacity: 1; } 28% { transform: translate(-50%, -8px) scale(1); opacity: 1; } 100% { transform: translate(-50%, -46px) scale(1); opacity: 0; } }
+
+/* ---------- Cartes de statistiques (translucides, en haut à gauche) ---------- */
+.pl3-stats { position: absolute; z-index: 3; top: 14px; left: 14px; display: flex; flex-wrap: wrap; gap: 10px; max-width: calc(100% - 92px); pointer-events: none; }
+.pl3-stat { position: relative; display: flex; align-items: center; gap: .7rem; padding: .55rem 1rem .55rem .55rem; border-radius: 20px; background: rgba(255, 255, 255, .68); -webkit-backdrop-filter: blur(12px) saturate(1.25); backdrop-filter: blur(12px) saturate(1.25);
+  box-shadow: 0 8px 24px rgba(60, 80, 120, .13), inset 0 0 0 1px rgba(255, 255, 255, .75); }
+.pl3-stat-ico { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 42px; height: 42px; border-radius: 14px; background: var(--accent-soft); color: var(--accent-ink); font-size: 1.05rem; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .7); }
+.pl3-stat-txt { display: flex; flex-direction: column; line-height: 1.15; }
+.pl3-stat-nom { font-size: .74rem; font-weight: 600; color: var(--muted); }
+.pl3-stat-val { font-size: 1.5rem; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.pl3-alerte-carte .pl3-stat-ico { background: #fde8e8; color: #c62828; }
+.pl3-alerte-carte .pl3-stat-val { color: #b71c1c; }
+.pl3-delta-carte { position: absolute; right: -6px; top: -9px; padding: .05rem .5rem; border-radius: 999px; font-size: .78rem; font-weight: 800; box-shadow: 0 4px 10px rgba(40, 60, 90, .2); animation: pl3-pop .45s ease-out; }
+.pl3-delta-carte[hidden] { display: none; }
+@keyframes pl3-pop { 0% { transform: scale(.4); opacity: 0; } 70% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
+
+/* ---------- Outils de la caméra (en haut à droite, comme la référence) ---------- */
+.pl3-outils { position: absolute; z-index: 3; top: 14px; right: 14px; display: flex; flex-direction: column; padding: 5px; border-radius: 18px; background: rgba(255, 255, 255, .8); -webkit-backdrop-filter: blur(12px) saturate(1.25); backdrop-filter: blur(12px) saturate(1.25);
+  box-shadow: 0 8px 24px rgba(60, 80, 120, .15), inset 0 0 0 1px rgba(255, 255, 255, .75); transition: right .26s ease; }
+.pl3-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; margin: 0; border: 0; border-radius: 14px; background: transparent; color: var(--ink-2); font-size: 1rem; cursor: pointer; }
+.pl3-btn.pl3-sep { margin-top: 5px; }
+.pl3-btn.pl3-sep::before { content: ""; position: absolute; left: 9px; right: 9px; top: -3px; height: 1px; background: var(--line); }
+.pl3-btn:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.pl3-btn:active { box-shadow: var(--n-in); }
+.pl3-btn:focus { outline: none; }
+.pl3-btn:focus-visible { outline: 3px solid var(--accent-ink); outline-offset: -3px; }
+
+/* ---------- Tiroir en vue 3D : la fiche flotte dans la scène, à droite, comme la fiche de détail de la référence ---------- */
+.pl3 > .pl-tiroir { position: absolute; z-index: 6; top: 12px; right: 12px; bottom: 12px; width: min(360px, calc(100% - 24px)); border-radius: 24px; background: color-mix(in srgb, var(--surface) 95%, transparent);
+  box-shadow: 0 20px 54px rgba(50, 62, 84, .28), inset 0 0 0 1px rgba(255, 255, 255, .7); transform: translateX(calc(100% + 30px)); }
+.pl3 > .pl-tiroir.pl-ouvert { transform: none; }
+.pl3 > .pl-tiroir .pl-tiroir-tete { padding-top: 1.2rem; }
+.pl-mode-3d.pl-tiroir-ouvert .pl3 .pl3-outils { right: calc(min(360px, 100% - 24px) + 26px); }
+.pl-mode-3d.pl-tiroir-ouvert .pl3 .pl3-stats { max-width: calc(100% - min(360px, 100% - 24px) - 112px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pl3-alerte::after { animation: none; opacity: 0; }
+  .pl3-delta { animation: none; transform: translateX(-50%); opacity: 1; }
+  .pl3-delta-carte { animation: none; }
+  .pl-vue, .pl3-etiquette, .pl3-corps, .pl3-outils { transition: none; }
+  .pl3-etiquette:hover .pl3-corps, .pl3-survol .pl3-corps { transform: none; }
+}
+
+/* ---------- Téléphone : la scène reste utilisable au doigt, les cartes et étiquettes se compactent ---------- */
+@media (max-width: 767.98px) {
+  .pl3 { height: clamp(420px, calc(100vh - 20rem), 640px); min-height: 420px; border-radius: 20px; }
+  .pl-vues { order: 2; }
+  .pl3-stats { top: 8px; left: 8px; gap: 6px; max-width: calc(100% - 64px); }
+  .pl3-stat { gap: .4rem; padding: .35rem .6rem .35rem .35rem; border-radius: 14px; }
+  .pl3-stat-ico { width: 30px; height: 30px; border-radius: 10px; font-size: .78rem; }
+  .pl3-stat-nom { font-size: .6rem; }
+  .pl3-stat-val { font-size: 1.05rem; }
+  .pl3-outils { top: 8px; right: 8px; padding: 3px; border-radius: 14px; }
+  .pl3-btn { width: 40px; height: 40px; border-radius: 11px; }
+  .pl3-nom { font-size: .76rem; max-width: 9rem; }
+  .pl3-chiffres { font-size: .66rem; }
+  .pl3-icone { width: 24px; height: 24px; font-size: .68rem; }
+  .pl3-corps { gap: .4rem; padding-right: .6rem; }
+}
+
+/* ---------- Impression : toujours les tuiles ---------- */
+@media print {
+  .pl3 { display: none !important; }
+  #pl-plan[hidden] { display: block !important; }
+}

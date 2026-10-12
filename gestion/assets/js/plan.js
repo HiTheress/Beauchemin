@@ -5,7 +5,9 @@
  *  - un clic sur une tuile ouvre le tiroir (plan_emplacement.php) ;
  *  - temps réel : plan_version.php toutes les 4 s (une seule requête à la fois, arrêt quand l'onglet est caché, recul en cas d'erreur) ;
  *    quand le jeton change, plan_data.php est relu et les tuiles dont le contenu a changé pulsent ;
- *  - administrateur : « Modifier le plan » (pointer events : souris et doigt, accrochage à 20 px, limites de la zone) puis plan_save.php.
+ *  - administrateur : « Modifier le plan » (pointer events : souris et doigt, accrochage à 20 px, limites de la zone) puis plan_save.php ;
+ *  - deux vues des mêmes données : « 3D » (scène isométrique, plan3d-ui.js + plan3d.bundle.js ; par défaut sur écran large quand WebGL fonctionne)
+ *    et « Tuiles » (vue accessible au clavier et de repli ; la modification du plan se fait ici). Le choix est mémorisé.
  * Toute valeur du serveur passe par esc() avant innerHTML. Quantités = chaînes décimales (affichage par fmtQte seulement).
  */
 (function (w, $) {
@@ -24,6 +26,7 @@
   var plan = el('pl-plan'), surface = el('pl-surface'), champ = el('pl-recherche'), liste = el('pl-suggestions'), bandeau = el('pl-bandeau');
   var direct = el('pl-direct'), directTexte = el('pl-direct-texte'), vide = el('pl-vide'), vider = el('pl-vider');
   var tiroir = el('pl-tiroir'), lignesEl = el('pl-lignes'), filtre = el('pl-filtre');
+  var vues = el('pl-vues'), scene3d = el('pl-3d');
   var mqLarge = w.matchMedia('(min-width: 768px)');
 
   var INTERVALLE = 4000;          // entre deux interrogations du jeton de version
@@ -34,6 +37,8 @@
   var TITRE_H = 40;               // hauteur du titre d'un groupe dans le rangement automatique
   var ICONES = { entrepot: 'fa-warehouse', boutique: 'fa-store', cube: 'fa-shuttle-van' };
   var TITRES = { entrepot: 'Entrepôts', boutique: 'Boutiques', cube: 'Cubes de service' };
+  var CLE_VUE = 'beauchemin.plan.vue';  // « 3d » ou « tuiles » (localStorage : jamais indispensable)
+  var LARGEUR_3D = 1100;                  // largeur du rangement automatique quand la vue Tuiles est cachée (4 colonnes)
 
   // ---- État -------------------------------------------------------------------------------------------------------------
   var etat = {
@@ -43,8 +48,11 @@
     rects: {},                               // places affichées (px) : id -> {x, y, largeur, hauteur}
     edition: false, brouillon: null, avant: null, sale: false,
     tiroirId: null, tiroirLignes: null, tiroirTronque: false, declencheur: null,
-    premier: true, seq: 0, derniereLecture: 0
+    premier: true, seq: 0, derniereLecture: 0,
+    vue: 'tuiles', apresEdition: null
   };
+
+  var ui3d = creerVue3d();
 
   // ---- Utilitaires d'affichage --------------------------------------------------------------------------------------------
   function marque(code) { var c = String(code || '').toLowerCase(); return (c === 'bea' || c === 'bch') ? c : 'neutre'; }
@@ -232,7 +240,7 @@
   }
 
   function disposer() {
-    if (!etat.zone) { return; }
+    if (!etat.zone || etat.vue === '3d') { return; }
     if (!mqLarge.matches) {                                   // téléphone : liste de cartes, rien à positionner
       surface.className = 'pl-surface pl-liste';
       surface.style.width = surface.style.height = '';
@@ -251,6 +259,83 @@
     surface.style.height = s.hauteur + 'px';
   }
 
+  // ---- Les deux vues : 3D et Tuiles (mêmes données, une seule source) --------------------------------------------------------------------
+  function creerVue3d() {
+    if (!w.PlanVue3D) { return { disponible: function () { return false; }, activer: function () { return false; }, desactiver: function () {}, donnees: function () {}, recherche: function () {}, selection: function () {}, marge: function () {} }; }
+    return w.PlanVue3D.creer({
+      conteneur: scene3d,
+      ouvrir: function (id, declencheur) { if (etat.edition) { return; } if (etat.tiroirId === id) { fermerTiroir(); } else { ouvrirTiroir(id, declencheur); } },
+      fermer: function () { fermerTiroir(); },
+      repli: function () { choisirVue('tuiles', { memoriser: false }); },       // contexte WebGL perdu pour de bon : retour discret aux tuiles
+      aide: { resumeHtml: resumeHtml, libelle: libelleTuile, icone: function (type) { return ICONES[type] || 'fa-warehouse'; }, marque: marque },
+    });
+  }
+  /** Places (px) de la vue 3D : celles enregistrées ; les emplacements jamais placés se rangent automatiquement (même règle que les tuiles). */
+  function rects3d() {
+    var G = etat.zone.grille, rects = {};
+    var placees = etat.tuiles.filter(function (t) { return t.pos; }), libres = etat.tuiles.filter(function (t) { return !t.pos; });
+    placees.forEach(function (t) { rects[t.id] = copie(t.pos); });
+    if (libres.length) {
+      var a = placees.length ? rangerAuto(libres, Math.max(LARGEUR_3D, droiteDe(rects)), basDe(rects) + 2 * G, false) : rangerAuto(libres, LARGEUR_3D, 0, false);
+      libres.forEach(function (t) { rects[t.id] = a.rects[t.id]; });
+    }
+    return rects;
+  }
+  function pousser3d(anime) {
+    if (etat.vue !== '3d' || !etat.zone) { return; }
+    ui3d.donnees(etat.tuiles, rects3d(), etat.resume, anime);
+  }
+  function majRecherche3d() {
+    if (etat.vue !== '3d') { return; }
+    var par = null;
+    if (etat.recherche && etat.recherche.emplacements.length) { par = {}; etat.recherche.emplacements.forEach(function (e) { par[e.emplacement_id] = e.quantite; }); }
+    ui3d.recherche(par, etat.recherche);
+  }
+  /** Montre la vue choisie (et la liste « Aucun emplacement. » quand il n'y a rien à dessiner en 3D). */
+  /** En 3D sur grand écran, la fiche flotte dans la scène (comme la fiche de détail de la référence) ; sinon elle reste en panneau de la page. */
+  function placerTiroir() {
+    var cible = (etat.vue === '3d' && mqLarge.matches) ? scene3d : racine;
+    if (tiroir.parentNode !== cible) { cible.appendChild(tiroir); }
+  }
+  function afficherVue() {
+    var trois = etat.vue === '3d' && etat.tuiles.length > 0;
+    plan.hidden = trois;
+    scene3d.hidden = !trois;
+  }
+  function choisirVue(v, opts) {
+    opts = opts || {};
+    var avant = etat.vue;
+    if (v === '3d' && (etat.edition || !ui3d.disponible())) { v = 'tuiles'; }
+    if (v === '3d' && avant !== '3d') {
+      etat.vue = '3d';
+      if (!ui3d.activer()) { v = 'tuiles'; etat.vue = avant; }
+    }
+    if (v !== '3d' && avant === '3d') { ui3d.desactiver(); }
+    etat.vue = v;
+    racine.classList.toggle('pl-mode-3d', v === '3d');
+    racine.classList.toggle('pl-mode-tuiles', v !== '3d');
+    Array.prototype.forEach.call(vues.querySelectorAll('.pl-vue'), function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-vue') === v ? 'true' : 'false'); });
+    afficherVue();
+    placerTiroir();
+    if (v === '3d') {
+      pousser3d(false);
+      majRecherche3d();
+      if (etat.tiroirId !== null) { ui3d.marge(mqLarge.matches ? 376 : 0); ui3d.selection(etat.tiroirId); }
+    } else { disposer(); }
+    if (opts.memoriser !== false) { try { w.localStorage.setItem(CLE_VUE, v); } catch (e) { /* stockage refusé : le choix ne sera pas gardé */ } }
+  }
+  function vueInitiale() {
+    if (!ui3d.disponible()) { return 'tuiles'; }
+    var m = null;
+    try { m = w.localStorage.getItem(CLE_VUE); } catch (e) { m = null; }
+    if (m === '3d' || m === 'tuiles') { return m; }
+    return mqLarge.matches ? '3d' : 'tuiles';
+  }
+  vues.addEventListener('click', function (ev) {
+    var b = ev.target.closest ? ev.target.closest('.pl-vue') : null;
+    if (b && !etat.edition) { choisirVue(b.getAttribute('data-vue'), { memoriser: true }); }
+  });
+
   // ---- Recherche : où est cette pièce ? ---------------------------------------------------------------------------------------
   function appliquerRecherche(rec) {
     etat.recherche = rec && rec.piece ? rec : null;
@@ -264,6 +349,7 @@
       o.el.classList.toggle('pl-trouve', o.qte !== undefined);
       majTuile(o);
     });
+    majRecherche3d();
     if (!etat.recherche) { bandeau.hidden = true; bandeau.textContent = ''; bandeau.removeAttribute('data-html'); vider.hidden = !champ.value; return; }
     var p = etat.recherche.piece;
     bandeau.hidden = false;
@@ -303,10 +389,14 @@
     etat.version = r.version;
     etat.derniereLecture = Date.now();
     racine.setAttribute('data-version', r.version);
-    appliquerTuiles(r.tuiles, pulse && !etat.premier);
+    var anime = pulse && !etat.premier;
+    etat.resume = r.resume;
+    appliquerTuiles(r.tuiles, anime);
     disposer();
+    pousser3d(anime);
     appliquerRecherche(r.recherche);
     etat.premier = false;
+    afficherVue();
     if (etat.tiroirId !== null) {
       if (!etat.objets[etat.tiroirId]) { fermerTiroir(); } else { chargerTiroir(true); }
     }
@@ -429,6 +519,7 @@
     Object.keys(etat.objets).forEach(function (k) { etat.objets[k].el.setAttribute('aria-expanded', k === String(id) ? 'true' : 'false'); });
     if (!memeTuile) { el('pl-tiroir-titre').focus({ preventScroll: true }); }
     chargerTiroir(false);
+    if (etat.vue === '3d') { ui3d.marge(mqLarge.matches ? 376 : 0); ui3d.selection(id); }
   }
   function fermerTiroir() {
     if (etat.tiroirId === null) { return; }
@@ -440,6 +531,7 @@
     var fin = function () { if (etat.tiroirId === null) { tiroir.hidden = true; } };
     if (w.matchMedia('(prefers-reduced-motion: reduce)').matches) { fin(); } else { setTimeout(fin, 300); }
     if (retour && d.body.contains(retour)) { retour.focus({ preventScroll: true }); } else { champ.focus(); }
+    if (etat.vue === '3d') { ui3d.selection(null); ui3d.marge(0); }
   }
   function chargerTiroir(silencieux) {
     var id = etat.tiroirId, mon = ++seqTiroir, q = filtre.value.trim();
@@ -526,12 +618,13 @@
   function entrerEdition() {
     if (!admin || etat.edition || !mqLarge.matches) { return; }
     fermerTiroir();
+    if (etat.vue === '3d') { etat.apresEdition = '3d'; choisirVue('tuiles', { memoriser: false }); }
     etat.brouillon = {};
     Object.keys(etat.rects).forEach(function (id) { etat.brouillon[id] = copie(etat.rects[id]); });
     etat.avant = JSON.parse(JSON.stringify(etat.brouillon));
     etat.edition = true; etat.sale = false;
     racine.classList.add('pl-edition');
-    el('pl-modifier').hidden = true; el('pl-edition-boutons').hidden = false;
+    el('pl-modifier').hidden = true; el('pl-edition-boutons').hidden = false; vues.hidden = true;
     Object.keys(etat.objets).forEach(function (id) { etat.objets[id].el.setAttribute('aria-describedby', 'pl-ent-' + id + ' pl-aide-edition'); });
     disposer();
     var premiere = surface.querySelector('.pl-tuile'); if (premiere) { premiere.focus({ preventScroll: true }); }
@@ -542,6 +635,8 @@
     el('pl-modifier').hidden = false; el('pl-edition-boutons').hidden = true;
     Object.keys(etat.objets).forEach(function (id) { etat.objets[id].el.setAttribute('aria-describedby', 'pl-ent-' + id); etat.objets[id].el.classList.remove('pl-deplace', 'pl-invalide'); });
     disposer();
+    vues.hidden = !ui3d.disponible();
+    if (etat.apresEdition === '3d') { etat.apresEdition = null; choisirVue('3d', { memoriser: false }); }
     el('pl-modifier').focus();
   }
   function enregistrer() {
@@ -700,13 +795,17 @@
     clearTimeout(minuteTaille);
     minuteTaille = setTimeout(function () { if (!glisse) { disposer(); } }, 120);
   });
-  function changementMode() { if (!mqLarge.matches && etat.edition) { sortirEdition(); } disposer(); }
+  function changementMode() { if (!mqLarge.matches && etat.edition) { sortirEdition(); } placerTiroir(); disposer(); }
   if (mqLarge.addEventListener) { mqLarge.addEventListener('change', changementMode); } else if (mqLarge.addListener) { mqLarge.addListener(changementMode); }
 
   // ---- Départ -------------------------------------------------------------------------------------------------------------------------
   var depart = null;
   try { depart = JSON.parse(racine.getAttribute('data-donnees') || 'null'); } catch (e) { depart = null; }
   racine.removeAttribute('data-donnees');
+  vues.hidden = !ui3d.disponible();                         // le commutateur n'existe que si WebGL fonctionne
+  var voulue = vueInitiale();
+  if (voulue === '3d') { plan.hidden = true; }              // pas d'éclair de tuiles avant la scène
+  choisirVue(voulue, { memoriser: false });
   if (depart) { appliquerDonnees(depart, false); } else { charger().catch(function (e) { w.toast(msgErreur(e), 'danger'); }); }
   indicateur(true);
   prochain();

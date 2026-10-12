@@ -133,13 +133,46 @@ final class Plan
 	{
 		$ctx = $this->contexte($userId);
 		$version = $this->versionPour($ctx['entreprises']);
+		$tuiles = $this->tuiles($ctx['entreprises']);
 		return array(
 			'version' => $version,
 			'admin' => $ctx['role'] === 'admin',
 			'zone' => self::zone(),
-			'tuiles' => $this->tuiles($ctx['entreprises']),
+			'tuiles' => $tuiles,
+			'resume' => $this->resume($ctx['entreprises'], $tuiles),
 			'recherche' => $pieceId === null ? null : $this->recherche($ctx['entreprises'], (int) $pieceId),
 		);
+	}
+
+	/**
+	 * Les trois chiffres des cartes de la vue 3D : unités en stock (somme des tuiles), pièces sous le minimum (une pièce compte une fois
+	 * par entreprise, même règle que la pastille d'alerte des tuiles) et nombre d'emplacements. Quantités seulement : jamais de prix ni de valeur.
+	 * @return array{unites:string,nb_bas:int,nb_emplacements:int}
+	 */
+	private function resume(array $ents, array $tuiles)
+	{
+		$somme = 0;
+		foreach ($tuiles as $t) {
+			$somme += Dec::parse($t['unites'], Dec::QTE);
+		}
+		$bas = 0;
+		if ($ents) {
+			$in = self::marques($ents);
+			$r = $this->lignes(
+				"SELECT COUNT(*) AS nb FROM (
+				    SELECT DISTINCT e.entreprise_id, s.piece_id
+				      FROM stock s
+				      JOIN emplacements e ON e.id = s.emplacement_id AND e.actif = 1 AND e.entreprise_id IN ($in)
+				      JOIN pieces p ON p.id = s.piece_id AND p.actif = 1
+				      JOIN seuils se ON se.entreprise_id = e.entreprise_id AND se.piece_id = s.piece_id AND se.minimum > 0
+				     WHERE s.quantite > 0
+				       AND (SELECT COALESCE(SUM(s2.quantite), 0) FROM stock s2 JOIN emplacements e2 ON e2.id = s2.emplacement_id
+				             WHERE s2.piece_id = s.piece_id AND e2.entreprise_id = e.entreprise_id) < se.minimum) x",
+				$ents
+			);
+			$bas = (int) $r[0]['nb'];
+		}
+		return array('unites' => Dec::fmt($somme, Dec::QTE), 'nb_bas' => $bas, 'nb_emplacements' => count($tuiles));
 	}
 
 	/** Une tuile par emplacement actif : nom, code d'étiquette, type, entreprise, nb de pièces différentes, unités, pièces sous le minimum, place libre. */

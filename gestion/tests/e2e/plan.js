@@ -5,6 +5,7 @@
 // ajoute son jeu de données par SQL (emplacement vide, emplacement désactivé, pièce sans stock, gestionnaire de Boutique Chaleur seulement)
 // et la remet à zéro à la fin. Toutes les valeurs attendues viennent de requêtes SQL écrites ici, indépendantes du code testé.
 // PLAN_CAPTURES=/dossier : enregistre aussi des captures d'écran (bureau avec et sans recherche, tiroir, modification, téléphone).
+// La vue 3D (commutateur, scène, étiquettes, temps réel animé, repli sans WebGL) est testée par tests/e2e/plan3d.js.
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -17,6 +18,9 @@ const JOURNAL = '/tmp/bea-' + PORT + '.log';
 const CAPTURES = process.env.PLAN_CAPTURES || '';
 const verifier = L.verifier;
 const attendre = ms => new Promise(r => setTimeout(r, ms));
+// La vue 3D est la vue par défaut sur écran large : ce fichier teste la vue Tuiles (la vue 3D a son propre test : plan3d.js).
+const tuilesParDefaut = ctx => ctx.addInitScript(() => { try { localStorage.setItem('beauchemin.plan.vue', 'tuiles'); } catch (e) { /* stockage refusé */ } });
+async function nouvellePage(b, vp) { const p = await L.nouvellePage(b, vp); await tuilesParDefaut(p.context()); return p; }
 
 // ---- outils ------------------------------------------------------------------------------------------------------------
 function sql(q) { return execFileSync('mysql', ['-uroot', '-N', '-B', '--default-character-set=utf8mb4', DB, '-e', q], { encoding: 'utf8' }).trim(); }
@@ -91,7 +95,7 @@ async function contraste(p, selecteur, fond) {
   // ===================================================================================================================
   section('1. Administrateur, écran large : menu, tuiles, couleurs, états');
   // ===================================================================================================================
-  const a = await L.nouvellePage(b, { width: 1366, height: 800 });
+  const a = await nouvellePage(b, { width: 1366, height: 800 });
   a.on('console', m => { if (/Content Security Policy|Refused to/i.test(m.text())) { violationsCsp.push(m.text()); } });
   await L.connecter(a, 'admin');
   await aller(a);
@@ -150,7 +154,7 @@ async function contraste(p, selecteur, fond) {
   section('2. Clavier, tactile, impression');
   // ===================================================================================================================
   await a.focus('#pl-recherche');
-  await a.keyboard.press('Tab'); await a.keyboard.press('Tab');
+  for (let i = 0; i < 8 && !(await a.evaluate(() => document.activeElement.classList.contains('pl-tuile'))); i++) { await a.keyboard.press('Tab'); }   // commutateur de vue, « Modifier le plan », puis la première tuile
   const foc = await a.evaluate(() => { const e = document.activeElement, cs = getComputedStyle(e); return { tag: e.tagName, classe: e.className, contour: cs.outlineStyle, largeur: parseFloat(cs.outlineWidth) }; });
   verifier(foc.tag === 'BUTTON' && /pl-tuile/.test(foc.classe) && foc.contour !== 'none' && foc.largeur >= 2, 'au clavier : Tab arrive sur une tuile (un bouton) avec un focus bien visible : ' + JSON.stringify(foc));
   const taille = await a.$$eval('.pl-tuile, #pl-modifier, #pl-direct', els => els.map(e => Math.min(e.getBoundingClientRect().width, e.getBoundingClientRect().height)));
@@ -293,7 +297,7 @@ async function contraste(p, selecteur, fond) {
   section('5. Temps réel : un autre poste fait un mouvement, le plan se met à jour tout seul');
   // ===================================================================================================================
   await aller(a);
-  const g = await L.nouvellePage(b, { width: 1366, height: 800 });
+  const g = await nouvellePage(b, { width: 1366, height: 800 });
   await L.connecter(g, 'gestionnaire');
   await aller(g);
   // l'interrogation : une requête légère toutes les 4 s, jamais deux en même temps
@@ -432,7 +436,7 @@ async function contraste(p, selecteur, fond) {
   // ===================================================================================================================
   section('7. Employé : aucun prix, aucun bouton de modification, enregistrement refusé');
   // ===================================================================================================================
-  const e = await L.nouvellePage(b, { width: 1366, height: 800 });
+  const e = await nouvellePage(b, { width: 1366, height: 800 });
   e.on('console', m => { if (/Content Security Policy|Refused to/i.test(m.text())) { violationsCsp.push(m.text()); } });
   await L.connecter(e, 'employe');
   await aller(e);
@@ -474,7 +478,7 @@ async function contraste(p, selecteur, fond) {
   const hash = execFileSync('php', ['-r', 'echo password_hash("Test-Beauchemin-1", PASSWORD_DEFAULT);'], { encoding: 'utf8' });
   sql("INSERT INTO utilisateurs (nom_utilisateur, nom_complet, mot_de_passe, role) VALUES ('gest_bch', 'Gestionnaire BCH', '" + hash + "', 'gestionnaire')");
   sql("INSERT INTO utilisateur_entreprises (utilisateur_id, entreprise_id) SELECT id, 2 FROM utilisateurs WHERE nom_utilisateur = 'gest_bch'");
-  const h = await L.nouvellePage(b, { width: 1366, height: 800 });
+  const h = await nouvellePage(b, { width: 1366, height: 800 });
   await h.goto(L.BASE + '/login.php');
   await h.fill('input[name=username]', 'gest_bch'); await h.fill('input[name=password]', 'Test-Beauchemin-1');
   await Promise.all([h.waitForNavigation(), h.click('button[type=submit]')]);
@@ -633,6 +637,7 @@ async function contraste(p, selecteur, fond) {
   section('10. Doigt : tablette (écran tactile), glisser avec de vrais événements tactiles');
   // ===================================================================================================================
   const ct = await b.newContext({ viewport: { width: 1180, height: 820 }, hasTouch: true });
+  await tuilesParDefaut(ct);
   const tt = await ct.newPage();
   tt.erreurs = []; tt.on('pageerror', x => tt.erreurs.push(x.message)); tt.on('console', m => { if (m.type() === 'error' && !/favicon/.test(m.location().url || '')) { tt.erreurs.push(m.text()); } });
   await L.connecter(tt, 'admin');
@@ -673,7 +678,7 @@ async function contraste(p, selecteur, fond) {
   // ===================================================================================================================
   section('11. Téléphone 390 px : liste de cartes, pas de glisser-déposer, rien qui déborde');
   // ===================================================================================================================
-  const t = await L.nouvellePage(b, { width: 390, height: 844 });
+  const t = await nouvellePage(b, { width: 390, height: 844 });
   await L.connecter(t, 'admin');
   await aller(t);
   const tel = await t.evaluate(() => {
@@ -694,7 +699,7 @@ async function contraste(p, selecteur, fond) {
   await t.click('#pl-tiroir-fermer');
   await t.fill('#pl-recherche', 'P-0003'); await t.press('#pl-recherche', 'Enter'); await t.waitForSelector('.pl-trouve');
   verifier(!(await t.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) && (await t.$$('.pl-trouve .pl-qte')).length > 0, 'téléphone : la recherche illumine les cartes sans rien déborder');
-  const tel2 = await L.nouvellePage(b, { width: 360, height: 740 });
+  const tel2 = await nouvellePage(b, { width: 360, height: 740 });
   await L.connecter(tel2, 'employe');
   await aller(tel2);
   verifier(!(await tel2.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)), 'téléphone 360 px (employé) : aucun défilement horizontal de la page');
