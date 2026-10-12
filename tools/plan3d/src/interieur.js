@@ -65,6 +65,7 @@ export class Interieur {
     this.peutRanger = !!(data && data.peut_ranger) && (this.o.peutRanger !== false);
     this.geo = (data && data.geometrie) || DEFAUT[b.type] || DEFAUT.entrepot;
     this.lignes = ((data && data.lignes) || []).map(l => Object.assign({}, l));
+    this.sigLignes = JSON.stringify(this.lignes.map(l => [l.piece_id, l.code, l.quantite, l.unite, !!l.bas, l.rangement ? [l.rangement.allee, l.rangement.etagere, l.rangement.niveau] : null]));
     this.g = new Group(); this.g.name = 'interieur';
     this.R = alea(b.id * 17 + 3);
     this.crates = new Map(); this.idx = [];
@@ -603,6 +604,9 @@ export class Interieur {
   }
   /** Lecture en direct : nouvelles lignes du serveur ; rend les changements de quantité [{ id, delta }] (pour les « +N / −N »). */
   majLignes(lignes) {
+    const sig = JSON.stringify(lignes.map(l => [l.piece_id, l.code, l.quantite, l.unite, !!l.bas, l.rangement ? [l.rangement.allee, l.rangement.etagere, l.rangement.niveau] : null]));
+    if (sig === this.sigLignes) { return []; }                // relecture périodique sans changement : rien à refaire
+    this.sigLignes = sig;
     this.lignes = lignes.map(l => Object.assign({}, l));
     return this.reconstruire(false);
   }

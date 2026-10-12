@@ -214,15 +214,25 @@ export class Scene3D {
     if (f.toit) { mesh(f.toit, mat({ map: this.tex.toit, color: m.toit })); }
     (f.couches || []).forEach(c => { const o = { color: c.couleur }; if (c.tex) { o.map = this.texte(c.tex); } mesh(c.geo, mat(o)); });
     if (f.verre) { mesh(f.verre, f.vitreTrans ? mat({ vertexColors: true, transparent: true, opacity: 0.4, depthWrite: false }, false) : mat({ vertexColors: true, emissive: 0x1a2740, emissiveIntensity: 0.3 }), false); }
+    // plaques et auvents : fusionnés par texture (un seul dessin pour toutes celles qui partagent la même : logo des deux côtés d'un camion, auvents rayés…)
+    const lots = new Map();
     f.plaques.forEach(p => {
-      let geo, mt;
-      if (p.auvent) { geo = new BoxGeometry(p.w, 0.07, p.l); const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) { uv.setXY(i, uv.getX(i) * p.w / 1.0, uv.getY(i)); } geo.rotateX(p.rx); mt = mat({ map: tm.auvent, color: 0xffffff }); }
-      else {
-        geo = new PlaneGeometry(p.w, p.h);
-        const tx = p.tex && p.tex !== 'enseigne' ? this.plaqueTex(m, p) : tm.enseigne;
-        mt = mat({ map: tx, color: 0xffffff, transparent: true, emissive: 0xffffff, emissiveMap: tx, emissiveIntensity: 0.3 });
+      let geo, tx;
+      if (p.auvent) {
+        geo = new BoxGeometry(p.w, 0.07, p.l); const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) { uv.setXY(i, uv.getX(i) * p.w / 1.0, uv.getY(i)); }
+        geo.rotateX(p.rx); tx = tm.auvent;
+      } else {
+        geo = new PlaneGeometry(p.w, p.h); tx = p.tex && p.tex !== 'enseigne' ? this.plaqueTex(m, p) : tm.enseigne;
       }
-      const me = mesh(geo, mt, !!p.auvent); me.position.set(p.x, p.y, p.z); if (p.ry) { me.rotation.y = p.ry; }
+      if (p.ry) { geo.rotateY(p.ry); }
+      geo.translate(p.x, p.y, p.z);
+      const k = (p.auvent ? 'a:' : 'p:') + tx.uuid;
+      if (!lots.has(k)) { lots.set(k, { auvent: !!p.auvent, tx, geos: [] }); }
+      lots.get(k).geos.push(geo);
+    });
+    lots.forEach(l => {
+      const mt = l.auvent ? mat({ map: l.tx, color: 0xffffff }) : mat({ map: l.tx, color: 0xffffff, transparent: true, emissive: 0xffffff, emissiveMap: l.tx, emissiveIntensity: 0.3 });
+      mesh(fusionner(l.geos), mt, l.auvent);
     });
     const pick = new Mesh(new BoxGeometry(f.boite[0], f.boite[1], f.boite[2]), new MeshLambertMaterial({ visible: false }));
     pick.position.set(f.boiteX || 0, f.boite[1] / 2, 0); pick.userData.id = t.id; g.add(pick); jet.push(pick.geometry, pick.material);
@@ -461,6 +471,18 @@ export class Scene3D {
     this.ombres();
     return true;
   }
+  /** Les rayonnages de l'emplacement ont changé pendant la visite : l'intérieur est reconstruit (même bâtiment, même vue). */
+  rebatirInterieur(data, o) {
+    if (!this.int) { return false; }
+    const b = this.int.b, az = this.vue.cible('az');
+    this.int.liberer(); this.int = new Interieur(this, b, data, o || {});
+    this.bornes = this.int.bornes; this.calculerLimites();
+    this.int.orienter(az); this.reglerSoleil(true);
+    this.vue.utilisee = false; this.recentrer(true);
+    if (this.int.flammes.length) { this.int.eveiller(4000); }
+    this.ombres();
+    return true;
+  }
   sortirInterieur() {
     if (!this.int) { return false; }
     this.int.liberer(); this.int = null;
@@ -536,7 +558,7 @@ export class Scene3D {
       molette: ev => s.vue.molette(ev),
       zoom: f => { s.vue.utilisee = true; s.vue.zoom(f); }, pivoter: sens => s.vue.pivoter(sens), recentrer: () => s.recentrer(true),
       cadrer: ids => s.cadrerBatiments(ids, { maxFit: 2.2 }), canevas: s.canvas, redessiner: () => s.demander(),
-      entrerInterieur: (id, data, o) => s.entrerInterieur(id, data, o), sortirInterieur: () => s.sortirInterieur(), interieurActif: () => !!s.int,
+      entrerInterieur: (id, data, o) => s.entrerInterieur(id, data, o), rebatirInterieur: (data, o) => s.rebatirInterieur(data, o), sortirInterieur: () => s.sortirInterieur(), interieurActif: () => !!s.int,
       majInterieur: lignes => (s.int ? s.int.majLignes(lignes) : []), interieurChercher: (id, cad) => { if (s.int) { s.int.chercher(id, cad !== false); } },
       interieurFocus: id => { if (s.int) { s.int.mettreEnAvant(id); } }, interieurSuivre: ids => { if (s.int) { s.int.suivis = new Set(ids); } },
       interieurQuitterSurvol: () => { if (s.int) { s.int.quitter(); } }, interieurInfo: () => (s.int ? { cases: s.int.detail(), position: id => s.int.positionEcran(id), cellule: (a, e, n) => s.int.positionCellule(a, e, n), zone: () => s.int.positionZone() } : null),

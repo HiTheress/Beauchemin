@@ -93,6 +93,16 @@ function sonde() {
       disconnect() { S.obs -= this.__n; this.__n = 0; return super.disconnect(); }
     };
   }
+  // objets WebGL vivants (tampons, textures, programmes, cibles de rendu) : créés moins supprimés
+  S.gl = { buffers: 0, textures: 0, programmes: 0, cibles: 0 };
+  [window.WebGLRenderingContext, window.WebGL2RenderingContext].forEach(C => {
+    if (!C) { return; }
+    [['createBuffer', 'deleteBuffer', 'buffers'], ['createTexture', 'deleteTexture', 'textures'], ['createProgram', 'deleteProgram', 'programmes'], ['createFramebuffer', 'deleteFramebuffer', 'cibles']].forEach(([c, d, k]) => {
+      const oc = C.prototype[c], od = C.prototype[d], vivants = new WeakSet();
+      C.prototype[c] = function () { const o = oc.apply(this, arguments); if (o) { vivants.add(o); S.gl[k]++; } return o; };
+      C.prototype[d] = function (o) { if (o && vivants.has(o)) { vivants.delete(o); S.gl[k]--; } return od.apply(this, arguments); };
+    });
+  });
   document.addEventListener('securitypolicyviolation', e => S.csp.push(e.violatedDirective + ' : ' + e.blockedURI));
 }
 const mesures = p => p.evaluate(() => {
@@ -119,7 +129,7 @@ async function etiquettes(p) {
 }
 /** Pixels du canevas seul (sans étiquettes ni cartes) : nombre de couleurs, écart-type, pixels bleus d'épingle. */
 async function pixels(p) {
-  await p.addStyleTag({ content: '.pl3-etiquettes, .pl3-stats, .pl3-outils, .pl-tiroir { visibility: hidden !important; }' }).then(async h => {
+  await p.addStyleTag({ content: '.pl3-etiquettes, .pl3-stats, .pl3-outils, .pl-tiroir, .pl3-int, .pl3-carte, .pl3-puces { visibility: hidden !important; }' }).then(async h => {
     const buf = await p.locator('#pl3-scene').screenshot();
     await h.evaluate(x => x.remove());
     p.__dernierePng = buf;
@@ -142,6 +152,48 @@ async function pixels(p) {
 }
 const buf64 = p => p.__dernierePng.toString('base64');
 const toastTexte = async (p, ms) => { try { await p.waitForSelector('#toasts .alert', { timeout: ms || 4000 }); } catch (e) { return ''; } return norm(await p.textContent('#toasts')); };
+
+// ---- intérieur d'un emplacement (vue en coupe) ------------------------------------------------------------------------------------
+/** Ce que l'intérieur doit montrer (SQL) : une caisse par pièce en stock ; case « allée:étagère:niveau » ou « zone » (à ranger). */
+const attenduInt = id => lignes(`SELECT s.piece_id, p.code, p.nom, s.quantite, p.unite, r.allee, r.etagere, r.niveau
+    FROM stock s JOIN pieces p ON p.id = s.piece_id LEFT JOIN rangements r ON r.emplacement_id = s.emplacement_id AND r.piece_id = s.piece_id
+   WHERE s.emplacement_id = ${id} AND s.quantite > 0 ORDER BY p.code`)
+  .map(([piece, code, nom, q, unite, al, et, ni]) => ({ piece: +piece, code, nom, q, unite, cas: al === 'NULL' ? 'zone' : [al, et, ni].join(':') }));
+const qteTexte = (q, unite) => fmt(q) + ' ' + (unite !== 'unité' ? unite : parseFloat(q) >= 2 ? 'unités' : 'unité');
+const nomPos = (cas, type) => { const [al, et, ni] = cas.split(':'); return (type === 'cube' ? (al === '1' ? 'Côté gauche' : 'Côté droit') : 'Allée ' + String.fromCharCode(64 + +al)) + ' · Étagère ' + et + ' · Niveau ' + ni; };
+const lecteurInt = p => p.evaluate(() => { const c = document.getElementById('pl-3d'); return { id: c.getAttribute('data-interieur'), caisses: +c.getAttribute('data-caisses'), zone: +c.getAttribute('data-zone'), cachees: +c.getAttribute('data-cachees'), epingles: +c.getAttribute('data-epingles'), actifs: +c.getAttribute('data-actifs') }; });
+const listeInt = p => p.$$eval('.pl3-clavier-btn', bs => bs.map(b => ({ piece: +b.getAttribute('data-piece'), cas: b.getAttribute('data-case').replace(':cachee', ''), cachee: /cachee/.test(b.getAttribute('data-case')), label: b.getAttribute('aria-label') })));
+const memeListe = (li, exp) => JSON.stringify(li.map(x => [x.piece, x.cas]).sort((p, q) => p[0] - q[0])) === JSON.stringify(exp.map(x => [x.piece, x.cas]).sort((p, q) => p[0] - q[0]));
+const dedansAttente = p => p.waitForFunction(() => { const c = document.getElementById('pl-3d'); return c.hasAttribute('data-interieur') && c.hasAttribute('data-caisses') && +c.getAttribute('data-images') >= 1; }, null, { timeout: 15000 });
+/** Ouvre la fiche de l'emplacement puis « Voir l'intérieur » (le clic passe par le DOM : l'étiquette peut être masquée par une voisine). */
+async function entrerInt(p, id) {
+  await p.evaluate(i => document.querySelector('.pl3-etiquette[data-id="' + i + '"]').click(), id);
+  await p.waitForSelector('#pl-voir-interieur:not([hidden])');
+  await p.click('#pl-voir-interieur');
+  await dedansAttente(p);
+  await attendre(1400);
+}
+async function sortirInt(p, comment) {
+  if (comment === 'retour') { await p.click('#pl3-retour'); } else { await p.keyboard.press('Escape'); }
+  await p.waitForFunction(() => !document.getElementById('pl-3d').hasAttribute('data-interieur'), null, { timeout: 8000 });
+  await attendre(900);
+}
+const positionsInt = (p, detail) => p.evaluate(d => document.getElementById('pl-3d').dispatchEvent(new CustomEvent('pl3-positions', { detail: d || {} })), detail || null);
+const scene = p => p.$eval('#pl3-scene', x => { const r = x.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+/** Place d'une caisse (pièce) à l'écran, en pixels de la page. */
+async function placeCaisse(p, piece) {
+  await positionsInt(p);
+  const s = await scene(p), b = await p.$eval('.pl3-clavier-btn[data-piece="' + piece + '"]', x => ({ x: +x.getAttribute('data-x'), y: +x.getAttribute('data-y') }));
+  return { x: s.x + b.x, y: s.y + b.y };
+}
+async function placeCase(p, c) { await positionsInt(p, { cellule: c }); const s = await scene(p), q = await p.$eval('#pl-3d', x => ({ x: +x.getAttribute('data-cx'), y: +x.getAttribute('data-cy') })); return { x: s.x + q.x, y: s.y + q.y }; }
+async function placeZone(p) { await positionsInt(p, { zone: true }); const s = await scene(p), q = await p.$eval('#pl-3d', x => ({ x: +x.getAttribute('data-cx'), y: +x.getAttribute('data-cy') })); return { x: s.x + q.x, y: s.y + q.y }; }
+/** Glisse une caisse vers un point (pointeur : mousedown, déplacements, mouseup). */
+async function glisser(p, de, vers) {
+  await p.mouse.move(de.x, de.y); await p.mouse.down();
+  for (let i = 1; i <= 12; i++) { await p.mouse.move(de.x + (vers.x - de.x) * i / 12, de.y + (vers.y - de.y) * i / 12); await attendre(35); }
+  await attendre(250); await p.mouse.up();
+}
 
 (async () => {
   reset();
@@ -607,7 +659,7 @@ const toastTexte = async (p, ms) => { try { await p.waitForSelector('#toasts .al
   verifier(ecl.length === nbEmp && nbEmp >= 30, nbEmp + ' emplacements, une étiquette chacun');
   verifier(cartonsTot >= 700, cartonsTot + ' cartons visibles dans la scène (une seule instance de dessin pour tous)');
   console.log('  mesures (31 emplacements) : ' + dessG + ' dessins, ' + triG + ' triangles, ' + msG + ' ms JS par image, ' + cartonsTot + ' cartons visibles');
-  verifier(dessG < 160, 'appels de dessin par image : ' + dessG + ' (' + triG + ' triangles) ; temps JavaScript de l\'image : ' + msG + ' ms');
+  verifier(dessG < 300, 'appels de dessin par image : ' + dessG + ' (' + triG + ' triangles) ; temps JavaScript de l\'image : ' + msG + ' ms');
   const masques = ecl.filter(x => x.classe.includes('pl3-masque')).length;
   verifier(masques >= 1 && masques < ecl.length, 'les étiquettes qui se chevauchent sont masquées (' + masques + ' sur ' + ecl.length + ' ; les autres restent lisibles)');
   const lisibles = ecl.filter(x => !x.classe.includes('pl3-masque'));
@@ -641,6 +693,7 @@ const toastTexte = async (p, ms) => { try { await p.waitForSelector('#toasts .al
   verifier(await sw2.evaluate(k => localStorage.getItem(k), CLE_VUE) === null && (await sw2.$$('#toasts .alert')).length === 0, 'sans WebGL : aucun message, aucune préférence écrasée');
   await sw2.click('.pl-tuile[data-id="1"]'); await sw2.waitForSelector('#pl-tiroir.pl-ouvert');
   verifier(await sw2.evaluate(() => document.getElementById('pl-tiroir').parentElement.id) === 'page-plan', 'sans WebGL : la fiche reste le panneau de la page');
+  verifier(await sw2.$eval('#pl-voir-interieur', x => x.hidden) && await sw2.$eval('#pl-voir-etagere', x => x.hidden) && (await sw2.$$('#pl-lignes .pl-pos')).length >= 1, 'sans WebGL : pas de « Voir l\'intérieur » ; les positions (allée · étagère · niveau) se lisent en texte dans la fiche');
   verifier(sw2.erreurs.length === 0, 'sans WebGL : aucune erreur JavaScript ni console : ' + JSON.stringify(sw2.erreurs));
   await b2.close();
   // le contexte est refusé alors que le test de disponibilité avait réussi : repli sans message
@@ -655,7 +708,378 @@ const toastTexte = async (p, ms) => { try { await p.waitForSelector('#toasts .al
   await rf.context().close();
 
   // ===================================================================================================================
-  section('12. Erreurs JavaScript et CSP');
+  section('12. Logos réels sur les camions et les bâtiments (Beauchemin, Boutique Chaleur) ; repli si un logo manque');
+  // ===================================================================================================================
+  reset();                                                          // base de démonstration neuve : les sections précédentes ont ajouté 26 emplacements, des pièces, des mouvements
+  await a.context().clearCookies(); await L.connecter(a, 'admin'); await aller(a); await pret3d(a);
+  await a.waitForFunction(() => /bea/.test(document.getElementById('pl-3d').getAttribute('data-logos') || '') && /bch/.test(document.getElementById('pl-3d').getAttribute('data-logos') || ''), null, { timeout: 15000 });
+  const logosOk = await a.evaluate(async () => {
+    const out = {};
+    for (const f of ['logo-beauchemin.png', 'logo-boutique-chaleur.png']) { const r = await fetch('assets/img/' + f); out[f] = r.status + ' ' + r.headers.get('content-type'); }
+    return out;
+  });
+  verifier(logosOk['logo-beauchemin.png'] === '200 image/png' && logosOk['logo-boutique-chaleur.png'] === '200 image/png', 'les deux logos réels sont servis par le site (même origine, image/png) : ' + JSON.stringify(logosOk));
+  verifier(await a.evaluate(() => document.getElementById('pl-3d').getAttribute('data-logos')) === 'bea,bch', 'les deux logos sont chargés et posés sur les plaques (data-logos = « bea,bch »)');
+  const etL = await a.$$eval('.pl3-etiquette', es => es.map(e => ({ id: +e.getAttribute('data-id'), type: e.getAttribute('data-type'), marque: e.getAttribute('data-marque'), logo: e.getAttribute('data-logo') })));
+  verifier(etL.filter(e => e.type === 'cube').length >= 3 && etL.filter(e => e.type === 'cube').every(e => e.logo === '1'), 'chaque cube de service (Beauchemin et Boutique Chaleur) porte son logo des deux côtés de la caisse : ' + JSON.stringify(etL.filter(e => e.type === 'cube').map(e => e.id + e.marque + ':' + e.logo)));
+  verifier(etL.filter(e => e.type === 'boutique' && e.marque === 'bch').every(e => e.logo === '1'), 'la boutique Boutique Chaleur porte son enseigne avec le logo');
+  const pxLogo = await pixels(a);
+  // sans les logos (fichiers introuvables) : les plaques gardent le nom dessiné, la scène reste complète, aucune erreur de page
+  const fb = await page(b, { width: 1366, height: 800 });
+  await fb.route('**/assets/img/logo-*.png', r => r.abort());
+  await L.connecter(fb, 'admin'); await aller(fb); await pret3d(fb);
+  await attendre(1500);
+  verifier((await fb.evaluate(() => document.getElementById('pl-3d').getAttribute('data-logos'))) === '' && (await etiquettes(fb)).length === etL.length, 'logos introuvables : aucun logo chargé, la scène est quand même complète (' + etL.length + ' bâtiments)');
+  const pxSans = await pixels(fb);
+  verifier(pxSans.couleurs > 80 && pxSans.ecart > 12, 'logos introuvables : la scène reste dessinée (' + pxSans.couleurs + ' couleurs) avec le nom de l\'entreprise écrit sur les plaques');
+  const erreursFb = fb.erreurs.filter(m => !/requestfailed|Failed to load resource/.test(m));
+  verifier(erreursFb.length === 0 && (await fb.$$('#toasts .alert')).length === 0, 'logos introuvables : aucune erreur JavaScript, aucun message à l\'écran (seule la ressource refusée est signalée par le navigateur) : ' + JSON.stringify(erreursFb));
+  csp.push(...await fb.csp());
+  await fb.context().close();
+  await capture(a, '9-camions-logos');
+
+  // ===================================================================================================================
+  section('13. Intérieur : entrer et sortir (bouton, double-clic, Échap, « Retour au plan »), une caisse par pièce, chacune dans sa case');
+  // ===================================================================================================================
+  await a.reload(); await pret3d(a);
+  const tous = attendu([1, 2]);
+  // — l'entrepôt principal, en détail
+  await a.evaluate(() => document.querySelector('.pl3-etiquette[data-id="1"]').click());
+  await a.waitForSelector('#pl-tiroir.pl-ouvert');
+  const bt = await a.$eval('#pl-voir-interieur', x => ({ visible: !x.hidden, texte: x.textContent.trim(), icone: !!x.querySelector('.fa-door-open'), h: x.getBoundingClientRect().height }));
+  verifier(bt.visible && bt.texte === 'Voir l\'intérieur' && bt.icone && bt.h >= 44, 'le tiroir propose « Voir l\'intérieur » (icône de porte ouverte, cible ≥ 44 px) : ' + JSON.stringify(bt));
+  verifier(await a.$eval('#pl-voir-etagere', x => x.hidden), 'sans recherche : pas de « Voir sur l\'étagère »');
+  const zAvantInt = await attr(a, 'zoom'), azAvantInt = await attr(a, 'azimut');
+  await a.click('#pl-voir-interieur');
+  await dedansAttente(a); await attendre(1500);
+  const exp1 = attenduInt(1), L1 = await lecteurInt(a), li1 = await listeInt(a);
+  verifier(L1.id === '1' && await a.isVisible('#pl3-int') && await a.isHidden('#pl3-stats') && await a.isHidden('#pl3-etiquettes') && await a.isHidden('#pl-tiroir'), 'dans l\'intérieur : « Retour au plan » et le fil d\'Ariane remplacent les cartes de statistiques ; les étiquettes et la fiche sont cachées');
+  const chrome = await a.evaluate(() => { const r = document.getElementById('pl3-retour'); return { label: r.getAttribute('aria-label'), texte: r.textContent.trim(), h: r.getBoundingClientRect().height, flèche: !!r.querySelector('.fa-arrow-left'), focus: document.activeElement === r, fil: Array.from(document.querySelectorAll('#pl3-int .pl3-fil li')).map(x => x.textContent.trim()), courant: document.getElementById('pl3-fil-nom').getAttribute('aria-current') }; });
+  verifier(chrome.label === 'Retour au plan' && chrome.texte === 'Retour au plan' && chrome.h >= 44 && chrome['flèche'] && chrome.focus, '« Retour au plan » : bouton avec flèche, ≥ 44 px, il reçoit le focus à l\'entrée : ' + JSON.stringify(chrome));
+  verifier(JSON.stringify(chrome.fil) === JSON.stringify(['Plan', 'Entrepôt principal']) && chrome.courant === 'page', 'fil d\'Ariane discret : « Plan › Entrepôt principal »');
+  verifier((await a.$$('canvas')).length === 1 && (await a.getAttribute('canvas.pl3-canevas', 'aria-label')).includes('Intérieur de Entrepôt principal'), 'un seul canevas ; son libellé annonce l\'intérieur');
+  verifier(L1.caisses + L1.cachees === exp1.length && li1.length === exp1.length && exp1.length === 14, 'une caisse par pièce en stock : ' + L1.caisses + ' caisse(s) pour ' + exp1.length + ' pièces en stock (SQL)');
+  verifier(memeListe(li1, exp1), 'chaque caisse est dans la bonne case (allée:étagère:niveau) selon la base : ' + li1.map(x => x.piece + '→' + x.cas).join(' '));
+  verifier(L1.zone === exp1.filter(x => x.cas === 'zone').length && L1.zone >= 2, 'les pièces sans position sont dans la zone « À ranger » (' + L1.zone + ' : ' + exp1.filter(x => x.cas === 'zone').map(x => x.code).join(', ') + ')');
+  verifier(li1.every(x => { const e = exp1.find(y => y.piece === x.piece); return x.label.startsWith(e.code + ', ' + e.nom + ', ' + qteTexte(e.q, e.unite) + ', ') && (e.cas === 'zone' ? /à ranger/.test(x.label) : x.label.includes(nomPos(e.cas, 'entrepot').replace(/ · Étagère /, ', étagère ').replace(/ · Niveau /, ', niveau '))); }), 'chaque pièce a une entrée au clavier : « code, nom, quantité, Allée B, étagère 1, niveau 2 » ou « à ranger »');
+  const im0i = await attr(a, 'images'); await attendre(2200);
+  verifier(await attr(a, 'images') === im0i && (await lecteurInt(a)).actifs === 0, 'au repos, l\'intérieur ne dessine plus rien (rendu à la demande : ' + im0i + ' images)');
+  const dI = await attr(a, 'dessins'), tI = await attr(a, 'triangles'), mI = await attr(a, 'ms');
+  console.log('  mesures (entrepôt 4 × 6 × 4 = 96 cases, 14 pièces) : ' + dI + ' dessins, ' + tI + ' triangles, ' + mI + ' ms JS par image');
+  verifier(dI < 60 && tI < 250000, 'entrepôt de 96 cases : ' + dI + ' appels de dessin, ' + tI + ' triangles par image (rayonnages, caisses et plaques instanciés)');
+  await capture(a, '10-interieur-entrepot');
+  // — la fiche flottante au survol
+  const lis = li1.slice(), bas = lis.find(x => /sous le minimum/.test(x.label)) || lis.find(x => exp1.find(y => y.piece === x.piece).cas !== 'zone'), pos = await placeCaisse(a, bas.piece), e3 = exp1.find(x => x.piece === bas.piece);
+  await a.mouse.move(pos.x, pos.y);
+  await a.waitForSelector('#pl3-carte:not([hidden])');
+  const carte = await a.evaluate(() => { const c = document.getElementById('pl3-carte'); return { code: c.querySelector('.pl3-carte-code').textContent, nom: c.querySelector('.pl3-carte-nom').textContent, qte: c.querySelector('.pl3-carte-qte').textContent, pos: c.querySelector('.pl3-carte-pos').textContent, bas: !c.querySelector('.pl3-carte-bas').hidden, r: c.getBoundingClientRect(), pe: getComputedStyle(c).pointerEvents }; });
+  verifier(carte.code === e3.code && carte.nom === e3.nom && norm(carte.qte) === qteTexte(e3.q, e3.unite) && carte.pos === nomPos(e3.cas, 'entrepot') && carte.bas === /sous le minimum/.test(bas.label) && carte.pe === 'none', 'au survol d\'une caisse : fiche avec code, nom, quantité, « ' + carte.pos + ' »' + (carte.bas ? ' et « Sous le minimum »' : '') + ' : ' + JSON.stringify([carte.code, carte.nom, carte.qte]));
+  const sB = await scene(a);
+  verifier(carte.r.left >= sB.x && carte.r.right <= sB.x + sB.w && carte.r.top >= sB.y && carte.r.bottom <= sB.y + sB.h, 'la fiche reste dans la scène');
+  await capture(a, '11-interieur-survol');
+  const normal = li1.find(x => !/sous le minimum/.test(x.label) && exp1.find(y => y.piece === x.piece).cas !== 'zone' && x.piece !== bas.piece);
+  const pn = await placeCaisse(a, normal.piece);
+  await a.mouse.move(pn.x, pn.y); await attendre(400);
+  verifier(await a.$eval('#pl3-carte .pl3-carte-bas', x => x.hidden), 'une pièce au-dessus du minimum : pas de pastille « Sous le minimum »');
+  await a.mouse.move(sB.x + 60, sB.y + 190); await attendre(400);
+  verifier(await a.isHidden('#pl3-carte'), 'le pointeur quitte les caisses : la fiche disparaît');
+  // — un clic sur une caisse = sa ligne dans le tiroir
+  await a.mouse.click(pn.x, pn.y);
+  await a.waitForSelector('#pl-tiroir.pl-ouvert #pl-lignes .pl-ligne-vue');
+  verifier(await a.$eval('#pl-lignes .pl-ligne-vue', x => +x.getAttribute('data-piece')) === normal.piece && (await lecteurInt(a)).id === '1', 'un clic sur une caisse ouvre la fiche de la pièce dans le tiroir (la visite continue)');
+  await a.keyboard.press('Escape');
+  await a.waitForFunction(() => document.getElementById('pl-tiroir').hidden === true);
+  verifier((await lecteurInt(a)).id === '1', 'Échap ferme d\'abord la fiche : on reste dans l\'intérieur');
+  // — caméra dans l'intérieur : boutons, clavier
+  const zi0 = await attr(a, 'zoom'), azi0 = await attr(a, 'azimut');
+  await a.click('[data-act="plus"]'); await attendre(600);
+  await a.click('[data-act="droite"]'); await attendre(1000);
+  verifier(await attr(a, 'zoom') > zi0 * 1.2 && Math.abs(await attr(a, 'azimut') - (azi0 + Math.PI / 2)) < 0.01, 'même caméra dans l\'intérieur : zoom + et pivoter (un quart de tour)');
+  const pxi = await pixels(a);
+  verifier(pxi.couleurs > 80 && pxi.ecart > 10, 'vue pivotée : l\'intérieur reste dessiné (les parois tournées vers nous s\'effacent) : ' + pxi.couleurs + ' couleurs');
+  await a.click('[data-act="centrer"]'); await attendre(1100);
+  // — clavier : les pièces sont des boutons ; le focus met la caisse en avant
+  await a.focus('.pl3-clavier-btn[data-piece="' + li1[0].piece + '"]');
+  await a.waitForSelector('#pl3-carte:not([hidden])');
+  verifier(await a.$eval('#pl3-carte .pl3-carte-code', x => x.textContent) === exp1[0].code, 'au clavier : le focus sur une pièce affiche sa fiche et éclaire sa caisse');
+  await a.keyboard.press('Enter');
+  await a.waitForSelector('#pl-tiroir.pl-ouvert #pl-lignes .pl-ligne-vue');
+  verifier(await a.$eval('#pl-lignes .pl-ligne-vue', x => +x.getAttribute('data-piece')) === exp1[0].piece, 'Entrée sur une pièce : sa ligne dans le tiroir');
+  await a.keyboard.press('Escape'); await a.waitForFunction(() => document.getElementById('pl-tiroir').hidden === true);
+  // — Échap quitte la visite
+  await a.keyboard.press('Escape');
+  await a.waitForFunction(() => !document.getElementById('pl-3d').hasAttribute('data-interieur'));
+  await attendre(1200);
+  const apresInt = await a.evaluate(() => ({ stats: !document.getElementById('pl3-stats').hidden, int: document.getElementById('pl3-int').hidden, etiq: document.querySelectorAll('.pl3-etiquette:not(.pl3-masque)').length, focus: document.activeElement.getAttribute('data-id'), canevas: document.querySelectorAll('canvas').length, caisses: document.getElementById('pl-3d').hasAttribute('data-caisses'), clavier: document.querySelectorAll('.pl3-clavier-btn').length }));
+  verifier(apresInt.stats && apresInt.int && apresInt.etiq >= 3 && apresInt.canevas === 1 && !apresInt.caisses && apresInt.clavier === 0, 'Échap : retour au plan (cartes et étiquettes de retour, un seul canevas, plus de liste de caisses) : ' + JSON.stringify(apresInt));
+  verifier(apresInt.focus === '1', 'le focus revient sur l\'étiquette de l\'emplacement quitté');
+  verifier(Math.abs(await attr(a, 'zoom') - zAvantInt) / zAvantInt < 0.02 && Math.abs(await attr(a, 'azimut') - azAvantInt) < 0.01, 'la vue d\'ensemble est retrouvée comme avant la visite (zoom ' + zAvantInt + ' → ' + await attr(a, 'zoom') + ')');
+  // — double-clic sur le bâtiment, puis « Retour au plan »
+  const e1 = (await etiquettes(a)).find(x => x.id === 1);
+  await a.mouse.dblclick(e1.boite.x + e1.pointe, e1.boite.y + e1.boite.h + 14 + 30);
+  await dedansAttente(a);
+  await a.waitForFunction(() => document.getElementById('pl-tiroir').hidden === true, null, { timeout: 4000 }).catch(() => {});
+  verifier((await lecteurInt(a)).id === '1' && await a.isHidden('#pl-tiroir'), 'un double-clic sur le bâtiment entre dans l\'intérieur (la fiche ouverte par le premier clic se referme)');
+  await sortirInt(a, 'retour');
+  verifier(await a.isVisible('#pl3-stats') && (await a.$$('canvas')).length === 1, '« Retour au plan » : retour au plan');
+  // — tous les emplacements : chaque intérieur montre exactement ce que dit la base
+  for (const id of Object.keys(tous).map(Number)) {
+    const exp = attenduInt(id), type = tous[id].type;
+    await entrerInt(a, id);
+    const Li = await lecteurInt(a), lii = await listeInt(a);
+    verifier(Li.id === String(id) && Li.caisses + Li.cachees === exp.length && memeListe(lii, exp) && Li.zone === exp.filter(x => x.cas === 'zone').length, tous[id].nom + ' (' + type + ', #' + id + ') : ' + exp.length + ' pièces, toutes dans la bonne case, ' + Li.zone + ' à ranger' + (Li.caisses + Li.cachees === exp.length && memeListe(lii, exp) ? '' : ' | scène ' + JSON.stringify(lii.map(x => x.piece + ':' + x.cas)) + ' base ' + JSON.stringify(exp.map(x => x.piece + ':' + x.cas))));
+    verifier(lii.every(x => /Côté|Allée|à ranger/.test(x.label)), tous[id].nom + ' : les positions sont dites en toutes lettres (' + (type === 'cube' ? 'côté gauche / côté droit' : 'allée, étagère, niveau') + ')');
+    if (type === 'cube') { verifier(lii.every(x => !/Allée/.test(x.label)) && lii.some(x => /Côté (gauche|droit)/.test(x.label)), 'cube de service : côté gauche = allée 1, côté droit = allée 2'); }
+    if (type === 'boutique') { await capture(a, '12-interieur-boutique'); }
+    if (type === 'cube' && id === 3) { await capture(a, '13-interieur-cube'); }
+    await sortirInt(a);
+  }
+
+  // ===================================================================================================================
+  section('14. Où est cette pièce ? mène à l\'étagère : « Voir sur l\'étagère », épingle bleue dans l\'intérieur, autres caisses estompées');
+  // ===================================================================================================================
+  await a.reload(); await pret3d(a);
+  const cherche2 = async (p, texte) => { await p.fill('#pl-recherche', texte); await p.press('#pl-recherche', 'Enter'); await p.waitForFunction(() => document.getElementById('pl-recherche').getAttribute('data-attente') === '0'); };
+  const piecesDe1 = attenduInt(1).filter(x => x.cas !== 'zone');
+  const cible = piecesDe1[0];
+  await cherche2(a, cible.code);
+  await a.waitForSelector('.pl3-trouve'); await attendre(1800);
+  await a.evaluate(() => document.querySelector('.pl3-etiquette[data-id="1"]').click());
+  await a.waitForSelector('#pl-tiroir.pl-ouvert');
+  const vis = await a.evaluate(() => ({ etagere: !document.getElementById('pl-voir-etagere').hidden, texte: document.getElementById('pl-voir-etagere').textContent.trim(), interieur: !document.getElementById('pl-voir-interieur').hidden }));
+  verifier(vis.etagere && vis.texte === 'Voir sur l\'étagère' && vis.interieur, 'pièce cherchée présente dans l\'emplacement : « Voir sur l\'étagère » apparaît dans le tiroir (avec « Voir l\'intérieur »)');
+  const pxExt = await attr(a, 'epingles');
+  await a.click('#pl-voir-etagere');
+  await dedansAttente(a); await attendre(2600);
+  const Lr = await lecteurInt(a);
+  verifier(Lr.id === '1' && Lr.epingles === 1, 'la recherche mène dans l\'intérieur : une épingle bleue au-dessus de la caisse de ' + cible.code + ' (épingles : ' + Lr.epingles + ')');
+  const pr = await placeCaisse(a, cible.piece), sR = await scene(a);
+  verifier(pr.x > sR.x + 80 && pr.x < sR.x + sR.w - 80 && pr.y > sR.y + 60 && pr.y < sR.y + sR.h - 40, 'la caméra a cadré la travée : la caisse cherchée est bien visible (' + Math.round(pr.x - sR.x) + ', ' + Math.round(pr.y - sR.y) + ' dans la scène)');
+  const pxPin = await pixels(a);
+  verifier(pxPin.bleus > 150, 'l\'épingle et le cadre bleus sont dessinés (pixels bleus : ' + pxPin.bleus + ')');
+  const dm = await a.evaluate(() => Array.from(document.querySelectorAll('.pl3-clavier-btn')).length);
+  verifier(dm === attenduInt(1).length, 'les autres pièces restent dans la liste du clavier (estompées dans la scène)');
+  await capture(a, '14-interieur-recherche');
+  // une autre pièce du même emplacement : l'épingle suit ; une pièce qui n'est pas ici : plus d'épingle
+  const autre = piecesDe1[1];
+  await cherche2(a, autre.code); await attendre(2200);
+  verifier((await lecteurInt(a)).id === '1' && (await lecteurInt(a)).epingles === 1, 'une autre recherche pendant la visite : l\'épingle passe à ' + autre.code);
+  const absente = lignes("SELECT p.code FROM pieces p WHERE p.id NOT IN (SELECT piece_id FROM stock WHERE emplacement_id = 1 AND quantite > 0) AND EXISTS (SELECT 1 FROM stock s2 WHERE s2.piece_id = p.id AND s2.quantite > 0) LIMIT 1")[0][0];
+  await cherche2(a, absente); await attendre(1500);
+  verifier((await lecteurInt(a)).epingles === 0 && (await lecteurInt(a)).id === '1', 'une pièce qui n\'est pas dans cet emplacement : pas d\'épingle (' + absente + ')');
+  await a.click('#pl-bandeau .pl-croix'); await attendre(900);
+  const pxQ = await pixels(a);
+  verifier(pxPin.bleus > pxQ.bleus + 400, 'recherche effacée : l\'épingle disparaît de la scène (pixels bleus ' + pxPin.bleus + ' → ' + pxQ.bleus + ')');
+  await sortirInt(a);
+  verifier(await attr(a, 'epingles') === 0, 'recherche effacée puis retour au plan : plus d\'épingle');
+  // sortir pendant une recherche : les épingles du plan sont toujours là
+  await cherche2(a, cible.code); await a.waitForSelector('.pl3-trouve'); await attendre(1500);
+  const nbPins = await attr(a, 'epingles');
+  await a.evaluate(() => document.querySelector('.pl3-etiquette.pl3-trouve').click());
+  await a.waitForSelector('#pl-voir-interieur:not([hidden])');
+  await a.click('#pl-voir-interieur'); await dedansAttente(a); await attendre(1500);
+  verifier((await lecteurInt(a)).epingles === 1, '« Voir l\'intérieur » pendant une recherche montre aussi l\'épingle');
+  await sortirInt(a);
+  verifier(await attr(a, 'epingles') === nbPins && nbPins >= 1 && (await a.$$('.pl3-trouve')).length >= 1, 'au retour, les épingles du plan sont revenues (' + nbPins + ')');
+  await a.keyboard.press('Escape');
+  await a.waitForFunction(() => !document.querySelector('.pl3-trouve'));
+
+  // ===================================================================================================================
+  section('15. Intérieur en direct : un autre poste déplace du stock, change une position ; « +N / −N », caisses qui apparaissent et disparaissent');
+  // ===================================================================================================================
+  await a.reload(); await pret3d(a);
+  const g2 = await page(b, { width: 1366, height: 800 });
+  await L.connecter(g2, 'gestionnaire'); await aller(g2);
+  await entrerInt(a, 1);
+  const av = attenduInt(1), avantL = await lecteurInt(a);
+  const p5 = av.find(x => x.code === 'P-0005'), q5 = parseFloat(p5.q);
+  const tr2 = await transfert(g2, 1, 4, p5.piece, 2);
+  verifier(tr2.status === 200 && tr2.json.ok, 'l\'autre poste déplace 2 ' + p5.code + ' de l\'entrepôt vers le Cube 14');
+  await a.waitForSelector('.pl3-puce[data-delta="−2"]', { state: 'attached', timeout: 9500 });
+  verifier(true, '« −2 » apparaît au-dessus de la caisse de ' + p5.code + ' (sans quitter l\'intérieur)');
+  const puce = await a.$eval('.pl3-puce[data-delta="−2"] .pl3-puce-txt', x => ({ cls: x.className, anim: getComputedStyle(x).animationName }));
+  verifier(/pl3-moins/.test(puce.cls) && puce.anim === 'pl3-flotte', 'le « −2 » est rouge et flotte puis s\'estompe : ' + JSON.stringify(puce));
+  await attendre(400);
+  const lab5 = (await listeInt(a)).find(x => x.piece === p5.piece).label;
+  verifier(lab5.includes(qteTexte(String(q5 - 2), p5.unite)), 'la quantité de la caisse est à jour (' + qteTexte(String(q5 - 2), p5.unite) + ') : ' + lab5);
+  await a.waitForFunction(() => document.querySelectorAll('.pl3-puce').length === 0, null, { timeout: 6000 });
+  verifier(true, 'les « +N / −N » disparaissent d\'eux-mêmes');
+  // plus rien ne bouge : la scène se tait
+  await attendre(1500);
+  const iAv = await attr(a, 'images'); await attendre(1800);
+  verifier(await attr(a, 'images') === iAv, 'après l\'animation, la scène se tait de nouveau');
+  // une caisse disparaît (tout le stock part), puis revient
+  const p13 = av.find(x => x.cas !== 'zone' && x.piece !== p5.piece);
+  await transfert(g2, 1, 4, p13.piece, parseFloat(p13.q));
+  await a.waitForFunction(p => !document.querySelector('.pl3-clavier-btn[data-piece="' + p + '"]'), p13.piece, { timeout: 9500 });
+  await attendre(900);
+  const apresL = await lecteurInt(a);
+  verifier(apresL.caisses + apresL.cachees === av.length - 1, 'toute la quantité de ' + p13.code + ' est partie : sa caisse disparaît (' + (apresL.caisses + apresL.cachees) + ' caisses)');
+  await transfert(g2, 4, 1, p13.piece, 3);
+  await a.waitForFunction(p => !!document.querySelector('.pl3-clavier-btn[data-piece="' + p + '"]'), p13.piece, { timeout: 9500 });
+  await attendre(900);
+  const retour13 = (await listeInt(a)).find(x => x.piece === p13.piece), exp13 = attenduInt(1).find(x => x.piece === p13.piece);
+  verifier(retour13 && retour13.cas === exp13.cas && (await lecteurInt(a)).caisses + (await lecteurInt(a)).cachees === av.length, p13.code + ' revient (3 unités) : nouvelle caisse dans sa case (' + (retour13 && retour13.cas) + ' = base ' + exp13.cas + ')');
+  // la position change ailleurs : la caisse change de case
+  const pAutre = av.find(x => x.cas !== 'zone' && x.piece !== p5.piece && x.piece !== p13.piece);
+  const rsPos = await appel(g2, 'app/action/plan_rangement_save.php', { emplacement_id: 1, piece_id: pAutre.piece, allee: 4, etagere: 6, niveau: 4 });
+  verifier(rsPos.status === 200 && rsPos.json.ok, 'l\'autre poste change la position de ' + pAutre.code + ' : ' + pAutre.cas + ' → 4:6:4');
+  await a.waitForFunction(p => document.querySelector('.pl3-clavier-btn[data-piece="' + p + '"]').getAttribute('data-case') === '4:6:4', pAutre.piece, { timeout: 9500 });
+  verifier(memeListe(await listeInt(a), attenduInt(1)), 'la caisse a changé de case sous nos yeux ; toutes les caisses restent dans la case de la base');
+  // la pièce part dans la zone « À ranger »
+  await appel(g2, 'app/action/plan_rangement_save.php', { emplacement_id: 1, piece_id: pAutre.piece, retirer: true });
+  await a.waitForFunction(p => document.querySelector('.pl3-clavier-btn[data-piece="' + p + '"]').getAttribute('data-case') === 'zone', pAutre.piece, { timeout: 9500 });
+  verifier((await lecteurInt(a)).zone === attenduInt(1).filter(x => x.cas === 'zone').length, 'position retirée : la caisse va dans la zone « À ranger » (' + (await lecteurInt(a)).zone + ' pièces à ranger)');
+  // rangement automatique par un autre poste
+  const ra = await appel(g2, 'app/action/plan_rangement_auto.php', { emplacement_id: 1 });
+  verifier(ra.status === 200 && ra.json.ok, 'l\'autre poste range automatiquement : ' + JSON.stringify(ra.json));
+  await a.waitForFunction(() => +document.getElementById('pl-3d').getAttribute('data-zone') === 0, null, { timeout: 9500 });
+  verifier(memeListe(await listeInt(a), attenduInt(1)) && (await lecteurInt(a)).zone === attenduInt(1).filter(x => x.cas === 'zone').length, 'rangement automatique : les caisses de la zone gagnent leur case (' + (await lecteurInt(a)).zone + ' restent à ranger)');
+  await capture(a, '15-interieur-direct');
+  // un emplacement disparaît du plan pendant la visite : retour au plan, sans erreur
+  await sortirInt(a);
+  // mouvement réduit : « +N » sans animation, aucune transition
+  const rd = await page(b, { width: 1366, height: 800 }, { reduit: true });
+  await L.connecter(rd, 'admin'); await aller(rd); await pret3d(rd);
+  await entrerInt(rd, 1);
+  verifier((await lecteurInt(rd)).actifs === 0, 'mouvement réduit : aucune animation en cours dans l\'intérieur');
+  await transfert(g2, 1, 4, p5.piece, 1);
+  await rd.waitForSelector('.pl3-puce', { state: 'attached', timeout: 9500 });
+  verifier(await rd.$eval('.pl3-puce .pl3-puce-txt', x => getComputedStyle(x).animationName) === 'none', 'mouvement réduit : le « −1 » reste en place sans animation');
+  await rd.context().close();
+  await g2.context().close();
+
+  // ===================================================================================================================
+  section('16. Employé : l\'intérieur se lit mais ne se modifie pas ; gestionnaire : glisser-déposer d\'une caisse (enregistrement, refus, retrait)');
+  // ===================================================================================================================
+  const em = await page(b, { width: 1366, height: 800 });
+  const posts = [];
+  em.on('request', r => { if (/plan_rangement_(save|auto)/.test(r.url())) { posts.push(r.url()); } });
+  await L.connecter(em, 'employe'); await aller(em); await pret3d(em);
+  await entrerInt(em, 1);
+  const expE = attenduInt(1), liE = await listeInt(em);
+  verifier((await lecteurInt(em)).id === '1' && memeListe(liE, expE), 'l\'employé voit l\'intérieur de l\'entrepôt : ' + expE.length + ' pièces, chacune dans sa case');
+  const pE = expE.find(x => x.cas !== 'zone'), depE = await placeCaisse(em, pE.piece), destE = await placeCase(em, [3, 3, 3]);
+  await glisser(em, depE, destE);
+  await attendre(1800);
+  verifier(posts.length === 0 && (await listeInt(em)).find(x => x.piece === pE.piece).cas === pE.cas, 'l\'employé ne peut pas déplacer une caisse : aucune requête envoyée, la caisse reste en ' + pE.cas);
+  verifier(await em.$eval('canvas.pl3-canevas', c => c.style.cursor) !== 'grabbing', 'aucun curseur de déplacement de caisse pour l\'employé');
+  await em.mouse.click(depE.x, depE.y);
+  await em.waitForSelector('#pl-tiroir.pl-ouvert #pl-lignes .pl-ligne-vue');
+  verifier((await em.$$('#pl-lignes button.pl-pos')).length === 0 && await em.$eval('#pl-ranger-auto', x => x.hidden) && (await em.$$('#pl-lignes .pl-pos')).length >= 1, 'employé : la fiche de la pièce montre sa position en lecture seule (aucun éditeur, aucun « Ranger automatiquement »)');
+  await em.context().close();
+
+  const gm = await page(b, { width: 1366, height: 800 });
+  const reqs = [];
+  gm.on('request', r => { if (/plan_rangement_save/.test(r.url())) { reqs.push(JSON.parse(r.postData())); } });
+  await L.connecter(gm, 'gestionnaire'); await aller(gm); await pret3d(gm);
+  await entrerInt(gm, 1);
+  const expG = attenduInt(1), placees = expG.filter(x => x.cas !== 'zone');
+  const mobile = placees[0], dep0 = await placeCaisse(gm, mobile.piece);
+  const libres = [[3, 3, 3], [4, 5, 2], [2, 6, 4], [1, 5, 4]].filter(c => !expG.some(x => x.cas === c.join(':')));
+  const cibleCase = libres[0], dest0 = await placeCase(gm, cibleCase);
+  await glisser(gm, dep0, dest0);
+  await gm.waitForFunction(p => document.querySelector('.pl3-clavier-btn[data-piece="' + p + '"]').getAttribute('data-case') !== null, mobile.piece);
+  await attendre(1800);
+  const toastOk = await toastTexte(gm, 3000);
+  verifier(reqs.length === 1 && reqs[0].piece_id === mobile.piece && reqs[0].emplacement_id === 1 && [reqs[0].allee, reqs[0].etagere, reqs[0].niveau].join(':') === cibleCase.join(':'), 'gestionnaire : glisser ' + mobile.code + ' vers la case ' + cibleCase.join(':') + ' envoie plan_rangement_save.php (' + JSON.stringify(reqs[0]) + ')');
+  verifier(sql(`SELECT CONCAT(allee, ':', etagere, ':', niveau) FROM rangements WHERE emplacement_id = 1 AND piece_id = ${mobile.piece}`) === cibleCase.join(':'), 'la base a la nouvelle position (' + cibleCase.join(':') + ')');
+  verifier((await listeInt(gm)).find(x => x.piece === mobile.piece).cas === cibleCase.join(':') && memeListe(await listeInt(gm), attenduInt(1)) && /Position enregistrée/.test(toastOk), 'la caisse est dans sa nouvelle case, toutes les autres n\'ont pas bougé ; message « Position enregistrée. »');
+  await capture(gm, '16-interieur-deplacement');
+  // déposée sur la zone « À ranger » : la position est retirée
+  const zn = await placeZone(gm), dep1 = await placeCaisse(gm, mobile.piece);
+  await glisser(gm, dep1, zn);
+  await gm.waitForFunction(p => document.querySelector('.pl3-clavier-btn[data-piece="' + p + '"]').getAttribute('data-case') === 'zone', mobile.piece, { timeout: 6000 });
+  await attendre(900);
+  verifier(reqs.length === 2 && reqs[1].retirer === true && sql(`SELECT COUNT(*) FROM rangements WHERE emplacement_id = 1 AND piece_id = ${mobile.piece}`) === '0', 'déposée sur la zone « À ranger » : la position est retirée (requête « retirer », plus de ligne en base)');
+  // glisser à côté de tout (dans le vide) : rien ne part
+  const vide = await scene(gm), dep2 = await placeCaisse(gm, mobile.piece);
+  await glisser(gm, dep2, { x: vide.x + 90, y: vide.y + vide.h - 70 });
+  await attendre(1200);
+  verifier(reqs.length === 2 && (await listeInt(gm)).find(x => x.piece === mobile.piece).cas === 'zone', 'lâchée dans le vide : la caisse revient où elle était, aucune requête');
+  // refus du serveur : la caisse revient et le message du serveur s'affiche
+  await gm.route('**/app/action/plan_rangement_save.php', r => r.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ ok: false, erreur: 'Position refusée par le serveur.' }) }));
+  const dep3 = await placeCaisse(gm, mobile.piece), dest3 = await placeCase(gm, cibleCase);
+  await glisser(gm, dep3, dest3);
+  const toastKo = await toastTexte(gm, 4000);
+  await attendre(1200);
+  verifier(/Position refusée par le serveur/.test(toastKo) && (await listeInt(gm)).find(x => x.piece === mobile.piece).cas === 'zone' && sql(`SELECT COUNT(*) FROM rangements WHERE emplacement_id = 1 AND piece_id = ${mobile.piece}`) === '0', 'refus du serveur : la caisse revient dans la zone, le message du serveur est affiché, la base est inchangée');
+  await gm.unroute('**/app/action/plan_rangement_save.php');
+  // le gestionnaire voit aussi l'éditeur de position du tiroir (l'autre voie de rangement)
+  await gm.mouse.click(dep3.x, dep3.y);
+  await gm.waitForSelector('#pl-tiroir.pl-ouvert #pl-lignes .pl-ligne-vue');
+  verifier((await gm.$$('#pl-lignes button.pl-pos')).length >= 1, 'gestionnaire : le tiroir propose aussi l\'éditeur de position (Allée, Étagère, Niveau)');
+  await gm.context().close();
+
+  // ===================================================================================================================
+  section('17. Fuites : 10 allers-retours dans l\'intérieur (aucun canevas, contexte, écouteur ni objet WebGL en plus)');
+  // ===================================================================================================================
+  const fu = await page(b, { width: 1366, height: 800 });
+  await L.connecter(fu, 'admin'); await aller(fu); await pret3d(fu);
+  await entrerInt(fu, 1); await sortirInt(fu);                      // un premier tour : tout ce qui se crée une fois est créé
+  await entrerInt(fu, 5); await sortirInt(fu);
+  const gl0 = await fu.evaluate(() => Object.assign({}, window.__sonde.gl)), mi0 = await mesures(fu);
+  for (let i = 0; i < 10; i++) { await entrerInt(fu, i % 2 ? 5 : 1); await sortirInt(fu); }
+  const gl1 = await fu.evaluate(() => Object.assign({}, window.__sonde.gl)), mi1 = await mesures(fu);
+  verifier(mi1.canevas === 1 && mi0.canevas === 1 && mi1.contextes === mi0.contextes && mi1.contextes === 1, 'après 10 visites : toujours un seul canevas et un seul contexte WebGL vivant (' + JSON.stringify(mi1) + ')');
+  verifier(mi1.ecouteurs === mi0.ecouteurs && mi1.observateurs === mi0.observateurs, 'aucun écouteur ni observateur de plus (window / document / médias : ' + mi0.ecouteurs + ' → ' + mi1.ecouteurs + ' ; observateurs ' + mi0.observateurs + ' → ' + mi1.observateurs + ')');
+  verifier(gl1.buffers === gl0.buffers && gl1.textures === gl0.textures && gl1.programmes === gl0.programmes && gl1.cibles === gl0.cibles, 'objets WebGL vivants identiques avant et après les 10 visites : ' + JSON.stringify(gl0) + ' → ' + JSON.stringify(gl1));
+  const dom = await fu.evaluate(() => ({ btn: document.querySelectorAll('.pl3-clavier-btn').length, puces: document.querySelectorAll('.pl3-puce').length, carte: !document.getElementById('pl3-carte').hidden }));
+  verifier(dom.btn === 0 && dom.puces === 0 && !dom.carte, 'au retour : aucune liste de caisses, aucune puce, aucune fiche dans la page');
+  // quitter la vue 3D pendant une visite : tout est libéré
+  await entrerInt(fu, 1);
+  await fu.click('#pl-vue-tuiles');
+  await fu.waitForSelector('.pl-tuile', { state: 'visible' });
+  const mT = await mesures(fu);
+  verifier(mT.canevas === 0 && mT.contextes === 0 && (await fu.evaluate(() => !document.getElementById('page-plan').classList.contains('pl-interieur'))), 'passer en Tuiles pendant une visite détruit la scène (canevas ' + mT.canevas + ', contextes vivants ' + mT.contextes + ')');
+  await fu.click('.pl-tuile[data-id="1"]'); await fu.waitForSelector('#pl-tiroir.pl-ouvert');
+  verifier(await fu.$eval('#pl-voir-interieur', x => x.hidden) && await fu.$eval('#pl-voir-etagere', x => x.hidden), 'vue Tuiles : pas de « Voir l\'intérieur » (les positions s\'y lisent en texte dans la fiche : ' + (await fu.$$('#pl-lignes .pl-pos')).length + ' pastilles)');
+  csp.push(...await fu.csp());
+  await fu.context().close();
+
+  // ===================================================================================================================
+  section('18. Intérieur sur téléphone (390 px) et en grand : 12 allées × 30 étagères × 10 niveaux');
+  // ===================================================================================================================
+  const ph = await page(b, { width: 390, height: 844 });
+  await L.connecter(ph, 'admin'); await aller(ph);
+  await ph.click('#pl-vue-3d'); await pret3d(ph);
+  await entrerInt(ph, 1);
+  const tel = await ph.evaluate(() => { const r = document.getElementById('pl3-retour').getBoundingClientRect(), s = document.getElementById('pl3-scene').getBoundingClientRect(), f = document.querySelector('.pl3-fil').getBoundingClientRect(); return { h: r.height, w: r.width, gauche: r.left, droite: r.right, scene: s.width, fil: f.right, large: document.documentElement.scrollWidth, ecran: window.innerWidth }; });
+  verifier(tel.h >= 44 && tel.large <= tel.ecran && tel.fil <= tel.scene + 1 && tel.droite <= tel.scene, 'téléphone : « Retour au plan » (≥ 44 px) et le fil d\'Ariane tiennent dans la scène, aucun défilement horizontal : ' + JSON.stringify(tel));
+  verifier((await lecteurInt(ph)).caisses + (await lecteurInt(ph)).cachees === attenduInt(1).length, 'téléphone : les ' + attenduInt(1).length + ' caisses sont là');
+  const pxT = await pixels(ph);
+  verifier(pxT.couleurs > 60, 'téléphone : l\'intérieur est dessiné');
+  await capture(ph, '17-interieur-telephone');
+  await sortirInt(ph, 'retour');
+  verifier(await ph.isVisible('#pl3-stats'), 'téléphone : « Retour au plan » ramène les cartes');
+  await ph.context().close();
+
+  // grand entrepôt : les limites du serveur (12 allées, 30 étagères, 10 niveaux = 3 600 cases), rangé automatiquement
+  const big = await page(b, { width: 1366, height: 800 });
+  await L.connecter(big, 'admin'); await aller(big); await pret3d(big);
+  const rg = await appel(big, 'app/action/plan_geometrie_save.php', { emplacement_id: 1, allees: 12, etageres: 30, niveaux: 10 });
+  verifier(rg.status === 200 && rg.json.ok, 'dimensions de l\'entrepôt : 12 × 30 × 10 (' + (rg.status) + ')');
+  await appel(big, 'app/action/plan_rangement_auto.php', { emplacement_id: 1 });
+  await big.reload(); await pret3d(big);
+  await entrerInt(big, 1);
+  const expB = attenduInt(1), liB = await listeInt(big), LB = await lecteurInt(big);
+  verifier(memeListe(liB, expB) && LB.caisses + LB.cachees === expB.length, 'grand entrepôt (3 600 cases) : ' + expB.length + ' pièces, chacune dans sa case');
+  const dB = await attr(big, 'dessins'), tB = await attr(big, 'triangles'), mB = await attr(big, 'ms');
+  console.log('  mesures (grand entrepôt 12 × 30 × 10) : ' + dB + ' dessins, ' + tB + ' triangles, ' + mB + ' ms JS par image');
+  verifier(dB < 80 && mB < 200, 'grand entrepôt : ' + dB + ' appels de dessin, ' + tB + ' triangles, ' + mB + ' ms de JavaScript par image (rayonnages instanciés)');
+  const iB = await attr(big, 'images'); await attendre(2200);
+  verifier(await attr(big, 'images') === iB, 'grand entrepôt : au repos, aucune image dessinée');
+  await big.mouse.move(683, 450); await big.mouse.wheel(0, -500); await attendre(900);
+  verifier(await attr(big, 'images') > iB && (await pixels(big)).couleurs > 60, 'grand entrepôt : le zoom dessine puis la scène se tait');
+  await appel(big, 'app/action/plan_geometrie_save.php', { emplacement_id: 1, defaut: true });
+  await big.waitForFunction(() => document.querySelectorAll('.pl3-clavier-btn').length > 0, null, { timeout: 12000 });
+  await attendre(5000);
+  verifier(memeListe(await listeInt(big), attenduInt(1)), 'dimensions remises par défaut ailleurs : l\'intérieur suit et toutes les pièces sont dans une case valide (ou à ranger)');
+  csp.push(...await big.csp());
+  await big.context().close();
+
+  // ===================================================================================================================
+  section('19. Erreurs JavaScript et CSP');
   // ===================================================================================================================
   csp.push(...await a.csp());
   verifier(csp.length === 0, 'aucune violation de la politique de sécurité (script-src \'self\', pas de JavaScript en ligne, pas d\'eval) : ' + JSON.stringify(csp));

@@ -48,3 +48,4 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 L'esprit visuel de la vue 3D (entrepôt à toit en dents de scie, portes de quai, épingles de carte) s'inspire d'une capture de produit fournie par le client ; aucun élément graphique n'en est repris.
+Les bâtiments de la vue 3D (boutique Boutique Chaleur, bâtiment Beauchemin, réservoirs de propane) s'inspirent de photographies fournies par le client, redessinées par code (aucune image n'est reprise) ; les logos affichés sur les camions et les enseignes sont les fichiers déjà livrés avec l'application (`assets/img/logo-beauchemin.png`, `assets/img/logo-boutique-chaleur.png`), propriété de leurs entreprises. L'intérieur des emplacements (rayonnages, caisses, showroom) est entièrement généré par code.

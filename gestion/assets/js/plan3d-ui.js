@@ -297,7 +297,7 @@
       if (!t) { return false; }
       var piece = opts && opts.piece && donnees.lignes.some(function (l) { return l.piece_id === opts.piece; }) ? opts.piece : null;
       if (!vue.entrerInterieur(id, donnees, { piece: piece })) { return false; }
-      dedans = { id: id, type: t.type, nom: t.nom, lignes: donnees.lignes, peutRanger: !!donnees.peut_ranger, piece: piece };
+      dedans = { id: id, type: t.type, nom: t.nom, lignes: donnees.lignes, peutRanger: !!donnees.peut_ranger, piece: piece, geo: JSON.stringify(donnees.geometrie || null) };
       couche.hidden = true; elStatsBloc.hidden = true; elInt.hidden = false;
       elFil.textContent = t.nom;
       conteneur.classList.add('pl3-dedans'); conteneur.setAttribute('data-interieur', String(id));
@@ -318,7 +318,14 @@
     /** Lecture en direct : nouvelles lignes ; « +N / −N » au-dessus des caisses dont la quantité a changé. */
     function majInterieur(donnees) {
       if (!dedans || !vue) { return; }
+      var geo = JSON.stringify(donnees.geometrie || null);
       dedans.lignes = donnees.lignes; dedans.peutRanger = !!donnees.peut_ranger;
+      if (geo !== dedans.geo) {                                // rayonnages modifiés ailleurs : on reconstruit l'intérieur
+        dedans.geo = geo; dedans.piece = null;
+        vue.rebatirInterieur(donnees, { piece: null });
+        construireClavier(); chercherDedans(false);
+        return;
+      }
       var evenements = vue.majInterieur(donnees.lignes) || [];
       evenements.forEach(function (e) { puce(e.id, e.delta); });
       construireClavier();
