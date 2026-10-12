@@ -9,6 +9,17 @@
   if (!modele || !modele.content) { return; }
   var tactile = !!(window.matchMedia && window.matchMedia('(hover: none)').matches);
 
+  // Aucun nœud de texte (même un simple retour à la ligne) : ajouter un réservoir à un message ne doit jamais changer son textContent.
+  function nettoyer(n) {
+    var f = n.firstChild;
+    while (f) {
+      var suivant = f.nextSibling;
+      if (f.nodeType === 3) { n.removeChild(f); } else if (f.nodeType === 1) { nettoyer(f); }
+      f = suivant;
+    }
+  }
+  nettoyer(modele.content);
+
   function reservoir() { return modele.content.querySelector('.mc-reservoir').cloneNode(true); }
   function mascotte() { return modele.content.firstElementChild.cloneNode(true); }
 

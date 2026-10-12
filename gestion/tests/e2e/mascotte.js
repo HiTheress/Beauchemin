@@ -72,8 +72,8 @@ const attendre = ms => new Promise(r => setTimeout(r, ms));
   // échec : réservoir aux yeux en croix sur le bord de la notification, une seule notification, texte inchangé
   await g.evaluate(() => { document.querySelectorAll('#toasts .alert').forEach(e => e.remove()); window.toast('Impossible d\'enregistrer.', 'danger'); });
   await attendre(300);
-  const echec = await g.evaluate(() => ({ n: document.querySelectorAll('#toasts .alert').length, coin: !!document.querySelector('#toasts .alert-danger > .mc-coin .mc-echec'), texte: document.querySelector('#toasts .alert-danger').textContent.replace('×', '').trim(), aria: document.querySelector('.mc-coin').getAttribute('aria-hidden') }));
-  L.verifier(echec.n === 1 && echec.coin && echec.texte === 'Impossible d\'enregistrer.' && echec.aria === 'true', 'échec : réservoir aux yeux en croix sur la notification, texte inchangé : ' + JSON.stringify(echec));
+  const echec = await g.evaluate(() => ({ n: document.querySelectorAll('#toasts .alert').length, coin: !!document.querySelector('#toasts .alert-danger > .mc-coin .mc-echec'), texte: document.querySelector('#toasts .alert-danger').textContent, aria: document.querySelector('.mc-coin').getAttribute('aria-hidden') }));
+  L.verifier(echec.n === 1 && echec.coin && echec.texte === '×Impossible d\'enregistrer.' && echec.aria === 'true', 'échec : réservoir aux yeux en croix sur la notification, texte inchangé : ' + JSON.stringify(echec));
 
   // messages affichés par la page elle-même (après redirection) ou par un script : mêmes animations
   await g.evaluate(() => document.querySelector('.content-wrapper').insertAdjacentHTML('afterbegin', '<div class="alert alert-success" id="essai-ok" role="status">Fait.</div>'));
@@ -84,7 +84,7 @@ const attendre = ms => new Promise(r => setTimeout(r, ms));
   L.verifier(!(await g.$('#essai-ko > .mc-coin')), 'une alerte cachée n\'a pas de réservoir');
   await g.evaluate(() => { document.getElementById('essai-ko').hidden = false; });
   await g.waitForSelector('#essai-ko > .mc-coin', { timeout: 3000 });
-  L.verifier((await g.textContent('#essai-ko')).trim() === 'Oups.', 'une alerte d\'échec qui devient visible reçoit le réservoir, sans changer son texte');
+  L.verifier((await g.textContent('#essai-ko')) === 'Oups.', 'une alerte d\'échec qui devient visible reçoit le réservoir, sans changer son textContent (pas même un espace)');
 
   // mouvement réduit : pas de confettis, la coche reste visible
   await g.emulateMedia({ reducedMotion: 'reduce' });
