@@ -3,7 +3,7 @@
  *   toast(message, 'success'|'danger'|'warning'|'info')
  *   esc(texte)                -> échappe pour HTML (à utiliser pour TOUTE valeur insérée dans innerHTML)
  *   fmtArgent('12.5') / fmtQte('3.000') / fmtNombre(...)  -> format fr-CA à partir des chaînes décimales du serveur
- *   bip(true|false)           -> petit son de succès / d'erreur (scanner)
+ *   bip(true|false)           -> signale « reconnu » / « refusé » après un scan (silencieux : aucun son)
  *   scanner(input, fn, opts)  -> appelle fn(code) quand le lecteur envoie Entrée ; FILE D'ATTENTE (aucun scan perdu) ; garde le focus
  *   DT_LANG                   -> libellés français de DataTables (déjà appliqués par défaut)
  */
@@ -68,21 +68,12 @@
   w.fmtQte = function (s) { if (s === null || s === undefined || s === '') { return ''; } return FQ.format(parseFloat(s)); };
   w.fmtNombre = w.fmtQte;
 
-  // ---- Son (retour sonore du scan) -----------------------------------------------------------
-  var ctx = null;
-  w.bip = function (succes) {
-    try {
-      var AC = w.AudioContext || w.webkitAudioContext; if (!AC) { return; }
-      ctx = ctx || new AC();
-      var o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'square'; o.frequency.value = succes ? 1200 : 220;
-      g.gain.value = 0.05; o.connect(g); g.connect(ctx.destination);
-      o.start(); o.stop(ctx.currentTime + (succes ? 0.08 : 0.35));
-    } catch (e) { /* pas de son possible */ }
-  };
+  // ---- Retour du scan : AUCUN SON (demande du client). Le nom bip() reste : tous les écrans l'appellent pour dire « reconnu » (true)
+  //      ou « refusé » (false), et les tests l'espionnent ; le retour est visuel (cadre vert/rouge, message, coche ou croix de la mascotte).
+  w.bip = function () {};
 
   /* Champ de scan. Un lecteur USB/Bluetooth « tape » le code puis Entrée.
-   * fn(code) peut retourner une Promise ; retourner false (ou lancer une erreur) = échec (bip grave + message).
+   * fn(code) peut retourner une Promise ; retourner false (ou lancer une erreur) = échec (cadre rouge + message).
    * FILE D'ATTENTE : un code reçu pendant le traitement du précédent est mis en file et traité dans l'ordre (aucun scan perdu).
    * Le focus revient au champ une fois la file vide, sauf si l'utilisateur est en train de saisir ailleurs (quantité d'une ligne, fenêtre…).
    * opts.garderFocus === false : ne remet jamais le focus.  Retourne { focus(), attente() } ; l'attribut data-attente du champ = nombre de scans en attente. */

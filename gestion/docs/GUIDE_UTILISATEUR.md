@@ -16,7 +16,7 @@ Les écrans sont faits pour se passer d'explications ; ce guide sert d'aide-mém
 
 ## 2. Le lecteur de codes-barres
 * Un lecteur USB ou Bluetooth « tape » le code puis Entrée : rien à régler. Le champ de scan est actif dès l'ouverture d'un écran.
-* **Bip aigu** = reconnu ; **bip grave** + message rouge = code inconnu ou refusé.
+* Le logiciel ne fait **aucun son** : un cadre **vert** = reconnu ; un cadre **rouge** avec un message (et la croix rouge du réservoir) = code inconnu ou refusé.
 * Vous pouvez scanner plusieurs pièces de suite : un scan de plus = +1. Scanner l'étiquette d'un emplacement (`EMP-…`) choisit cet emplacement.
 * Sans lecteur : tapez un nom ou un code dans le même champ et choisissez dans la liste, ou utilisez la caméra (le site doit être en HTTPS).
 

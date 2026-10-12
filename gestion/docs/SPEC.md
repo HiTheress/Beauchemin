@@ -190,8 +190,8 @@ if ($nom === '') { throw new InventaireException('Le nom est obligatoire.', 'nom
 
 `api.get(url, params)` / `api.post(url, objet)` → Promise (rejette avec `Error(message)`, `e.champ`) ·
 `toast(msg, 'success'|'danger'|'warning'|'info')` · `esc(texte)` (**obligatoire** avant tout `innerHTML`) ·
-`fmtArgent`, `fmtQte` · `bip(true|false)` · `scanner(input, function (code) {…})` (Entrée/Tab du lecteur ; **file d'attente** : aucun scan n'est perdu même en rafale ; remet le focus au champ quand la file est vide,
-sauf si l'utilisateur saisit ailleurs ; retournez `false` ou lancez une erreur pour le bip d'échec ; `data-attente` du champ = scans en attente). Une frappe tombée sur une liste
+`fmtArgent`, `fmtQte` · `bip(true|false)` (silencieux : signale reconnu/refusé, aucun son) · `scanner(input, function (code) {…})` (Entrée/Tab du lecteur ; **file d'attente** : aucun scan n'est perdu même en rafale ; remet le focus au champ quand la file est vide,
+sauf si l'utilisateur saisit ailleurs ; retournez `false` ou lancez une erreur pour l'échec ; `data-attente` du champ = scans en attente). Une frappe tombée sur une liste
 déroulante, un bouton ou la page est automatiquement redirigée vers le champ de scan (`.scan-input`) de la page · DataTables et Select2 déjà en français.
 Le champ de scan : `<div class="scan-box"><input class="form-control scan-input" autocomplete="off" inputmode="none"…></div>`.
 
@@ -231,7 +231,7 @@ est en format lettre portrait avec marges de 12 mm (les notifications `#toasts` 
 * Dates `AAAA-MM-JJ` (champ `<input type="date">`, `max` = aujourd'hui) ; argent `1 234,56 $` ; quantités sans zéros inutiles.
 * **Saisie au scanner d'abord** : sur les écrans de saisie (réception, transfert, sortie, facture interne, comptage), le curseur est
   dans le champ de scan ; scanner une pièce ajoute une ligne (ou fait +1 sur la ligne existante) ; scanner un code `EMP-…` choisit
-  l'emplacement ; pièce inconnue → message clair + bip d'erreur (jamais de blocage silencieux). Tout se fait aussi **au clavier et à la souris**.
+  l'emplacement ; pièce inconnue → message clair + cadre rouge (jamais de blocage silencieux). Tout se fait aussi **au clavier et à la souris**.
 * Utilisable sur **tablette** (≥ 768 px de large) : zones cliquables ≥ 44 px, champs de saisie de quantité `inputmode="decimal"`.
 * Chaque écran gère : chargement, liste vide (message utile), erreur serveur, double clic (désactiver le bouton pendant l'envoi),
   session expirée (déjà géré par `api`), confirmation avant action destructrice (annuler un document, désactiver…).
