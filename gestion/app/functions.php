@@ -109,6 +109,22 @@ function acces_page($roleMin){
 	return false;
 }
 
+/** Adresse d'un fichier CSS/JS local avec sa date de modification : après une mise à jour, le navigateur recharge le fichier au lieu de garder l'ancien en mémoire. */
+function asset($chemin){
+	return e($chemin) . '?v=' . (int) @filemtime(__DIR__ . '/../' . $chemin);
+}
+
+/** Version du logiciel : « numéro de commit · date » (écrite par git archive dans le fichier VERSION du ZIP) ; « développement » hors d'un ZIP. */
+function version_logiciel(){
+	$brut = trim((string) @file_get_contents(__DIR__ . '/../VERSION'));
+	if ($brut === '' || strpos($brut, '$Format') === 0) {
+		return 'développement';
+	}
+	$p = explode(' ', $brut, 2);
+	$date = (isset($p[1]) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $p[1])) ? $p[1] : '';
+	return preg_replace('/[^0-9a-f]/', '', strtolower($p[0])) . ($date !== '' ? ' · ' . $date : '');
+}
+
 /** Ajoute un script JS de page (chargé par le pied de page, après jQuery). */
 function page_script($chemin){
 	global $page_scripts;

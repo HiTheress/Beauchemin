@@ -435,3 +435,7 @@ html body.login-page .connexion-formulaire { display: flex; flex-direction: colu
   html body.login-page .connexion-formulaire { padding: 3rem 1rem 2.5rem; justify-content: flex-start; }
 }
 }
+
+/* Version du logiciel (bas du menu, bas de la page de connexion) : discrète, pour savoir quelle mise à jour tourne */
+.version-logiciel { margin: 1rem 1rem .75rem; font-size: .72rem; color: var(--muted); letter-spacing: .02em; }
+html body.login-page .version-logiciel { margin: 1.1rem 0 0; text-align: center; }

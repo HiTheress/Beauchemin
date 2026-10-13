@@ -16,9 +16,9 @@ unset($_SESSION['login_error']);
   <title>Beauchemin — Connexion</title>
   <link rel="stylesheet" href="plugins/fontawesome-free/css/all.min.css">
   <link rel="stylesheet" href="dist/css/adminlte.min.css">
-  <link rel="stylesheet" href="assets/css/beauchemin.css">
-  <link rel="stylesheet" href="assets/css/theme.css">
-  <link rel="stylesheet" href="assets/css/mascotte.css">
+  <link rel="stylesheet" href="<?php echo asset('assets/css/beauchemin.css'); ?>">
+  <link rel="stylesheet" href="<?php echo asset('assets/css/theme.css'); ?>">
+  <link rel="stylesheet" href="<?php echo asset('assets/css/mascotte.css'); ?>">
 </head>
 <body class="hold-transition login-page">
 <div class="connexion" id="connexion">
@@ -43,12 +43,13 @@ unset($_SESSION['login_error']);
         </div>
         <button type="submit" name="admin_login" value="1" class="btn btn-primary btn-block" id="bouton-connexion">Se connecter</button>
       </form>
+      <p class="version-logiciel">Version <?php echo e(version_logiciel()); ?></p>
     </div>
   </section>
 </div>
 <div id="chargement" role="status" aria-live="polite" aria-label="Connexion en cours"><?php mascotte_html(); ?><div class="chargement-texte">Connexion…</div></div>
 <?php mascotte_modele(); ?>
-<script src="assets/js/connexion.js"></script>
-<script src="assets/js/mascotte.js"></script>
+<script src="<?php echo asset('assets/js/connexion.js'); ?>"></script>
+<script src="<?php echo asset('assets/js/mascotte.js'); ?>"></script>
 </body>
 </html>

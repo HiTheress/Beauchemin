@@ -1,2 +1,4 @@
 # Les scripts de shell doivent garder des fins de ligne Unix (sinon ils échouent dans Docker sous Windows).
 *.sh text eol=lf
+# Le ZIP (git archive) remplace la ligne de gestion/VERSION par « numéro de commit + date » : le logiciel l'affiche pour savoir quelle version tourne.
+gestion/VERSION export-subst

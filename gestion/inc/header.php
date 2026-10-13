@@ -28,9 +28,9 @@ $marque_slug = array('bea' => 'beauchemin', 'bch' => 'boutique-chaleur');
   <link rel="stylesheet" href="plugins/datatables-bs4/css/dataTables.bootstrap4.min.css">
   <link rel="stylesheet" href="plugins/select2/css/select2.min.css">
   <link rel="stylesheet" href="dist/css/adminlte.min.css">
-  <link rel="stylesheet" href="assets/css/beauchemin.css">
-  <link rel="stylesheet" href="assets/css/theme.css">
-  <link rel="stylesheet" href="assets/css/mascotte.css">
+  <link rel="stylesheet" href="<?php echo asset('assets/css/beauchemin.css'); ?>">
+  <link rel="stylesheet" href="<?php echo asset('assets/css/theme.css'); ?>">
+  <link rel="stylesheet" href="<?php echo asset('assets/css/mascotte.css'); ?>">
 </head>
 <body class="hold-transition sidebar-mini layout-fixed layout-navbar-fixed">
 

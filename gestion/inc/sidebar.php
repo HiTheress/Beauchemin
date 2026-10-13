@@ -92,5 +92,6 @@ $entree_active = function ($i) use ($page_courante) { return $page_courante === 
           <?php } ?>
         </ul>
       </nav>
+      <p class="version-logiciel" title="Version du logiciel">Version <?php echo e(version_logiciel()); ?></p>
     </div>
   </aside>

@@ -11,9 +11,9 @@
 <script src="plugins/datatables/jquery.dataTables.min.js"></script>
 <script src="plugins/datatables-bs4/js/dataTables.bootstrap4.min.js"></script>
 <script src="plugins/select2/js/select2.min.js"></script>
-<script src="assets/js/app.js"></script>
-<script src="assets/js/chargement.js"></script>
-<script src="assets/js/mascotte.js"></script>
+<script src="<?php echo asset('assets/js/app.js'); ?>"></script>
+<script src="<?php echo asset('assets/js/chargement.js'); ?>"></script>
+<script src="<?php echo asset('assets/js/mascotte.js'); ?>"></script>
 <?php if (!empty($page_scripts)) { foreach ($page_scripts as $s) { ?>
 <script src="<?php echo e($s); ?>?v=<?php echo (int) @filemtime(__DIR__ . '/../' . $s); ?>"></script>
 <?php } } ?>
