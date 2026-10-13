@@ -31,6 +31,13 @@ La première fois, c'est long (quelques minutes : téléchargements et préparat
 
 Les données de démonstration (14 pièces, 3 fournisseurs, 6 emplacements dont trois cubes de service, quelques mouvements, deux factures internes et la position de rangement de la plupart des pièces) permettent de tout essayer tout de suite.
 
+## Installer une mise à jour (sans perdre les données)
+
+1. Décompressez le nouveau ZIP **dans le même dossier** que l'ancien (ou arrêtez l'ancien d'abord : `docker compose down` dans l'ancien dossier — sans `-v`). Deux dossiers différents veulent le même port 8080 : l'ancien logiciel resterait affiché.
+2. Dans le dossier : `docker compose up -d --build`. La base est mise à jour toute seule ; le stock est gardé.
+3. Rechargez la page avec **Ctrl + F5**.
+4. Vérifiez : le numéro de **Version** s'affiche en bas du menu de gauche et sous la fenêtre de connexion (par exemple « Version 3ca2433 · 2026-10-13 »). S'il n'a pas changé, l'ancien logiciel tourne encore : `docker ps` montre ce qui roule ; `docker stop <nom>` arrête l'ancien, puis refaites l'étape 2.
+
 ## Commandes utiles
 
 | Je veux… | Commande |
