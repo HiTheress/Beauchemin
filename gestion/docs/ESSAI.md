@@ -38,6 +38,13 @@ Les données de démonstration (14 pièces, 3 fournisseurs, 6 emplacements dont 
 3. Rechargez la page avec **Ctrl + F5**.
 4. Vérifiez : le numéro de **Version** s'affiche en bas du menu de gauche et sous la fenêtre de connexion (par exemple « Version 3ca2433 · 2026-10-13 »). S'il n'a pas changé, l'ancien logiciel tourne encore : `docker ps` montre ce qui roule ; `docker stop <nom>` arrête l'ancien, puis refaites l'étape 2.
 
+## Si le site ne s'ouvre pas (page vide, « ERR_EMPTY_RESPONSE », « ne fonctionne pas »)
+
+1. Dans le dossier du logiciel : `docker compose ps` (les deux services doivent être « Up ») puis `docker compose logs --tail 40 web`. Le journal dit la cause : « ATTENTION : la base de données ne répond pas… », « port is already allocated », une migration en échec…
+2. **Port déjà pris** (un autre programme utilise 8080) : `BEA_PORT=8090 docker compose up -d` puis `http://localhost:8090` (PowerShell : `$env:BEA_PORT=8090; docker compose up -d`).
+3. **Mot de passe de la base différent de la première installation** (message « refuse la connexion ») ou tout autre état bloqué dans les données d'essai : `docker compose down -v` puis `docker compose up -d --build`. Attention : cela **efface** les données d'essai.
+4. Attendez 30 à 60 secondes après le démarrage : la base démarre avant le site.
+
 ## Commandes utiles
 
 | Je veux… | Commande |
